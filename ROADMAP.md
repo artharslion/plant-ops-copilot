@@ -2,7 +2,7 @@
 
 日期：2026-10-03。按可验收增量推进，不用“完成 UI”或“接上模型”代替业务验收。各阶段完成后保存演示脚本、测试结果和已知限制，再进入下一阶段。
 
-2026-10-03：用户已授权开始下一步，P1.1 基础骨架完成并验证；后续按下列增量推进。P1.2 及后续功能尚未实现。
+2026-10-03：P1.1 已独立复盘并修复凭据覆盖/初始化环境保护；P1.2 已完成，验证记录见 [P1.2 验收](docs/P1_2_VALIDATION.md)。P1.3 及后续功能尚未实现。
 
 ## 贯穿阶段的 Golden Path
 
@@ -17,7 +17,7 @@ Phase 1 用 Simulation Source 完成路径；Phase 2 保留该模式并增加 OP
 | 编号 | 实现任务 | 完成证据 |
 |---|---|---|
 | P1.1（已完成） | Api/Worker/Domain/Application/Infrastructure 和 Vue 骨架；锁版本；Compose 数据库；OpenAPI；健康检查 | 本机启动验证；重复初始化幂等；构建零警告；8 项测试通过；前端构建通过 |
-| P1.2 | Identity、角色、UserPlantAccess、防伪、AuditLog、version 并发；工厂/位置/设备 CRUD | 不同工厂账号隔离；位置不能循环/跨厂；并发更新返回 409 |
+| P1.2（已完成） | Identity Cookie、四角色、UserPlantAccess、防伪、事务 AuditLog、version；工厂/位置/设备创建/读取/编辑/归档与 Vue 工作台 | 23 测试通过（15 真 PostgreSQL）；跨厂列表/ID/写入隔离；循环/同厂关系校验；并发 409；SQL 后失败回滚；重复种子保留修改；浏览器登录→P-101→编辑验收 |
 | P1.3 | MeasurementPoint、DataSource/SourceMapping、IMeasurementSource 与可重复 Simulation Source、MeasurementReading 批写、LatestObserved/LastGood、趋势 API/UI | Golden Path 的振动点位可追溯到模拟源；质量和时间可见；Bad 值不覆盖可信值；乱序不回退快照 |
 | P1.4 | AlarmRule、持续时间、回差、Alarm/AlarmEvent、确认 API 与告警台 | 高值产生一次告警；确认不恢复；Bad 值不能清除告警 |
 | P1.5 | WorkOrder 状态机、备注、告警关联与维修历史 | 创建→执行→完成→关闭；关闭需结果；审计完整 |

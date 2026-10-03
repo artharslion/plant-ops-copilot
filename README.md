@@ -4,9 +4,9 @@
 
 ## 当前状态
 
-- 2026-10-03：P1.1 基础骨架已完成并在本机验证；运行与验证步骤见下文。
-- 当前只有基础环境和最小设备种子；登录/权限、资产 CRUD、测量、告警、工单、OPC UA 和 AI 尚未实现。
-- 设计文档中的业务 API、性能数字与示例仍是后续实现契约或验收目标；本轮验证范围仅覆盖 P1.1。
+- 2026-10-03：独立复盘 P1.1 并完成 P1.2；运行与验证步骤见下文及 [验收记录](docs/P1_2_VALIDATION.md)。
+- 已实现 Identity Cookie 登录/退出/当前用户、四角色与工厂范围交集、工厂/位置/设备管理与归档、版本并发与事务审计、Vue 工作台。
+- 测量、告警、工单、OPC UA、AI 和规模性能目标尚未实现；完整 Golden Path 是后续契约。
 - 默认范围：单组织、多工厂、单机开发部署。技术选择是第一版推荐，可通过架构决策更新。
 
 ## 项目定位
@@ -81,6 +81,11 @@ if (-not (Test-Path -LiteralPath deploy/.env)) {
     "POSTGRES_PASSWORD=$devPassword" | Set-Content deploy/.env
     Remove-Variable devPassword
 }
+if (-not (Test-Path -LiteralPath appsettings.Local.json)) {
+    $demoPassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)) + 'a!'
+    @{ Demo = @{ Password = $demoPassword } } | ConvertTo-Json | Set-Content appsettings.Local.json
+    Remove-Variable demoPassword
+}
 docker compose -f deploy/compose.yaml up -d --wait
 dotnet restore PlantOps.sln --locked-mode
 dotnet tool restore
@@ -88,7 +93,18 @@ dotnet tool restore
 dotnet run --project src/PlantOps.Worker -- --initialize-db
 ```
 
-初始化命令仅允许 Development（本地 launch profile 已设置），显式执行迁移并写入固定 ID 的虚构 North Plant / Utilities / P-101；重复执行保留已有种子和人工修改。不在 API/Worker 正常启动时自动迁移，也不生成用户密码或真实客户数据。
+初始化命令仅允许 Development（入口与初始化器均保护；本地 launch profile 已设置），显式执行迁移并写入虚构 North Plant / Utilities / P-101 和 South Plant / Process Hall / F-201。初始化器读取 `Demo:Password`，缺失或不满足 12 位及大小写/数字/符号要求时拒绝执行；密码只由上述本地配置步骤生成。重复初始化保留已有数据、密码、角色、授权撤销与禁用状态。正常启动不自动迁移。
+
+`Use-LocalDatabase.ps1` 会加载被忽略的根目录 `appsettings.Local.json` 到 `Demo__Password`。也可以直接设置此环境变量，或使用 Api/Worker 共用的 .NET user-secrets（UserSecretsId = plantops-development）。不要在源码中添加密码。
+
+| 本地演示账号 | 角色 | 工厂范围 | P1.2 能力 |
+|---|---|---|---|
+| viewer | Viewer | North | 浏览 |
+| operator | Operator | North | 浏览 |
+| engineer | MaintenanceEngineer | South | 浏览 |
+| admin | Admin | North、South | 浏览、创建、编辑、归档 |
+
+首次账号密码取本机 `appsettings.Local.json` 的 `Demo.Password`；已有账号不会因重新生成配置而重置密码。请在本地编辑器读取配置，不把密码粘贴到日志或版本库。
 
 另开三个终端，工作目录均为仓库根目录：
 
@@ -109,9 +125,13 @@ npm run dev
 
 访问 [本地工作台](http://127.0.0.1:5173)，API 在 5080，Worker 在 5081。Vite 代理 `/api`、`/health`、`/openapi` 到本机 API，不需要放开跨域。前端构建产物本轮尚未接入生产托管；`npm run preview` 仅检查静态产物，不能替代带 API 代理的开发服务。
 
+演示：进入资产目录 → 登录 admin → North Plant → Utilities → Cooling Pump P-101 → 编辑设备 → 保存；版本递增且记录审计。换 viewer 验证只读与 North 范围；换 engineer 验证只见 South。两个页面同时编辑同一设备，后保存的旧版本收到 409，需关闭编辑并刷新后重新检查。
+
+工厂、位置与设备都由同一工作台管理。归档通过编辑表单的 `isArchived` 提交，保留目录与审计，不物理删除、不级联删除；本阶段不提供取消归档。工厂归档前须处理所有未归档设备；位置归档前须处理未归档子位置/设备。创建工厂会在同事务给创建者写入显式 UserPlantAccess，Admin 对其余工厂仍必须有授权。
+
 ## 健康检查与验证
 
-本机验收：后端构建零警告/零错误，8 项测试通过（含独立 PostgreSQL 测试库）；前端类型检查与生产构建通过，npm audit 为 0。数据库两次初始化后 Plant/Location/Asset 各 1 条。Api/Worker 正常时 live/ready 均 200；停止本项目数据库后 live 仍 200、ready 为 503，重启数据库后恢复。页面已检查实际连接状态与刷新行为。
+本轮验收：后端构建零警告/零错误，23 项测试全部通过（15 项真实 PostgreSQL 集成测试，无跳过）；锁定恢复及迁移模型检查通过。前端类型检查与构建通过。浏览器实际检查登录/退出、角色范围、目录编辑与归档、双页面 409 和离线失败提示；详见 [验收记录](docs/P1_2_VALIDATION.md)。测试只用独立数据库，未修改业务库。
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:5080/health/live
@@ -120,12 +140,12 @@ Invoke-WebRequest http://127.0.0.1:5081/health/live
 Invoke-WebRequest http://127.0.0.1:5081/health/ready
 Invoke-RestMethod http://127.0.0.1:5080/openapi/v1.json
 dotnet build PlantOps.sln --no-restore
-dotnet test PlantOps.sln --no-build
+dotnet ef migrations has-pending-model-changes --project src/PlantOps.Infrastructure
 cd web
 npm run build
 ```
 
-`live` 仅判断进程能响应；`ready` 需数据库连接可用且没有待应用迁移，否则 503。OpenAPI 和 `/api/v1/system` 只在 Development 开放；当前没有公开的资产/工厂读取端点，业务 API 将在 P1.2 授权完成后提供。
+`live` 仅判断进程能响应；`ready` 需数据库连接可用且没有待应用迁移，否则 503。健康检查在 Identity 之前执行，带 Cookie、数据库离线时也保持 live=200/ready=503。OpenAPI 和 `/api/v1/system` 只在 Development 开放，system 不返回连接串/凭据。全部目录端点必须登录，写请求携带 `X-CSRF-TOKEN`；包括登录/退出也校验防伪。Cookie 为 HttpOnly/SameSite=Strict；Development 允许本机 HTTP，非 Development 强制 Secure（需同源 HTTPS 部署）。
 
 数据库集成测试使用独立测试库，不可指向业务/生产库：
 
@@ -138,10 +158,14 @@ dotnet test PlantOps.sln
 Remove-Item Env:PLANTOPS_TEST_CONNECTION
 ```
 
-未设置测试连接时，两项数据库集成测试会明确跳过；其余 API 健康/开发端点测试无需数据库。测试库的种子会保留，不自动删除数据库。
+未设置测试连接时，15 项数据库集成测试会明确跳过；其余 8 项无需数据库。连接数据库名必须是 `plantops_tests`，其他数据库会被拒绝。测试使用随机临时账号/资源和随机内存密码；测试数据保留，不删除数据库。Windows 下构建/安装依赖前先停止本仓库 Api/Worker/Vite，避免占用输出文件。
+
+API 在 Development 启动后，前端可通过 `npm run generate:api` 从 OpenAPI 更新已提交的类型文件；正常 `npm ci` / `npm run build` 不要求 API 在线。
 
 ## 本地配置与关闭
 
-deploy/.env 和凭据不会提交。每个终端需要加载本地连接配置；Use-LocalDatabase.ps1 仅支持字母/数字/下划线/连字符的本地密码，避免连接串转义歧义。首次生成的密码必须与数据库 volume 内账户一致；修改 .env 不会修改已有数据库密码。
+deploy/.env、appsettings.Local.json 和凭据不会提交。每个终端需要加载本地连接配置；Use-LocalDatabase.ps1 仅支持字母/数字/下划线/连字符的数据库密码，避免连接串转义歧义。首次生成的数据库密码必须与 volume 内账户一致；修改 .env 不会修改已有数据库密码。
+
+当前限制：没有用户/授权管理界面、密码重置、生产静态托管或审计查询界面；角色/授权通过种子与 Identity 数据管理。本阶段每次请求重新校验账号及真实角色/范围，禁用、撤权对已有 Cookie 生效。未实现 SignalR，因此无实时连接需要撤销。生产部署还需配置 HTTPS、密钥持久化与实际用户生命周期，不属于本地 P1.2 验收。
 
 终端 Ctrl+C 关闭 Api/Worker/Web；`docker compose -f deploy/compose.yaml stop` 停止数据库并保留数据。密钥、客户端私钥、数据库备份和上传文件不得进入版本库。

@@ -32,11 +32,11 @@ flowchart LR
   APPROVAL --> DB
 ```
 
-模块化单体，两个可执行 Host：Api 与 Worker。二者共享 Application / Domain / Infrastructure 库及一个数据库，不建立内部 HTTP 服务网格。OPC UA 凭据与模型密钥只给 Worker；浏览器只访问 API。开发用 Compose 启动数据库，Api/Worker/前端可本机调试；完整 Compose 在 P1.1 实现。
+模块化单体，两个可执行 Host：Api 与 Worker。二者共享 Application / Domain / Infrastructure 库及一个数据库，不建立内部 HTTP 服务网格。OPC UA 凭据与模型密钥只给 Worker；浏览器只访问 API。P1.1/P1.2 Compose 只启动数据库，Api/Worker/前端在本机调试；完整容器部署尚未实现。
 
 Phase 1 定义统一 `IMeasurementSource` 并实现 Simulation Source，不启动 OPC UA 或 LLM 服务。Phase 2 增加 OPC UA Source，复用同一标准化、入库、质量、规则与推送管道，Simulation Source 保留。两种源可对不同点位同时运行；同一点位仅一个启用的 SourceMapping，演示配置显式选择来源，不做自动回退或双源混写。Phase 3 才增加 Investigation Copilot、文档索引和 AI job。SignalR 推送由 API 的 Outbox Dispatcher 完成，避免 Worker 持有 Hub 连接或产生未提交消息。
 
-## 2. 项目结构（拟建）
+## 2. 项目结构（前五个项目与 web 已创建，其余按阶段）
 
 ```text
 src/
@@ -88,6 +88,8 @@ Vue 官方脚手架支持 Vite 与 TypeScript，见 [Vue Quick Start](https://vu
 采集 Worker 每数据源单一活跃执行者；第一版只运行一个 Worker 实例。规则按点位串行处理；业务写用 version 乐观并发。规则异常时对应批次事务回滚并有限重试，错误样本隔离后登记缺口，不能为了显示新数据而跳过告警处理。
 
 人工写操作与 AuditLog 同事务；核心状态更新与 Outbox 同事务。Dispatcher 发布后标记完成，崩溃可能重复发布，因此推送带 eventId / entityVersion，客户端去重后补查。Outbox 使用领取锁、重试与失败计数，失败不影响已提交业务数据。
+
+P1.2 实现：Application 的 IAssetDirectory/Actor/DTO 不引用 EF 或 Identity；Infrastructure 的 AssetDirectory 实现真实角色与 UserPlantAccess 检查、关系校验和事务审计。所有目录写事务先取得工厂级 PostgreSQL advisory lock，再重新加载版本及校验树/归档关系，防止并发结构修改形成循环；不同工厂独立。SaveChanges 与 AuditLog 处于一个显式事务，版本冲突返回 409。创建工厂同时显式授权创建者；没有 Admin 范围绕过。Outbox 尚未实现，本阶段没有实时事件。
 
 遥测批写初始每 500 ms 或 500 条（先到者触发）；Adapter 回调仅写入有界 Channel，不执行 SQL 或调用模型。容量、丢失策略见 [OPC UA 设计](docs/OPCUA_INTEGRATION.md)。写入顺序、幂等键和新鲜度规则统一用于内置模拟源和 OPC UA。
 
@@ -148,9 +150,11 @@ Hub 加入工厂组必须服务端检查范围；组名由服务端生成。权�
 
 ### ADR-005：同源 Identity Cookie + 服务端资源授权
 
-**状态**：Proposed。**背景**：本地业务应用无需第一版搭建外部身份平台。
+**状态**：Accepted（P1.2）。**背景**：本地业务应用无需第一版搭建外部身份平台。
 **决定**：Identity、角色+工厂范围、文档 ACL；工具继承当前 actor。**备选**：OIDC 适合企业 SSO，后期迁移；自制 JWT/密码管理容易增加实现错误。
 **代价**：防伪、会话撤销与实时组权限刷新必须一起实现；未来外部身份映射仍使用内部 UserId。
+
+本阶段 Cookie HttpOnly/SameSite Strict，非 Development 强制 Secure；所有 API 写请求包括登录/退出通过 IAntiforgery 校验。SecurityStamp 每次请求校验；用例从 Identity 库读取真实角色，范围查询实时读取授权，禁用账号拒绝已有 Cookie。Health 中间件在身份验证之前，数据库故障不影响 live。无 SignalR/授权管理 UI，实时组撤销随 P1.6 实现。
 
 ### ADR-006：HTTP 快照 + SignalR 通知 + Outbox
 
@@ -169,4 +173,4 @@ Hub 加入工厂组必须服务端检查范围；组名由服务端生成。权�
 
 领域测试覆盖状态机/回差/质量；数据库集成测试覆盖事务、范围、幂等与并发；模拟器测试覆盖采集/重连；UI E2E 覆盖一次完整业务闭环；AI 评估覆盖有证据、无证据、越权与注入。性能基准见 [项目规格](PROJECT_SPEC.md)。
 
-P1.1 验证本地 SDK、数据库与前端版本；P2.1 验证 SDK API、许可、证书和模拟器；P3.1 验证 Provider 输出协议、数据发送范围、预算与 embedding 配置。本轮仅产出文档，不安装依赖或访问工业网络。
+P1.1 已验证本地 SDK、数据库与前端版本；P1.2 已实现登录与资产目录，见验收记录。P2.1 验证 SDK API、许可、证书和模拟器；P3.1 验证 Provider 输出协议、数据发送范围、预算与 embedding 配置。当前未访问工业网络。
