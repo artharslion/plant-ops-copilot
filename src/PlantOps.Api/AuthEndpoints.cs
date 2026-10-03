@@ -12,7 +12,6 @@ public static class AuthEndpoints
         var auth = app.MapGroup("/api/v1/auth");
         auth.MapGet("/csrf", (HttpContext ctx, IAntiforgery antiforgery) =>
         {
-            ctx.Response.Headers.CacheControl = "no-store";
             return Results.Ok(new { token = antiforgery.GetAndStoreTokens(ctx).RequestToken });
         }).AllowAnonymous();
         auth.MapPost("/login", async (LoginInput input, UserManager<PlantOpsUser> users, SignInManager<PlantOpsUser> signIn) =>

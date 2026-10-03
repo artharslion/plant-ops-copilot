@@ -32,6 +32,11 @@ builder.Services.ConfigureApplicationCookie(o =>
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseStatusCodePages(async status => await Results.Problem(statusCode: status.HttpContext.Response.StatusCode)
+    .ExecuteAsync(status.HttpContext));
+// Health probes must remain independent of cookie validation and Identity storage.
+app.UseHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.UseHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (ctx, next) =>
@@ -59,8 +64,6 @@ app.Use(async (ctx, next) =>
 });
 app.MapAuth();
 app.MapDirectory();
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

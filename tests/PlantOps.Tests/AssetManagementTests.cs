@@ -237,15 +237,26 @@ public sealed class AssetManagementTests
         var demo = (await users.FindByNameAsync("viewer"))!;
         var hash = demo.PasswordHash;
         var enabled = demo.IsEnabled;
+        var grants = await db.UserPlantAccess.Where(x => x.UserId == demo.Id).ToListAsync();
+        var originalRoles = await users.GetRolesAsync(demo);
+        db.UserPlantAccess.RemoveRange(grants); await db.SaveChangesAsync();
+        await users.RemoveFromRolesAsync(demo, originalRoles);
         demo.IsEnabled = false; await users.UpdateAsync(demo);
         try
         {
             await DevelopmentIdentityInitializer.InitializeAsync(scope.ServiceProvider, scope.ServiceProvider.GetRequiredService<IConfiguration>(), "Development");
             Assert.False(demo.IsEnabled); Assert.Equal(hash, demo.PasswordHash);
+            Assert.Empty(await db.UserPlantAccess.Where(x => x.UserId == demo.Id).ToListAsync());
+            Assert.Empty(await users.GetRolesAsync(demo));
             Assert.Equal(2, await db.Plants.CountAsync(x => x.Id == North || x.Id == South));
             Assert.False(db.Database.HasPendingModelChanges());
         }
-        finally { demo.IsEnabled = enabled; await users.UpdateAsync(demo); }
+        finally
+        {
+            demo.IsEnabled = enabled; await users.UpdateAsync(demo);
+            db.UserPlantAccess.AddRange(grants); await db.SaveChangesAsync();
+            await users.AddToRolesAsync(demo, originalRoles);
+        }
     }
 
     [DatabaseFact]
@@ -279,6 +290,51 @@ public sealed class AssetManagementTests
         var next = (await s.Client.GetFromJsonAsync<DirectoryPage>($"/api/v1/assets?plantId={North}&limit=1&cursor={Uri.EscapeDataString(page.NextCursor!)}"))!;
         Assert.Single(next.Items); Assert.NotEqual(page.Items[0].Id, next.Items[0].Id);
         Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.GetAsync($"/api/v1/assets?plantId={North}&limit=201")).StatusCode);
+    }
+
+    [DatabaseFact]
+    public async Task PlantAndLocationUpdatesRequireVersionAndErrorsIncludeCorrelation()
+    {
+        await using var s = new Session(); await s.Initialize(); await s.Login();
+        var create = await s.Client.PostAsJsonAsync("/api/v1/plants", new DirectoryInput("TEST-" + Guid.NewGuid().ToString("N"), "Version plant"));
+        var plant = (await create.Content.ReadFromJsonAsync<DirectoryRecord>())!;
+        var location = await s.Create("locations", plant.Id);
+        foreach (var (kind, record) in new[] { ("plants", plant), ("locations", location) })
+        {
+            Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync($"/api/v1/{kind}/{record.Id}", Edit(record, "Updated"))).StatusCode);
+            var conflict = await s.Client.PatchAsJsonAsync($"/api/v1/{kind}/{record.Id}", Edit(record, "Stale"));
+            Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+            Assert.Contains("correlationId", await conflict.Content.ReadAsStringAsync());
+        }
+        await s.Client.PostAsync("/api/v1/auth/logout", null);
+        var denied = await s.Client.GetAsync("/api/v1/plants");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        Assert.Contains("correlationId", await denied.Content.ReadAsStringAsync());
+    }
+
+    [DatabaseFact]
+    public async Task ForgedAndOtherUsersAntiforgeryTokensAreRejected()
+    {
+        await using var first = new Session(); await first.Initialize(); await first.Login();
+        await using var second = new Session(); await second.Initialize(); await second.Login();
+        var asset = await first.Get("assets", Pump);
+        foreach (var token in new[] { "forged", second.Token })
+        {
+            first.Client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+            first.Client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token);
+            Assert.Equal(HttpStatusCode.BadRequest, (await first.Client.PatchAsJsonAsync($"/api/v1/assets/{Pump}", Edit(asset))).StatusCode);
+        }
+        Assert.Equal(asset.Version, (await first.Get("assets", Pump)).Version);
+    }
+
+    [DatabaseFact]
+    public async Task HealthProbesIgnoreSignedInCookieWhenIdentityDatabaseIsOffline()
+    {
+        await using var s = new Session(); await s.Initialize(); await s.Login();
+        s.Factory.Services.GetRequiredService<IConfiguration>()["ConnectionStrings:PlantOps"] =
+            "Host=127.0.0.1;Port=59999;Database=plantops_tests;Username=plantops;Timeout=1;Command Timeout=1";
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync("/health/live")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await s.Client.GetAsync("/health/ready")).StatusCode);
     }
 }
 
