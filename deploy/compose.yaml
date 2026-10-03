@@ -1,0 +1,19 @@
+name: plantops
+services:
+  database:
+    image: postgres:17@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    environment:
+      POSTGRES_DB: plantops
+      POSTGRES_USER: plantops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - plantops-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plantops -d plantops"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  plantops-data:

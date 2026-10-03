@@ -55,3 +55,16 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Frontend / local development
+node_modules/
+dist/
+*.tsbuildinfo
+.env.*
+!.env.example
+work/
+.vs/
+.idea/
+appsettings.Local.json
+*.pfx
+*.pem
