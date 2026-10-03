@@ -5,8 +5,10 @@ namespace PlantOps.Infrastructure.Persistence;
 
 public static class DevelopmentDatabaseInitializer
 {
-    public static async Task InitializeAsync(PlantOpsDbContext db, CancellationToken cancellationToken = default)
+    public static async Task InitializeAsync(PlantOpsDbContext db, string environment, CancellationToken cancellationToken = default)
     {
+        if (environment != "Development")
+            throw new InvalidOperationException("Development database initialization is disabled outside Development.");
         await db.Database.MigrateAsync(cancellationToken);
         // A transaction-scoped lock serializes concurrent development initializations.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);

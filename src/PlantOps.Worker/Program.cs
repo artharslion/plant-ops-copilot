@@ -12,7 +12,7 @@ if (initializeDatabase)
     if (!app.Environment.IsDevelopment())
         throw new InvalidOperationException("Development database initialization is disabled outside Development.");
     await using var scope = app.Services.CreateAsyncScope();
-    await DevelopmentDatabaseInitializer.InitializeAsync(scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>());
+    await DevelopmentDatabaseInitializer.InitializeAsync(scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>(), app.Environment.EnvironmentName);
     app.Logger.LogInformation("Development database migrated and Golden Path seed initialized.");
     return;
 }

@@ -76,9 +76,11 @@ Phase 1 使用 Simulation Source 跑通闭环；Phase 2 新增 OPC UA Source，�
 在仓库根目录，首次创建本地数据库凭据（已有 deploy/.env 时保留原值）：
 
 ```powershell
-$devPassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
-"POSTGRES_PASSWORD=$devPassword" | Set-Content deploy/.env
-Remove-Variable devPassword
+if (-not (Test-Path -LiteralPath deploy/.env)) {
+    $devPassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
+    "POSTGRES_PASSWORD=$devPassword" | Set-Content deploy/.env
+    Remove-Variable devPassword
+}
 docker compose -f deploy/compose.yaml up -d --wait
 dotnet restore PlantOps.sln --locked-mode
 dotnet tool restore
