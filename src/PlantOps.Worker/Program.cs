@@ -18,7 +18,9 @@ if (initializeDatabase)
     return;
 }
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+app.UseHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.UseHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+// Explicit ordering also prevents minimal-host automatic authentication preceding health probes.
+app.UseAuthentication();
 app.Logger.LogInformation("PlantOps Worker foundation started. No measurement sources or AI jobs are enabled.");
 await app.RunAsync();
