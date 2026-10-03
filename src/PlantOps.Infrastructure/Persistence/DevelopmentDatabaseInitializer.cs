@@ -25,6 +25,17 @@ public static class DevelopmentDatabaseInitializer
             db.Assets.Add(new Asset { Id = assetId, PlantId = plantId, LocationId = locationId,
                 Code = "P-101", Name = "Cooling Pump P-101", AssetType = "Pump" });
 
+        var southId = Guid.Parse("10000000-0000-0000-0000-000000000002");
+        var southLocation = Guid.Parse("20000000-0000-0000-0000-000000000002");
+        if (!await db.Plants.AnyAsync(x => x.Id == southId, cancellationToken))
+            db.Plants.Add(new Plant { Id = southId, Code = "SOUTH", Name = "South Plant" });
+        if (!await db.Locations.AnyAsync(x => x.Id == southLocation, cancellationToken))
+            db.Locations.Add(new Location { Id = southLocation, PlantId = southId, Code = "PROCESS", Name = "Process Hall" });
+        var southAsset = Guid.Parse("30000000-0000-0000-0000-000000000002");
+        if (!await db.Assets.AnyAsync(x => x.Id == southAsset, cancellationToken))
+            db.Assets.Add(new Asset { Id = southAsset, PlantId = southId, LocationId = southLocation,
+                Code = "F-201", Name = "Transfer Fan F-201", AssetType = "Fan" });
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

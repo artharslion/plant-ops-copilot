@@ -2,9 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using PlantOps.Domain.Assets;
 using PlantOps.Infrastructure.Persistence;
 using Xunit;
+using Npgsql;
 
 namespace PlantOps.Tests;
 
+[Collection("Database")]
 public sealed class DatabaseFoundationTests
 {
     [Theory]
@@ -58,8 +60,26 @@ public sealed class DatabaseFoundationTests
     }
 
     private static PlantOpsDbContext CreateContext() => new(new DbContextOptionsBuilder<PlantOpsDbContext>()
-        .UseNpgsql(Environment.GetEnvironmentVariable("PLANTOPS_TEST_CONNECTION")).Options);
+        .UseNpgsql(TestDatabase.Connection).Options);
 }
+
+public static class TestDatabase
+{
+    public static string Connection
+    {
+        get
+        {
+            var value = Environment.GetEnvironmentVariable("PLANTOPS_TEST_CONNECTION")
+                ?? throw new InvalidOperationException("Dedicated test connection required.");
+            if (new NpgsqlConnectionStringBuilder(value).Database != "plantops_tests")
+                throw new InvalidOperationException("Tests require database name plantops_tests; business databases are forbidden.");
+            return value;
+        }
+    }
+}
+
+[CollectionDefinition("Database", DisableParallelization = true)]
+public sealed class DatabaseCollection;
 
 public sealed class DatabaseFactAttribute : FactAttribute
 {

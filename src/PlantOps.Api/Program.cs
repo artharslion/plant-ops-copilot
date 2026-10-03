@@ -1,19 +1,70 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using PlantOps.Infrastructure;
+using PlantOps.Api;
+using PlantOps.Application.Assets;
+using PlantOps.Infrastructure.Identity;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
-builder.Services.AddProblemDetails();
+builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
+    ctx.ProblemDetails.Extensions["correlationId"] = ctx.HttpContext.TraceIdentifier);
 builder.Services.AddOpenApi();
+builder.Services.AddAuthorization();
+builder.Services.AddAntiforgery(o =>
+{
+    o.HeaderName = "X-CSRF-TOKEN";
+    o.Cookie.Name = "PlantOps.Antiforgery";
+    o.Cookie.SameSite = SameSiteMode.Strict;
+    o.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+});
+builder.Services.ConfigureApplicationCookie(o =>
+{
+    o.Cookie.Name = "PlantOps.Session";
+    o.Cookie.HttpOnly = true;
+    o.Cookie.SameSite = SameSiteMode.Strict;
+    o.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+    o.ExpireTimeSpan = TimeSpan.FromHours(8);
+    o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
+    o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+});
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseAuthentication();
+app.UseAuthorization();
+app.Use(async (ctx, next) =>
+{
+    try
+    {
+        if (ctx.User.Identity?.IsAuthenticated == true)
+        {
+            var users = ctx.RequestServices.GetRequiredService<UserManager<PlantOpsUser>>();
+            if (await users.GetUserAsync(ctx.User) is not { IsEnabled: true })
+            {
+                await ctx.RequestServices.GetRequiredService<SignInManager<PlantOpsUser>>().SignOutAsync();
+                await Results.Problem(statusCode: 401, title: "Session unavailable.").ExecuteAsync(ctx);
+                return;
+            }
+        }
+        if (ctx.Request.Path.StartsWithSegments("/api") && !HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method))
+            await ctx.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(ctx);
+        await next();
+    }
+    catch (AntiforgeryValidationException)
+    { await Results.Problem(statusCode: 400, title: "Invalid antiforgery token. Refresh and retry.").ExecuteAsync(ctx); }
+    catch (DirectoryException e)
+    { await Results.Problem(statusCode: e.Status, title: e.Message).ExecuteAsync(ctx); }
+});
+app.MapAuth();
+app.MapDirectory();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapGet("/api/v1/system", () => new { name = "Plant Ops Copilot", stage = "P1.1", version = "0.1.0" })
+    app.MapGet("/api/v1/system", () => new { name = "Plant Ops Copilot", stage = "P1.2", version = "0.2.0" })
         .WithName("GetSystemInfo");
 }
 app.Run();

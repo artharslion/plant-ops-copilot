@@ -1,16 +1,36 @@
 using Microsoft.EntityFrameworkCore;
 using PlantOps.Domain.Assets;
+using PlantOps.Domain.Identity;
+using PlantOps.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 
 namespace PlantOps.Infrastructure.Persistence;
 
-public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> options) : DbContext(options)
+public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> options) : IdentityDbContext<PlantOpsUser>(options)
 {
     public DbSet<Plant> Plants => Set<Plant>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Asset> Assets => Set<Asset>();
+    public DbSet<UserPlantAccess> UserPlantAccess => Set<UserPlantAccess>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);
+        var access = modelBuilder.Entity<UserPlantAccess>();
+        access.HasKey(x => new { x.UserId, x.PlantId });
+        access.HasOne<PlantOpsUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        access.HasOne<Plant>().WithMany().HasForeignKey(x => x.PlantId).OnDelete(DeleteBehavior.Restrict);
+        var audit = modelBuilder.Entity<AuditLog>();
+        audit.HasKey(x => x.Id);
+        audit.Property(x => x.Before).HasColumnType("jsonb");
+        audit.Property(x => x.After).HasColumnType("jsonb");
+        audit.Property(x => x.Action).HasMaxLength(32);
+        audit.Property(x => x.ResourceType).HasMaxLength(32);
+        audit.Property(x => x.ActorUserId).HasMaxLength(450);
+        audit.Property(x => x.CorrelationId).HasMaxLength(200);
+        audit.HasIndex(x => new { x.PlantId, x.OccurredAt });
         var plant = modelBuilder.Entity<Plant>();
         plant.ToTable("Plants");
         plant.HasKey(x => x.Id);
@@ -18,6 +38,7 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         plant.Property(x => x.Name).HasMaxLength(200);
         plant.Property(x => x.DisplayTimeZone).HasMaxLength(100);
         plant.Property(x => x.Version).IsConcurrencyToken();
+        plant.Property(x => x.Description).HasMaxLength(8000);
         plant.HasIndex(x => x.Code).IsUnique();
 
         var location = modelBuilder.Entity<Location>();
@@ -27,6 +48,7 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         location.Property(x => x.Code).HasMaxLength(64);
         location.Property(x => x.Name).HasMaxLength(200);
         location.Property(x => x.Version).IsConcurrencyToken();
+        location.Property(x => x.Description).HasMaxLength(8000);
         location.HasIndex(x => new { x.PlantId, x.Code }).IsUnique();
         location.HasOne<Plant>().WithMany().HasForeignKey(x => x.PlantId).OnDelete(DeleteBehavior.Restrict);
         location.HasOne<Location>().WithMany()
@@ -41,6 +63,10 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         asset.Property(x => x.AssetType).HasMaxLength(64);
         asset.Property(x => x.LifecycleStatus).HasMaxLength(32);
         asset.Property(x => x.Version).IsConcurrencyToken();
+        asset.Property(x => x.Manufacturer).HasMaxLength(200);
+        asset.Property(x => x.Model).HasMaxLength(200);
+        asset.Property(x => x.SerialNumber).HasMaxLength(200);
+        asset.Property(x => x.Criticality).HasMaxLength(32);
         asset.HasIndex(x => new { x.PlantId, x.Code }).IsUnique();
         asset.HasOne<Location>().WithMany()
             .HasForeignKey(x => new { x.PlantId, x.LocationId })
