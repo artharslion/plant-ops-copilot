@@ -22,7 +22,7 @@ const visibleAssets = computed(() => assets.value.filter(x => !locationId.value 
 const tree = computed(() => {
   const rows: { item: DirectoryRecord; depth: number }[] = []
   function walk(parent: string | null, depth: number) {
-    locations.value.filter(x => x.parentLocationId === parent).sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code)).forEach(item => { rows.push({ item, depth }); walk(item.id, depth + 1) })
+    locations.value.filter(x => (x.parentLocationId ?? null) === parent).sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || a.code.localeCompare(b.code)).forEach(item => { rows.push({ item, depth }); walk(item.id, depth + 1) })
   }
   walk(null, 0); return rows
 })

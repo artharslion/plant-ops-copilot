@@ -26,12 +26,12 @@ public static class DirectoryEndpoints
         {
             var result = await directory.SaveAsync(Actor(ctx), "plants", null, null, input);
             return Results.Created($"/api/v1/plants/{result.Id}", result);
-        });
+        }).Produces<DirectoryRecord>(StatusCodes.Status201Created);
         foreach (var kind in new[] { "locations", "assets" })
             api.MapPost($"/plants/{{plantId:guid}}/{kind}", async (HttpContext ctx, IAssetDirectory directory, Guid plantId, DirectoryInput input) =>
             {
                 var result = await directory.SaveAsync(Actor(ctx), kind, null, plantId, input);
                 return Results.Created($"/api/v1/{kind}/{result.Id}", result);
-            });
+            }).Produces<DirectoryRecord>(StatusCodes.Status201Created);
     }
 }

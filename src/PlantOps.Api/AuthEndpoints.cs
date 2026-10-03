@@ -7,13 +7,15 @@ namespace PlantOps.Api;
 public static class AuthEndpoints
 {
     public sealed record LoginInput(string UserName, string Password);
+    public sealed record CurrentUser(string Id, string? UserName, string DisplayName, IList<string> Roles);
+    public sealed record CsrfToken(string Token);
     public static void MapAuth(this WebApplication app)
     {
         var auth = app.MapGroup("/api/v1/auth");
         auth.MapGet("/csrf", (HttpContext ctx, IAntiforgery antiforgery) =>
         {
-            return Results.Ok(new { token = antiforgery.GetAndStoreTokens(ctx).RequestToken });
-        }).AllowAnonymous();
+            return Results.Ok(new CsrfToken(antiforgery.GetAndStoreTokens(ctx).RequestToken!));
+        }).AllowAnonymous().Produces<CsrfToken>();
         auth.MapPost("/login", async (LoginInput input, UserManager<PlantOpsUser> users, SignInManager<PlantOpsUser> signIn) =>
         {
             if (string.IsNullOrWhiteSpace(input.UserName) || input.UserName.Length > 256 || string.IsNullOrEmpty(input.Password) || input.Password.Length > 1024)
@@ -22,19 +24,19 @@ public static class AuthEndpoints
             if (user == null || !user.IsEnabled) return Results.Problem(statusCode: 401, title: "Login failed.");
             var result = await signIn.PasswordSignInAsync(user, input.Password, false, lockoutOnFailure: true);
             return result.Succeeded ? Results.NoContent() : Results.Problem(statusCode: 401, title: "Login failed.");
-        }).AllowAnonymous();
+        }).AllowAnonymous().Produces(StatusCodes.Status204NoContent).ProducesProblem(400).ProducesProblem(401);
         auth.MapPost("/logout", async (SignInManager<PlantOpsUser> signIn) =>
         {
             await signIn.SignOutAsync();
             return Results.NoContent();
-        }).RequireAuthorization();
+        }).RequireAuthorization().Produces(StatusCodes.Status204NoContent).ProducesProblem(400).ProducesProblem(401);
         auth.MapGet("/me", async (HttpContext ctx, UserManager<PlantOpsUser> users) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
             var user = await users.GetUserAsync(ctx.User);
             return user is { IsEnabled: true }
-                ? Results.Ok(new { user.Id, user.UserName, user.DisplayName, roles = await users.GetRolesAsync(user) })
+                ? Results.Ok(new CurrentUser(user.Id, user.UserName, user.DisplayName, await users.GetRolesAsync(user)))
                 : Results.Problem(statusCode: 401, title: "Session unavailable.");
-        }).RequireAuthorization();
+        }).RequireAuthorization().Produces<CurrentUser>();
     }
 }

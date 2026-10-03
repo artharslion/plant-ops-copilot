@@ -1,12 +1,7 @@
-export interface DirectoryRecord {
-  id: string; plantId: string; code: string; name: string; version: number; isArchived: boolean
-  description: string | null; parentLocationId: string | null; sortOrder: number
-  displayTimeZone: string; locationId: string | null; assetType: string
-  lifecycleStatus: string; criticality: string; manufacturer: string | null
-  model: string | null; serialNumber: string | null; installedAt: string | null
-}
-export interface DirectoryPage { items: DirectoryRecord[]; nextCursor: string | null }
-export interface CurrentUser { id: string; userName: string; displayName: string; roles: string[] }
+import type { components } from './generated/api'
+export type DirectoryRecord = components['schemas']['DirectoryRecord']
+export type DirectoryPage = components['schemas']['DirectoryPage']
+export type CurrentUser = components['schemas']['CurrentUser']
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
