@@ -35,7 +35,7 @@ onMounted(refresh)
 <template>
   <header class="topbar"><span>工作空间 / 总览</span><span class="stage-chip">PHASE 01</span></header>
   <section class="page-heading">
-    <div><p class="eyebrow">PLANT OPERATIONS</p><h1>从可信数据，走向可靠行动。</h1><p class="intro">工业资产、告警与维护的统一工作空间。当前交付基础环境，业务功能将按阶段接入。</p></div>
+    <div><p class="eyebrow">PLANT OPERATIONS</p><h1>从可信数据，走向可靠行动。</h1><p class="intro">工业资产、告警与维护的统一工作空间。登录后可浏览授权工厂的资产目录。</p><RouterLink class="directory-link" to="/assets">进入资产目录 →</RouterLink></div>
     <button :disabled="loading" @click="refresh">{{ loading ? '正在检查…' : '刷新连接状态' }}</button>
   </section>
   <section class="status-grid" aria-label="环境状态" aria-live="polite" :aria-busy="loading">
@@ -48,7 +48,7 @@ onMounted(refresh)
     <div class="section-title"><div><p class="eyebrow">GOLDEN PATH</p><h2>一台泵，一条完整的业务路径。</h2></div><span>演示规划</span></div>
     <div class="asset-story"><span class="asset-code">P-101</span><div><h3>Cooling Pump P-101</h3><p>North Plant <span>→</span> Utilities</p></div><span class="fictional">虚构演示设备</span></div>
     <ol class="path-steps"><li><b>01</b>振动上升</li><li><b>02</b>规则告警</li><li><b>03</b>人工确认</li><li><b>04</b>维护工单</li><li><b>05</b>完成关闭</li></ol>
-    <p class="path-note">P1.1 已准备设备种子；测量、告警与工单尚未实现。后续保留 Simulation Source，并增加 OPC UA Source，沿同一路径逐步验收。</p>
+    <p class="path-note">P1.2 已接入登录与授权资产目录；测量、告警与工单尚未实现。此处为虚构演示路径规划，资产实时目录请登录查看。</p>
   </section>
   <footer class="principle"><span>设计原则</span><strong>AI is not the source of truth.</strong><p>业务状态与动作由数据和业务服务决定；AI 负责检索、解释与建议。</p></footer>
 </template>

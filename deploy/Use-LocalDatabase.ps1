@@ -11,3 +11,9 @@ if ($localDatabasePassword -notmatch '^[A-Za-z0-9_-]{16,128}$' -or $localDatabas
 }
 $env:ConnectionStrings__PlantOps = "Host=127.0.0.1;Port=5432;Database=plantops;Username=plantops;Password=$localDatabasePassword;Timeout=3;Command Timeout=5"
 Remove-Variable localDatabasePassword, passwordLine
+$localDemoConfigPath = Join-Path $PSScriptRoot '../appsettings.Local.json'
+if (Test-Path -LiteralPath $localDemoConfigPath) {
+    $localDemoConfig = Get-Content -LiteralPath $localDemoConfigPath -Raw | ConvertFrom-Json
+    if ($localDemoConfig.Demo.Password) { $env:Demo__Password = $localDemoConfig.Demo.Password }
+    Remove-Variable localDemoConfig
+}
