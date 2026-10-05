@@ -173,6 +173,12 @@ TargetVersionsJson 保存所有动作依赖的资源版本：创建工单至少 
 
 ## 6. 一致性与查询
 
+P1.3 已实现 MeasurementPoint/DataSource/SourceMapping/MeasurementReading/PointLatestState。点位、映射及读数使用同厂复合外键；启用映射使用 PointId 的部分唯一索引。点位定义默认 Double，来源配置当前固定 schemaVersion=1 的 Simulation/GoldenPath；标准间隔为 1–60 整秒、陈旧阈值覆盖间隔且不超过 300 秒。不开放任意 JSON/协议配置写入。
+
+入库验证当前配置版本及启用状态，跨厂或旧配置样本整批拒绝；未来有效时间超过接收时间 5 秒标记 TimeAnomaly 并仅入历史。乱序照常存历史；LatestObserved 按时间元组单调更新；LastGood 只接受接收时新鲜的有效 Good。LastReceivedAt 可由去重通知更新，不能据此把旧有效时间视为新鲜。NaN/Infinity/转换溢出标准化为 Bad/null 并保留有长度限制的原值 JSON。
+
+本阶段尚未分区，读数去重约束为 `(PointId, SourceEventKey)`；未来分区列调整需迁移此约束。MeasurementMinute 仍为目标设计，目前返回按需统计，不保存分钟投影。P1.3 不实现告警/规则/Outbox/IngestionGap 实体；缺口由查询中的期望间隔和时间边界推导。设备归档同事务停用点位与映射、递增版本并分别审计，历史可在原授权范围内查询。
+
 - 工厂范围在所有读取、写入、检索和实时推送统一强制；不能只过滤列表而漏掉按 ID 查询。
 - 资产位置修改、工单迁移、审批执行均带 version；直接覆盖更新不允许。
 - 测量是历史事实；最新快照/聚合是可重建投影。Outbox 与审计不可代替测量历史。

@@ -164,12 +164,16 @@ Hub 加入工厂组必须服务端检查范围；组名由服务端生成。权�
 
 ### ADR-007：统一数据源契约，持续保留模拟来源
 
-**状态**：Proposed。**背景**：需要同时支持真实协议接入、离线开发与可重复演示。
+**状态**：Accepted（P1.3 Simulation；OPC UA 留待 P2）。**背景**：需要同时支持真实协议接入、离线开发与可重复演示。
 **决定**：Phase 1 定义 IMeasurementSource 并实现 Simulation Source；Phase 2 新增 OPC UA Source。两者通过 SourceMapping 连接 MeasurementPoint，共用 MeasurementReading 入库和规则服务。
 **备选**：替换模拟源会让回归依赖服务器；各自建采集/告警管道会造成业务语义分叉。
 **代价**：维护两种源的契约测试和类型化配置；同点位只启用一个来源，不实现自动切换。收益是无需 OPC UA/模型即可复现 Golden Path。
 
 ## 9. 验证与开放项
+
+P1.3 实际边界：Application 定义样本/源/入库/查询端口和质量规则；Infrastructure 的 SimulationSource 不访问数据库，MeasurementIngestor 用最多 500 样本的事务写入读数与最新投影。Worker 等待每批提交，最多重试 3 次，保持事件键不变；工厂 advisory transaction lock 与资产归档、点位和来源配置共用，提交前重查启用状态及版本。配置与审计同事务，历史读数禁止 EF 修改/删除。API 不提供测量写入接口；所有查询先校验角色和资产/点位范围，配置仅允许有该厂授权的 Admin。
+
+当前读数表未分区，唯一 `(PointId, SourceEventKey)`；Simulation 的键包含映射 ID/version、来源 version、UTC 秒，重复批次不会重复写。分钟统计按需计算（有效 Good 的 min/max/avg、质量计数、覆盖率与缺口），尚无 MeasurementMinute、Outbox、保留任务或源连接健康表。页面 5 秒轮询，不宣称达到 p95 <2s 推送或 100 点 30 分钟性能目标。持久化分钟聚合/分区/保留在 P1.7 实现；协议队列/重连/变化通知覆盖率在 P2 验证。最新投影的 ReadingId 不建读数外键，为后续保留清理保存值/质量/时间摘要。
 
 领域测试覆盖状态机/回差/质量；数据库集成测试覆盖事务、范围、幂等与并发；模拟器测试覆盖采集/重连；UI E2E 覆盖一次完整业务闭环；AI 评估覆盖有证据、无证据、越权与注入。性能基准见 [项目规格](PROJECT_SPEC.md)。
 
