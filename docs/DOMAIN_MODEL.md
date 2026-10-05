@@ -185,3 +185,5 @@ P1.3 已实现 MeasurementPoint/DataSource/SourceMapping/MeasurementReading/Poin
 - 常用索引：Asset `(PlantId, LocationId)`，Alarm `(PlantId, State, StartedAt)`，WorkOrder `(AssetId, Status)`，Document `(PlantId, AssetId)`；具体索引使用查询计划验证。
 - 历史原始测量过期后，告警保留 TriggerValue/阈值快照，UI 引用明确显示“原始样本已过保留期”，不能提供失效证据链接冒充仍可用。
 - 测量引用必须适配分区清理：Alarm/AlarmEvent 与最新投影中的 ReadingId 是可失效的追溯标识，保留必要值/质量/时间快照，不建立会阻止删除分区的强外键，也不级联删除业务记录。AiRun 的测量证据同样保存带保留期说明的摘要，原始数据过期后仅显示该摘要及其取数时刻。
+
+P1.4 已迁移 AlarmRule/RuleRuntimeState/Alarm/AlarmEvent：规则和告警以复合外键校验工厂、点位、设备；Severity 固定 Low/Medium/High。每点位最多 20 条规则，持续 0–300000ms，最大间隔不小于点位期望间隔且不超过 300000ms。Runtime 保存顺序水位、最后可信观测及配置版本；未来异常、质量不可信、陈旧和过长间隔清空待判计时，迟到不重演。确认允许 Active/Recovered，首次检查 version；重复确认不覆盖首次人和时间。Active 阻止规则变更和设备归档，恢复历史允许归档但不删除。事件与业务审计同事务，服务 actor 为 worker:alarm-engine；规则阈值快照不随后续配置修改。

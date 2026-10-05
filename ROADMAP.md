@@ -2,7 +2,7 @@
 
 日期：2026-10-03。按可验收增量推进，不用“完成 UI”或“接上模型”代替业务验收。各阶段完成后保存演示脚本、测试结果和已知限制，再进入下一阶段。
 
-2026-10-03：P1.1 已独立复盘并修复凭据覆盖/初始化环境保护；P1.2 已完成，验证记录见 [P1.2 验收](docs/P1_2_VALIDATION.md)。2026-10-05：P1.3 已完成，验证记录见 [P1.3 验收](docs/P1_3_VALIDATION.md)。下一阶段为 P1.4 告警规则与确认。
+2026-10-03：P1.1 已独立复盘并修复凭据覆盖/初始化环境保护；P1.2 已完成，验证记录见 [P1.2 验收](docs/P1_2_VALIDATION.md)。2026-10-05：P1.3 已完成，验证记录见 [P1.3 验收](docs/P1_3_VALIDATION.md)。P1.4 已完成，见 [P1.4 验收](docs/P1_4_VALIDATION.md)。继续执行 P1.5 → P1.6 → P1.7，直至 P1 整体验收。
 
 ## 贯穿阶段的 Golden Path
 
@@ -19,7 +19,7 @@ Phase 1 用 Simulation Source 完成路径；Phase 2 保留该模式并增加 OP
 | P1.1（已完成） | Api/Worker/Domain/Application/Infrastructure 和 Vue 骨架；锁版本；Compose 数据库；OpenAPI；健康检查 | 本机启动验证；重复初始化幂等；构建零警告；8 项测试通过；前端构建通过 |
 | P1.2（已完成） | Identity Cookie、四角色、UserPlantAccess、防伪、事务 AuditLog、version；工厂/位置/设备创建/读取/编辑/归档与 Vue 工作台 | 23 测试通过（15 真 PostgreSQL）；跨厂列表/ID/写入隔离；循环/同厂关系校验；并发 409；SQL 后失败回滚；重复种子保留修改；浏览器登录→P-101→编辑验收 |
 | P1.3（已完成） | MeasurementPoint、DataSource/SourceMapping、IMeasurementSource 与可重复 Simulation Source、MeasurementReading 批写、LatestObserved/LastGood、趋势 API/UI | 34 测试通过（20 真 PostgreSQL）；Worker 实际入库；质量/时间/来源版本可见；Bad/Uncertain 不替换 LastGood；乱序/未来不回退；停采陈旧；Admin 编辑与 Viewer 浏览；分钟统计缺口可见 |
-| P1.4 | AlarmRule、持续时间、回差、Alarm/AlarmEvent、确认 API 与告警台 | 高值产生一次告警；确认不恢复；Bad 值不能清除告警 |
+| P1.4（已完成） | AlarmRule、持续时间、回差、Alarm/AlarmEvent、确认 API 与告警台 | 51 测试通过（27 真 PostgreSQL）；持续/回差/坏值/陈旧/迟到；去重/重启/事务回滚；角色/工厂/防伪/并发；实际 Worker→确认→恢复及规则编辑页面 |
 | P1.5 | WorkOrder 状态机、备注、告警关联与维修历史 | 创建→执行→完成→关闭；关闭需结果；审计完整 |
 | P1.6 | 文档上传/版本/发布/下载、文档 ACL；SignalR + Outbox | 未授权下载失败；断开重连能恢复页面；重复事件不重复显示 |
 | P1.7 | 测量分区/分钟聚合/保留任务；完整演示和必要测试；补 README 实际命令 | 查询与推送指标达到规格；清理不会删除未聚合数据 |

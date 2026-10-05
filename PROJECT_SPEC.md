@@ -94,7 +94,7 @@ AI 输出创建工单或追加工单备注提案 → 页面展示目标、内容
 | POST /alarms/{id}/investigations；GET /ai-runs/{id} | 202 异步调查、查看状态与结果 | 3 |
 | POST /action-proposals/{id}/approve；POST .../reject | 明确批准/拒绝，approve 带幂等键 | 4 |
 
-创建/编辑 Plant、Location、点位和规则遵循相同管理端点模式。P1.2 已实现 POST /plants、GET/PATCH /plants/{id}、POST /plants/{id}/locations、GET/PATCH /locations/{id}，以及上述资产目录端点；PATCH 发送完整可编辑字段及 version，isArchived=true 表示归档，禁止物理删除。登录接口为 GET /auth/csrf、POST /auth/login、POST /auth/logout、GET /auth/me；所有写请求含 X-CSRF-TOKEN。其他业务 API 仍是后续契约。测量写入是 Worker 内部入口，不向普通用户公开。非归档告警不能物理删除。
+创建/编辑 Plant、Location、点位和规则遵循相同管理端点模式。P1.2 已实现 POST /plants、GET/PATCH /plants/{id}、POST /plants/{id}/locations、GET/PATCH /locations/{id}，以及上述资产目录端点；PATCH 发送完整可编辑字段及 version，isArchived=true 表示归档，禁止物理删除。登录接口为 GET /auth/csrf、POST /auth/login、POST /auth/logout、GET /auth/me；所有写请求含 X-CSRF-TOKEN。P1.3 已实现授权测量读取/趋势和 Admin 点位/来源/映射配置；P1.4 已实现 GET /alarms（plantId、active、assetId、游标）、GET /alarms/{id}、GET /alarms/{id}/events、POST /alarms/{id}/acknowledge（version）及设备点位 alarm-rules 查询/创建/PATCH。其他业务 API 继续按路线图推进。测量写入是 Worker 内部入口，不向普通用户公开。非归档告警不能物理删除。
 
 ## 6. 规模与非功能验收
 
