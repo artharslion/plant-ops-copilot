@@ -2,10 +2,12 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using PlantOps.Infrastructure;
 using PlantOps.Infrastructure.Persistence;
 using PlantOps.Infrastructure.Identity;
+using PlantOps.Worker;
 
 var initializeDatabase = args.Contains("--initialize-db");
 var builder = WebApplication.CreateBuilder(args.Where(arg => arg != "--initialize-db").ToArray());
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
+if (!initializeDatabase) builder.Services.AddHostedService<MeasurementWorker>();
 
 var app = builder.Build();
 if (initializeDatabase)
@@ -22,5 +24,5 @@ app.UseHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.UseHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 // Explicit ordering also prevents minimal-host automatic authentication preceding health probes.
 app.UseAuthentication();
-app.Logger.LogInformation("PlantOps Worker foundation started. No measurement sources or AI jobs are enabled.");
+app.Logger.LogInformation("PlantOps Worker started. No OPC UA, alarm rules or AI jobs are enabled.");
 await app.RunAsync();

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PlantOps.Domain.Assets;
+using PlantOps.Domain.Telemetry;
 
 namespace PlantOps.Infrastructure.Persistence;
 
@@ -36,6 +37,18 @@ public static class DevelopmentDatabaseInitializer
             db.Assets.Add(new Asset { Id = southAsset, PlantId = southId, LocationId = southLocation,
                 Code = "F-201", Name = "Transfer Fan F-201", AssetType = "Fan" });
 
+        await db.SaveChangesAsync(cancellationToken);
+        var pointId = Guid.Parse("40000000-0000-0000-0000-000000000001");
+        var sourceId = Guid.Parse("50000000-0000-0000-0000-000000000001");
+        var mappingId = Guid.Parse("60000000-0000-0000-0000-000000000001");
+        if (!await db.MeasurementPoints.AnyAsync(x => x.Id == pointId, cancellationToken))
+            db.MeasurementPoints.Add(new MeasurementPoint { Id = pointId, PlantId = plantId, AssetId = assetId,
+                Code = "VIBRATION_RMS", Name = "Vibration RMS" });
+        if (!await db.DataSources.AnyAsync(x => x.Id == sourceId, cancellationToken))
+            db.DataSources.Add(new DataSource { Id = sourceId, PlantId = plantId, Name = "North deterministic simulator" });
+        if (!await db.SourceMappings.AnyAsync(x => x.Id == mappingId, cancellationToken))
+            db.SourceMappings.Add(new SourceMapping { Id = mappingId, PlantId = plantId, PointId = pointId,
+                DataSourceId = sourceId, SourceKey = "P101.VibrationRms" });
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

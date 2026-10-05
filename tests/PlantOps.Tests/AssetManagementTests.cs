@@ -26,7 +26,7 @@ public sealed class AssetManagementTests
     private static readonly Guid Pump = Guid.Parse("30000000-0000-0000-0000-000000000001");
     private static readonly Guid Fan = Guid.Parse("30000000-0000-0000-0000-000000000002");
 
-    private sealed class FailAfterSave : SaveChangesInterceptor
+    internal sealed class FailAfterSave : SaveChangesInterceptor
     {
         public bool Enabled { get; set; }
         public override ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
@@ -35,7 +35,7 @@ public sealed class AssetManagementTests
             return ValueTask.FromResult(result);
         }
     }
-    private sealed class Session : IAsyncDisposable
+    internal sealed class Session : IAsyncDisposable
     {
         public WebApplicationFactory<Program> Factory { get; }
         public HttpClient Client { get; }

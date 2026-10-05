@@ -8,6 +8,8 @@ using PlantOps.Application.Assets;
 using PlantOps.Infrastructure.Assets;
 using PlantOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
+using PlantOps.Application.Telemetry;
+using PlantOps.Infrastructure.Telemetry;
 
 namespace PlantOps.Infrastructure;
 
@@ -19,6 +21,11 @@ public static class DependencyInjection
             options.UseNpgsql(configuration.GetConnectionString("PlantOps") ?? string.Empty));
         services.AddScoped<IDatabaseReadiness, DatabaseReadiness>();
         services.AddScoped<IAssetDirectory, AssetDirectory>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<IMeasurementSource, SimulationSource>();
+        services.AddScoped<ISourceConfigurationReader, SourceConfigurationReader>();
+        services.AddScoped<IMeasurementIngestor, MeasurementIngestor>();
+        services.AddScoped<ITelemetryService, TelemetryService>();
         services.AddIdentity<PlantOpsUser, IdentityRole>(options =>
         {
             options.Password.RequiredLength = 12;

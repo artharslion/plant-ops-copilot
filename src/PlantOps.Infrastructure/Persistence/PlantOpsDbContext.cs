@@ -3,6 +3,7 @@ using PlantOps.Domain.Assets;
 using PlantOps.Domain.Identity;
 using PlantOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using PlantOps.Domain.Telemetry;
 
 namespace PlantOps.Infrastructure.Persistence;
 
@@ -13,10 +14,16 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     public DbSet<Asset> Assets => Set<Asset>();
     public DbSet<UserPlantAccess> UserPlantAccess => Set<UserPlantAccess>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<MeasurementPoint> MeasurementPoints => Set<MeasurementPoint>();
+    public DbSet<DataSource> DataSources => Set<DataSource>();
+    public DbSet<SourceMapping> SourceMappings => Set<SourceMapping>();
+    public DbSet<MeasurementReading> MeasurementReadings => Set<MeasurementReading>();
+    public DbSet<PointLatestState> PointLatestStates => Set<PointLatestState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        TelemetryModel.Configure(modelBuilder);
         modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);
         var access = modelBuilder.Entity<UserPlantAccess>();
         access.HasKey(x => new { x.UserId, x.PlantId });
@@ -71,5 +78,12 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         asset.HasOne<Location>().WithMany()
             .HasForeignKey(x => new { x.PlantId, x.LocationId })
             .HasPrincipalKey(x => new { x.PlantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (ChangeTracker.Entries<MeasurementReading>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Measurement readings are immutable.");
+        return base.SaveChangesAsync(cancellationToken);
     }
 }

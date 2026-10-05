@@ -379,6 +379,302 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("UserPlantAccess");
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.DataSource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConnectionParameters")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DataSources");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementPoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CanonicalUnit")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("ExpectedIntervalMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Quantity")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("StaleAfterMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ValueType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("MeasurementPoints", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Point_Intervals", "\"ExpectedIntervalMs\" BETWEEN 1000 AND 60000 AND \"StaleAfterMs\" BETWEEN \"ExpectedIntervalMs\" AND 300000");
+                        });
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementReading", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CanonicalUnit")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("DataSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("MappingVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("NumericValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Quality")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long?>("RawStatusCode")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RawUnit")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("RawValueJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ServerTimestamp")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceEventKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("SourceMappingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("SourceTimestamp")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StatusSymbol")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("TimeAnomaly")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TimestampOrigin")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlantId", "DataSourceId");
+
+                    b.HasIndex("PointId", "EffectiveAt");
+
+                    b.HasIndex("PointId", "SourceEventKey")
+                        .IsUnique();
+
+                    b.HasIndex("PlantId", "AssetId", "PointId");
+
+                    b.HasIndex("PlantId", "PointId", "SourceMappingId");
+
+                    b.ToTable("MeasurementReadings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Reading_Quality", "\"Quality\" IN ('Good','Uncertain','Bad') AND (\"NumericValue\" IS NULL OR (\"NumericValue\" <> 'NaN'::double precision AND \"NumericValue\" <> 'Infinity'::double precision AND \"NumericValue\" <> '-Infinity'::double precision))");
+                        });
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.PointLatestState", b =>
+                {
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("LastGoodReadingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LastGoodReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("LastGoodValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTimeOffset>("LastReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastTrustedEffectiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LatestObservedEffectiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LatestObservedQuality")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("LatestObservedReadingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LatestObservedReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("LatestObservedValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("PointId");
+
+                    b.ToTable("PointLatestStates");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.SourceMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DataSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<double>("Offset")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RawUnit")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<double>("Scale")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("SourceParameters")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PointId")
+                        .IsUnique()
+                        .HasFilter("\"Enabled\" = TRUE");
+
+                    b.HasIndex("PlantId", "DataSourceId");
+
+                    b.ToTable("SourceMappings");
+                });
+
             modelBuilder.Entity("PlantOps.Infrastructure.Identity.PlantOpsUser", b =>
                 {
                     b.Property<string>("Id")
@@ -538,6 +834,75 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasOne("PlantOps.Infrastructure.Identity.PlantOpsUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.DataSource", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Assets.Plant", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementPoint", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Assets.Asset", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId")
+                        .HasPrincipalKey("PlantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementReading", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.DataSource", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "DataSourceId")
+                        .HasPrincipalKey("PlantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId", "PointId")
+                        .HasPrincipalKey("PlantId", "AssetId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Telemetry.SourceMapping", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "PointId", "SourceMappingId")
+                        .HasPrincipalKey("PlantId", "PointId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.PointLatestState", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithOne()
+                        .HasForeignKey("PlantOps.Domain.Telemetry.PointLatestState", "PointId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.SourceMapping", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.DataSource", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "DataSourceId")
+                        .HasPrincipalKey("PlantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "PointId")
+                        .HasPrincipalKey("PlantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

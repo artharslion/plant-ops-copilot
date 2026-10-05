@@ -125,6 +125,8 @@ public sealed class AssetDirectory(PlantOpsDbContext db, UserManager<PlantOpsUse
             throw new DirectoryException(400, "Plant is archived or missing.");
         if (kind == "plants" && input.IsArchived && await db.Assets.AnyAsync(x => x.PlantId == scopeId && !x.IsArchived))
             throw new DirectoryException(400, "Archive active assets before archiving the plant.");
+        if (kind == "plants" && input.IsArchived && await db.DataSources.AnyAsync(x => x.PlantId == scopeId && x.Enabled))
+            throw new DirectoryException(400, "Disable data sources before archiving the plant.");
         if (kind == "locations")
         {
             if (input.IsArchived && (await db.Assets.AnyAsync(x => x.LocationId == id && !x.IsArchived)
@@ -178,6 +180,25 @@ public sealed class AssetDirectory(PlantOpsDbContext db, UserManager<PlantOpsUse
             default: throw new DirectoryException(404, "Unknown resource.");
         }
         var after = Map(entity);
+        if (kind == "assets" && input.IsArchived && before is { IsArchived: false })
+        {
+            var points = await db.MeasurementPoints.Where(x => x.AssetId == entityId && x.Enabled).ToListAsync();
+            var mappings = await db.SourceMappings.Where(x => db.MeasurementPoints.Any(p => p.Id == x.PointId && p.AssetId == entityId) && x.Enabled).ToListAsync();
+            foreach (var point in points)
+            {
+                var prior = JsonSerializer.Serialize(point); point.Enabled = false; point.Version++;
+                db.AuditLogs.Add(new AuditLog { ActorUserId = actor.UserId, PlantId = scopeId, ResourceId = point.Id,
+                    ResourceType = "MeasurementPoint", Action = "Disable", Before = prior, After = JsonSerializer.Serialize(point),
+                    OccurredAt = DateTimeOffset.UtcNow, CorrelationId = actor.CorrelationId });
+            }
+            foreach (var mapping in mappings)
+            {
+                var prior = JsonSerializer.Serialize(mapping); mapping.Enabled = false; mapping.Version++;
+                db.AuditLogs.Add(new AuditLog { ActorUserId = actor.UserId, PlantId = scopeId, ResourceId = mapping.Id,
+                    ResourceType = "SourceMapping", Action = "Disable", Before = prior, After = JsonSerializer.Serialize(mapping),
+                    OccurredAt = DateTimeOffset.UtcNow, CorrelationId = actor.CorrelationId });
+            }
+        }
         db.AuditLogs.Add(new AuditLog { ActorUserId = actor.UserId, PlantId = scopeId, ResourceId = entityId,
             ResourceType = kind, Action = before == null ? "Create" : input.IsArchived && !before.IsArchived ? "Archive" : "Update",
             Before = before == null ? null : JsonSerializer.Serialize(before), After = JsonSerializer.Serialize(after),
