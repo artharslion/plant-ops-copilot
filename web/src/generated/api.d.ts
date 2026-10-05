@@ -930,6 +930,269 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/alarms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    plantId: string;
+                    active?: boolean;
+                    assetId?: string;
+                    limit?: number | string;
+                    cursor?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlarmPage"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alarms/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlarmDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alarms/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlarmEventDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alarms/{id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcknowledgeInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlarmDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/measurement-points/{pointId}/alarm-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RuleDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RuleInput"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RuleDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/measurement-points/{pointId}/alarm-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RuleInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RuleDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/system": {
         parameters: {
             query?: never;
@@ -950,6 +1213,62 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcknowledgeInput: {
+            /** Format: int64 */
+            version: number | string;
+        };
+        AlarmDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            plantId: string;
+            /** Format: uuid */
+            assetId: string;
+            assetCode: string;
+            assetName: string;
+            /** Format: uuid */
+            pointId: string;
+            pointCode: string;
+            /** Format: uuid */
+            ruleId: string;
+            ruleName: string;
+            /** Format: int64 */
+            ruleVersion: number | string;
+            severity: string;
+            state: string;
+            /** Format: uuid */
+            triggerReadingId: string;
+            /** Format: double */
+            triggerValue: number | string;
+            thresholdSnapshot: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            recoveredAt: null | string;
+            /** Format: date-time */
+            acknowledgedAt: null | string;
+            acknowledgedByUserId: null | string;
+            /** Format: date-time */
+            lastEvaluatedAt: string;
+            /** Format: int64 */
+            version: number | string;
+            currentObservationTrusted: boolean;
+        };
+        AlarmEventDto: {
+            /** Format: uuid */
+            id: string;
+            eventType: string;
+            /** Format: date-time */
+            occurredAt: string;
+            actorUserId: null | string;
+            /** Format: uuid */
+            readingId: null | string;
+            correlationId: string;
+        };
+        AlarmPage: {
+            items: components["schemas"]["AlarmDto"][];
+            nextCursor: null | string;
+        };
         AnonymousTypeOfstringAndstringAndstring: {
             name: null | string;
             stage: null | string;
@@ -1175,6 +1494,74 @@ export interface components {
             receivedAt: string;
             isFresh: boolean;
             isTrusted: boolean;
+        };
+        RuleDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            plantId: string;
+            /** Format: uuid */
+            pointId: string;
+            name: string;
+            ruleType: string;
+            /** Format: double */
+            raiseAbove: number | string;
+            /** Format: double */
+            clearBelow: number | string;
+            /** Format: int32 */
+            raiseForMs: number | string;
+            /** Format: int32 */
+            clearForMs: number | string;
+            /** Format: int32 */
+            maxSampleGapMs: number | string;
+            severity: string;
+            enabled: boolean;
+            /** Format: int64 */
+            version: number | string;
+            hasActiveAlarm: boolean;
+            /** Format: date-time */
+            pendingRaiseSince: null | string;
+            /** Format: date-time */
+            pendingClearSince: null | string;
+            /** Format: date-time */
+            lastTrustedAt: null | string;
+        };
+        RuleInput: {
+            name: string;
+            /**
+             * Format: double
+             * @default 10
+             */
+            raiseAbove: number | string;
+            /**
+             * Format: double
+             * @default 8
+             */
+            clearBelow: number | string;
+            /**
+             * Format: int32
+             * @default 3000
+             */
+            raiseForMs: number | string;
+            /**
+             * Format: int32
+             * @default 5000
+             */
+            clearForMs: number | string;
+            /**
+             * Format: int32
+             * @default 2500
+             */
+            maxSampleGapMs: number | string;
+            /** @default High */
+            severity: string;
+            /** @default true */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            version: number | string;
         };
         SourceDto: {
             /** Format: uuid */

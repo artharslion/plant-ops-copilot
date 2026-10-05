@@ -131,3 +131,23 @@ dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .telemetry-configuration { border-top: 1px solid var(--line); margin-top: 25px; padding-top: 24px; }
 .telemetry-configuration h4 { margin-bottom: 0; }
 @media(max-width: 900px) { .measurement-summary { grid-template-columns: 1fr; } }
+.alarm-counts { display: grid; grid-template-columns: repeat(3, 1fr); margin: 22px 0; border-block: 1px solid var(--line); }
+.alarm-counts > div { display: flex; align-items: center; justify-content: space-between; padding: 20px 25px; border-right: 1px solid var(--line); }
+.alarm-counts > div:last-child { border: 0; }
+.alarm-counts span { font-size: 12px; color: var(--muted); }
+.alarm-counts strong { font-size: 32px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.alarm-list, .alarm-detail { padding: 28px; margin-top: 24px; border: 1px solid var(--line); background: #fff; }
+.alarm-table { margin-block: 22px; }
+.alarm-row, .alarm-row-heading { display: grid; grid-template-columns: 2fr 1.5fr 1.5fr 1.4fr; gap: 18px; align-items: center; text-align: left; }
+.alarm-row-heading { font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); padding: 15px 18px; }
+.alarm-row { width: 100%; color: #183732; background: transparent; padding: 22px 18px; border-bottom: 1px solid var(--line); border-left: 3px solid #b3cabc; font-size: 12px; }
+.alarm-row.active { border-left-color: #b46b37; }
+.alarm-row:hover, .alarm-row.selected { background: #eff4ec; color: #183732; }
+.alarm-row small { display: block; color: var(--muted); font-size: 10px; margin-top: 7px; }
+.alarm-state { font-weight: 600; }
+.alarm-status-note { display: flex; gap: 25px; flex-wrap: wrap; padding: 18px; background: #f4eee1; font-size: 12px; }
+.alarm-timeline { list-style: none; padding: 0; border-left: 2px solid #d6e3d9; margin-left: 8px; }
+.alarm-timeline li { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 22px 20px; font-size: 12px; }
+.alarm-timeline span, .alarm-timeline small { color: var(--muted); overflow-wrap: anywhere; }
+.rule-fields { border: 0; padding: 0; }
+@media (max-width: 850px) { .alarm-counts { grid-template-columns: 1fr; } .alarm-counts > div { border-right: 0; border-bottom: 1px solid var(--line); } .alarm-row, .alarm-row-heading { grid-template-columns: 1fr 1fr; } }
