@@ -113,3 +113,21 @@ dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 750px) { .login-layout { grid-template-columns: 1fr; padding-block: 35px; } .directory-grid { grid-template-columns: 1fr; } .location-panel { border-right: 0; border-bottom: 1px solid var(--line); } .directory-toolbar { flex-wrap: wrap; } .directory-form { grid-template-columns: 1fr; } .session-panel { margin: 0; } .sidebar { flex-wrap: wrap; } .login-path span { padding: 0 12px; } .section-title { flex-wrap: wrap; } }
 @media (max-width: 960px) { .app-shell { grid-template-columns: 180px minmax(0, 1fr); } .sidebar { padding: 25px 17px; } main { padding-inline: 25px; } .page-heading { flex-wrap: wrap; } .status-card { padding: 18px; } }
 @media (max-width: 650px) { .app-shell { display: block; } .sidebar { padding: 17px 20px; flex-direction: row; align-items: center; gap: 30px; } .nav-caption, .sidebar-note, .sidebar-footer { display: none; } .brand { font-size: 15px; } .brand-mark { padding: 8px; } .nav-item { margin: 0 0 0 auto; } main { padding: 0 20px 28px; } .page-heading { padding-top: 30px; } .status-grid { grid-template-columns: 1fr; } .status-card h2 { margin-top: 12px; font-size: 22px; } .path-panel { padding: 20px; } .path-steps { grid-template-columns: 1fr; } .path-steps li { display: flex; gap: 18px; border-right: 0; border-bottom: 1px solid var(--line); padding: 13px; } .path-steps b { margin: 0; } .fictional { display: none; } }
+.measurement-panel { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 28px; }
+.measurement-toolbar { display: flex; gap: 20px; align-items: end; flex-wrap: wrap; margin: 24px 0; }
+.measurement-toolbar label:first-child { flex: 1; min-width: 210px; }
+.measurement-summary { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 24px; padding: 22px; background: #f2f5ef; }
+.measurement-summary strong { font-size: 34px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.measurement-summary strong small { font-size: 13px; color: var(--muted); }
+.quality-tag { display: inline-block; font-size: 11px; padding: 5px 8px; background: #e4e8df; }
+.quality-tag.trusted { background: #dcefe3; color: #145a45; }
+.quality-tag.untrusted { background: #f4e6ca; color: #785415; }
+.trend-chart { margin-top: 24px; padding-top: 18px; }
+.trend-chart svg { width: 100%; overflow: visible; }
+.trend-chart svg text { font-size: 11px; fill: #74847c; }
+.telemetry-table { overflow-x: auto; max-height: 360px; margin-top: 18px; }
+.telemetry-table table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.telemetry-table th, .telemetry-table td { text-align: left; border-bottom: 1px solid var(--line); padding: 12px; overflow-wrap: anywhere; }
+.telemetry-configuration { border-top: 1px solid var(--line); margin-top: 25px; padding-top: 24px; }
+.telemetry-configuration h4 { margin-bottom: 0; }
+@media(max-width: 900px) { .measurement-summary { grid-template-columns: 1fr; } }

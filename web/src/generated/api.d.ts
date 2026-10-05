@@ -573,6 +573,363 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assets/{assetId}/measurement-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PointOverview"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PointInput"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PointOverview"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/measurement-points/{pointId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PointInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PointOverview"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/measurements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    pointId: string;
+                    from: string;
+                    to: string;
+                    bucket?: string;
+                };
+                header?: never;
+                path: {
+                    assetId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeasurementTrend"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plants/{plantId}/data-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    plantId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SourceDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    plantId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SourceInput"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SourceDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plants/{plantId}/data-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    plantId: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SourceInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SourceDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/measurement-points/{pointId}/source-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MappingDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MappingInput"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MappingDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/measurement-points/{pointId}/source-mappings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    pointId: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MappingInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MappingDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/system": {
         parameters: {
             query?: never;
@@ -683,6 +1040,121 @@ export interface components {
             userName: string;
             password: string;
         };
+        MappingDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            plantId: string;
+            /** Format: uuid */
+            pointId: string;
+            /** Format: uuid */
+            dataSourceId: string;
+            sourceKey: string;
+            rawUnit: string;
+            /** Format: double */
+            scale: number | string;
+            /** Format: double */
+            offset: number | string;
+            sourceParameters: string;
+            enabled: boolean;
+            /** Format: int64 */
+            version: number | string;
+        };
+        MappingInput: {
+            /** Format: uuid */
+            dataSourceId: string;
+            sourceKey: string;
+            /** @default mm/s */
+            rawUnit: string;
+            /**
+             * Format: double
+             * @default 1
+             */
+            scale: number | string;
+            /**
+             * Format: double
+             * @default 0
+             */
+            offset: number | string;
+            /** @default true */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            version: number | string;
+        };
+        MeasurementTrend: {
+            /** Format: uuid */
+            pointId: string;
+            unit: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            bucket: string;
+            /** Format: date-time */
+            checkedAt: string;
+            samples: components["schemas"]["TrendSample"][];
+            buckets: components["schemas"]["TrendBucket"][];
+            leadingGap: boolean;
+            trailingGap: boolean;
+        };
+        PointInput: {
+            code: string;
+            name: string;
+            /** @default Vibration */
+            quantity: string;
+            /** @default mm/s */
+            canonicalUnit: string;
+            /**
+             * Format: int32
+             * @default 1000
+             */
+            expectedIntervalMs: number | string;
+            /**
+             * Format: int32
+             * @default 5000
+             */
+            staleAfterMs: number | string;
+            /** @default true */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            version: number | string;
+        };
+        PointOverview: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assetId: string;
+            code: string;
+            name: string;
+            quantity: string;
+            canonicalUnit: string;
+            valueType: string;
+            /** Format: int32 */
+            expectedIntervalMs: number | string;
+            /** Format: int32 */
+            staleAfterMs: number | string;
+            enabled: boolean;
+            /** Format: int64 */
+            version: number | string;
+            latestObserved: null | components["schemas"]["ReadingSnapshot"];
+            lastGood: null | components["schemas"]["ReadingSnapshot"];
+            /** Format: date-time */
+            lastReceivedAt: null | string;
+            /** Format: uuid */
+            dataSourceId: null | string;
+            /** Format: uuid */
+            mappingId: null | string;
+            sourceKind: null | string;
+            sourceKey: null | string;
+            /** Format: int64 */
+            mappingVersion: null | number | string;
+        };
         ProblemDetails: {
             type?: null | string;
             title?: null | string;
@@ -690,6 +1162,89 @@ export interface components {
             status?: null | number | string;
             detail?: null | string;
             instance?: null | string;
+        };
+        ReadingSnapshot: {
+            /** Format: uuid */
+            id: string;
+            /** Format: double */
+            value: null | number | string;
+            quality: string;
+            /** Format: date-time */
+            effectiveAt: string;
+            /** Format: date-time */
+            receivedAt: string;
+            isFresh: boolean;
+            isTrusted: boolean;
+        };
+        SourceDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            plantId: string;
+            name: string;
+            kind: string;
+            enabled: boolean;
+            /** Format: int64 */
+            version: number | string;
+        };
+        SourceInput: {
+            name: string;
+            /** @default true */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            version: number | string;
+        };
+        TrendBucket: {
+            /** Format: date-time */
+            start: string;
+            /** Format: double */
+            min: null | number | string;
+            /** Format: double */
+            max: null | number | string;
+            /** Format: double */
+            average: null | number | string;
+            /** Format: int32 */
+            goodCount: number | string;
+            /** Format: int32 */
+            uncertainCount: number | string;
+            /** Format: int32 */
+            badCount: number | string;
+            /** Format: int32 */
+            anomalyCount: number | string;
+            hasGap: boolean;
+            /** Format: double */
+            coverageRatio: number | string;
+        };
+        TrendSample: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            effectiveAt: string;
+            /** Format: date-time */
+            receivedAt: string;
+            /** Format: double */
+            value: null | number | string;
+            quality: string;
+            timeAnomaly: boolean;
+            gapBefore: boolean;
+            /** Format: uuid */
+            dataSourceId: string;
+            /** Format: uuid */
+            sourceMappingId: string;
+            /** Format: int64 */
+            mappingVersion: number | string;
+            sourceKind: string;
+            timestampOrigin: string;
+            /** Format: date-time */
+            sourceTimestamp: null | string;
+            /** Format: date-time */
+            serverTimestamp: null | string;
+            /** Format: uint32 */
+            rawStatusCode: null | number | string;
+            statusSymbol: null | string;
         };
     };
     responses: never;
