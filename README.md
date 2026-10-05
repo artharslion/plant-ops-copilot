@@ -189,3 +189,5 @@ deploy/.env、appsettings.Local.json 和凭据不会提交。每个终端需要�
 当前限制：没有用户/授权管理界面、密码重置、生产静态托管或审计查询界面；角色/授权通过种子与 Identity 数据管理。本阶段每次请求重新校验账号及真实角色/范围，禁用、撤权对已有 Cookie 生效。未实现 SignalR，因此无实时连接需要撤销。生产部署还需配置 HTTPS、密钥持久化与实际用户生命周期，不属于本地 P1.2 验收。
 
 终端 Ctrl+C 关闭 Api/Worker/Web；`docker compose -f deploy/compose.yaml stop` 停止数据库并保留数据。密钥、客户端私钥、数据库备份和上传文件不得进入版本库。
+
+P1.5：设备详情下方可创建/处理维护工单并查看维修历史。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。验收见 docs/P1_5_VALIDATION.md。

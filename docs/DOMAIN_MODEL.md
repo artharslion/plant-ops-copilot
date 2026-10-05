@@ -121,6 +121,8 @@ Number 在工厂内唯一；AlarmId 必须同设备同工厂；AssignedTo 必须
 
 维修历史是资产的 Completed/Closed 工单及其备注投影，第一版不再维护一套易失同步的 MaintenanceHistory 表。
 
+P1.5 已实现工单及 WorkOrderNote（Id/WorkOrderId/Text/Kind/ActorUserId/OccurredAt）。CreatedAt 支持稳定游标，Number 为服务端 WO-UUID；备注及迁移与 version/AuditLog 同事务。关闭/取消后禁止追加；返工原因与旧结果由备注及审计回查。所有写操作 Engineer/Admin；指派仅允许启用且有同厂维护权限的用户。
+
 ### Document / DocumentVersion
 
 Document：`Id, PlantId, AssetId?, Title, Category, Visibility, AllowedRoles[], CurrentPublishedVersionId?, IsArchived, Version`。Visibility = PlantReaders / RestrictedRoles；角色列表仅限制读取，工厂授权始终必需。

@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<ITelemetryService, TelemetryService>();
         services.AddScoped<IAlarmRuntimeReset, AlarmRuntimeReset>();
         services.AddScoped<IAlarmService, AlarmService>();
+        services.AddScoped<PlantOps.Application.Maintenance.IWorkOrderService, PlantOps.Infrastructure.Maintenance.WorkOrderService>();
         services.AddIdentity<PlantOpsUser, IdentityRole>(options =>
         {
             options.Password.RequiredLength = 12;

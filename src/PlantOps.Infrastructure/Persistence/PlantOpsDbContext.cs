@@ -24,12 +24,15 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     public DbSet<RuleRuntimeState> RuleRuntimeStates => Set<RuleRuntimeState>();
     public DbSet<Alarm> Alarms => Set<Alarm>();
     public DbSet<AlarmEvent> AlarmEvents => Set<AlarmEvent>();
+    public DbSet<PlantOps.Domain.Maintenance.WorkOrder> WorkOrders => Set<PlantOps.Domain.Maintenance.WorkOrder>();
+    public DbSet<PlantOps.Domain.Maintenance.WorkOrderNote> WorkOrderNotes => Set<PlantOps.Domain.Maintenance.WorkOrderNote>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         TelemetryModel.Configure(modelBuilder);
         AlarmModel.Configure(modelBuilder);
+        MaintenanceModel.Configure(modelBuilder);
         modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);
         var access = modelBuilder.Entity<UserPlantAccess>();
         access.HasKey(x => new { x.UserId, x.PlantId });

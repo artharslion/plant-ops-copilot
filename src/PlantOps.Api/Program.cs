@@ -66,6 +66,7 @@ app.MapAuth();
 app.MapDirectory();
 app.MapTelemetry();
 app.MapAlarms();
+app.MapWorkOrders();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
