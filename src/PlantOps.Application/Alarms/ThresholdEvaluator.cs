@@ -20,7 +20,7 @@ public static class ThresholdEvaluator
             ResetPending(state);
         state.RuleVersion = rule.Version; state.MappingId = config.MappingId; state.MappingVersion = config.MappingVersion;
         state.SourceVersion = config.SourceVersion; state.PointVersion = config.PointVersion;
-        if (state.LastEvaluatedAt.HasValue && reading.EffectiveAt - state.LastEvaluatedAt > TimeSpan.FromMilliseconds(rule.MaxSampleGapMs))
+        if (state.LastEvaluatedAt.HasValue && reading.EffectiveAt - state.LastEvaluatedAt > TimeSpan.FromMilliseconds(Math.Min(rule.MaxSampleGapMs, config.StaleAfterMs)))
             ResetPending(state);
         state.LastEvaluatedAt = reading.EffectiveAt; state.Version++;
         if (!rule.Enabled || !SamplePolicy.IsGood(reading) || !SamplePolicy.IsFresh(reading.EffectiveAt, reading.ReceivedAt, config.StaleAfterMs)

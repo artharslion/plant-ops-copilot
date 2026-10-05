@@ -78,6 +78,13 @@ public sealed class ThresholdEvaluatorTests
         Assert.Null(ThresholdEvaluator.Evaluate(r, s, false, Reading(0), Config, At.AddSeconds(6)));
         Assert.False(s.LastInputTrusted); Assert.Null(s.PendingRaiseSince);
     }
+    [Fact]
+    public void StaleSilenceResetsTimerEvenWhenRuleAllowsLongerSampleGap()
+    {
+        var rule = new AlarmRule { MaxSampleGapMs = 30000 }; var state = new RuleRuntimeState();
+        Assert.Null(Apply(rule, state, 0)); Assert.Null(Apply(rule, state, 1));
+        Assert.Null(Apply(rule, state, 10)); Assert.Equal(At.AddSeconds(10), state.PendingRaiseSince);
+    }
 }
 
 
