@@ -191,3 +191,5 @@ deploy/.env、appsettings.Local.json 和凭据不会提交。每个终端需要�
 终端 Ctrl+C 关闭 Api/Worker/Web；`docker compose -f deploy/compose.yaml stop` 停止数据库并保留数据。密钥、客户端私钥、数据库备份和上传文件不得进入版本库。
 
 P1.5：设备详情下方可创建/处理维护工单并查看维修历史。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。验收见 docs/P1_5_VALIDATION.md。
+
+P1.6：知识资料入口上传工厂资料，设备详情上传设备资料。上传为草稿，发布后授权下载；修改读取角色或撤回立即生效。生产配置 Documents:StorageRoot（持久受控目录，须与数据库一起备份）；Development 默认 API 输出目录/document-storage。API 提供 /hubs/plant-events，只读通知、自动重连与 HTTP 补查。前端去重验证：npm test --prefix web。验收见 docs/P1_6_VALIDATION.md。

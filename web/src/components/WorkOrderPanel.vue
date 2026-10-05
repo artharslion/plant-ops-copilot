@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { request } from '../api'
 import { useSession } from '../stores/session'
+import { subscribePlantEvents } from '../realtime'
 const props = defineProps<{ assetId: string; plantId: string; archived?: boolean; history?: boolean }>()
 type Order = { id: string; number: string; title: string; description: string; priority: string; status: string; version: number; alarmId: string | null; assignedToUserId: string | null; resolution: string | null; createdAt: string; completedAt: string | null; closedAt: string | null }
 type Note = { id: string; text: string; kind: string; actorUserId: string; occurredAt: string }
@@ -36,6 +37,14 @@ async function mutate(status?: string) { if (!selected.value) return; busy.value
   catch (e) { error.value = e instanceof Error ? e.message : '保存失败。' } finally { busy.value = false }
 }
 onMounted(() => load())
+async function refreshState() {
+  if (busy.value || creating.value) return
+  if (selected.value && (note.value || reason.value || resolution.value !== (selected.value.resolution ?? ''))) { notice.value = '维护状态可能已变化。请刷新工单并检查后再保存。'; return }
+  if (selected.value) await select(selected.value); else await load()
+}
+const unsubscribe = subscribePlantEvents(event => { if (!event || event.plantId === props.plantId && event.eventType === 'WorkOrderChanged') void refreshState() })
+const timer = setInterval(() => { void refreshState() }, 5000)
+onUnmounted(() => { unsubscribe(); clearInterval(timer) })
 </script>
 <template>
   <section class="asset-detail"><div class="section-title"><div><p class="eyebrow">MAINTENANCE</p><h2>{{ history ? '维修历史' : '维护工单' }}</h2></div><div class="actions"><button :disabled="busy" class="secondary" @click="load()">刷新工单</button><button v-if="writer && !archived && !history" :disabled="busy" @click="prepare">创建工单</button></div></div>

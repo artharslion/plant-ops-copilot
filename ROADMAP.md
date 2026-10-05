@@ -21,7 +21,7 @@ Phase 1 用 Simulation Source 完成路径；Phase 2 保留该模式并增加 OP
 | P1.3（已完成） | MeasurementPoint、DataSource/SourceMapping、IMeasurementSource 与可重复 Simulation Source、MeasurementReading 批写、LatestObserved/LastGood、趋势 API/UI | 34 测试通过（20 真 PostgreSQL）；Worker 实际入库；质量/时间/来源版本可见；Bad/Uncertain 不替换 LastGood；乱序/未来不回退；停采陈旧；Admin 编辑与 Viewer 浏览；分钟统计缺口可见 |
 | P1.4（已完成） | AlarmRule、持续时间、回差、Alarm/AlarmEvent、确认 API 与告警台 | 51 测试通过（27 真 PostgreSQL）；持续/回差/坏值/陈旧/迟到；去重/重启/事务回滚；角色/工厂/防伪/并发；实际 Worker→确认→恢复及规则编辑页面 |
 | P1.5（已完成） | WorkOrder 状态机、备注、告警关联与维修历史 | 9 工单测试；状态机/取消/返工/结果要求，范围/角色/CSRF/409/回滚；实际工程师创建→关闭，见 docs/P1_5_VALIDATION.md |
-| P1.6 | 文档上传/版本/发布/下载、文档 ACL；SignalR + Outbox | 未授权下载失败；断开重连能恢复页面；重复事件不重复显示 |
+| P1.6（已完成） | 文档上传/版本/发布/下载、文档 ACL；SignalR + Outbox | 7 文档/Outbox 测试与前端去重；实际上传/发布、断线重连补查；见 docs/P1_6_VALIDATION.md |
 | P1.7 | 测量分区/分钟聚合/保留任务；完整演示和必要测试；补 README 实际命令 | 查询与推送指标达到规格；清理不会删除未聚合数据 |
 
 **阶段验收**：使用 2 个虚构工厂和多角色账号跑通 README 演示路径；不配置模型密钥、不开 OPC UA Server，系统仍可启动和完成闭环。证明数据库重启后业务可恢复，范围外读取/写入被阻止。

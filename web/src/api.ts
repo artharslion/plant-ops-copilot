@@ -10,12 +10,12 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
   if (method !== 'GET') {
     const csrf = await request<{ token: string }>('/auth/csrf')
     headers['X-CSRF-TOKEN'] = csrf.token
-    if (body !== undefined) headers['Content-Type'] = 'application/json'
+    if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json'
   }
   let response: Response
   try {
     response = await fetch(`/api/v1${path}`, { method, headers, credentials: 'same-origin', cache: 'no-store',
-      signal: AbortSignal.timeout(10000), body: body === undefined ? undefined : JSON.stringify(body) })
+      signal: AbortSignal.timeout(10000), body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body) })
   } catch { throw new ApiError(0, '无法连接服务，请检查连接后重试。') }
   if (!response.ok) {
     const problem = await response.json().catch(() => ({})) as { title?: string; correlationId?: string }
@@ -27,6 +27,14 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
     throw new ApiError(response.status, messages[response.status] ?? problem.title ?? `请求失败 (${response.status})`)
   }
   return response.status === 204 ? undefined as T : await response.json() as T
+}
+export async function downloadDocument(path: string, fileName: string) {
+  let response: Response
+  try { response = await fetch(`/api/v1${path}`, { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(10000) }) }
+  catch { throw new ApiError(0, '无法连接服务，请重试。') }
+  if (!response.ok) throw new ApiError(response.status, response.status === 404 ? '文档未发布、已撤回或不在授权范围内。' : '文档下载失败，请刷新并检查权限。')
+  const url = URL.createObjectURL(await response.blob()), link = document.createElement('a')
+  link.href = url; link.download = fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 export async function listAll(path: string): Promise<DirectoryRecord[]> {
   const items: DirectoryRecord[] = []

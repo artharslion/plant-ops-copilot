@@ -26,6 +26,34 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     public DbSet<AlarmEvent> AlarmEvents => Set<AlarmEvent>();
     public DbSet<PlantOps.Domain.Maintenance.WorkOrder> WorkOrders => Set<PlantOps.Domain.Maintenance.WorkOrder>();
     public DbSet<PlantOps.Domain.Maintenance.WorkOrderNote> WorkOrderNotes => Set<PlantOps.Domain.Maintenance.WorkOrderNote>();
+    public DbSet<PlantOps.Domain.Knowledge.Document> Documents => Set<PlantOps.Domain.Knowledge.Document>();
+    public DbSet<PlantOps.Domain.Knowledge.DocumentVersion> DocumentVersions => Set<PlantOps.Domain.Knowledge.DocumentVersion>();
+    public DbSet<PlantOps.Domain.Operations.OutboxEvent> OutboxEvents => Set<PlantOps.Domain.Operations.OutboxEvent>();
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        ChangeTracker.DetectChanges();
+        var now = DateTimeOffset.UtcNow;
+        foreach (var entry in ChangeTracker.Entries().Where(x => x.State is EntityState.Added or EntityState.Modified).ToList())
+        {
+            (Guid plant, Guid id, long version, string type)? evt = entry.Entity switch
+            {
+                Asset x => (x.PlantId, x.Id, x.Version, "AssetChanged"),
+                Alarm x => (x.PlantId, x.Id, x.Version, "AlarmChanged"),
+                PlantOps.Domain.Maintenance.WorkOrder x => (x.PlantId, x.Id, x.Version, "WorkOrderChanged"),
+                PlantOps.Domain.Knowledge.Document x => (x.PlantId, Guid.Empty, x.Version, "DocumentsChanged"),
+                PointLatestState x => (Guid.Empty, x.PointId, x.Version, "MeasurementChanged"),
+                _ => null
+            };
+            if (evt is { } e)
+            {
+                var plant = e.plant;
+                if (plant == Guid.Empty) plant = await MeasurementPoints.Where(x => x.Id == e.id).Select(x => x.PlantId).SingleAsync(cancellationToken);
+                OutboxEvents.Add(new PlantOps.Domain.Operations.OutboxEvent { PlantId = plant, EntityId = e.id, EntityVersion = e.version, EventType = e.type, OccurredAt = now, AvailableAt = now });
+            }
+        }
+        return await base.SaveChangesAsync(cancellationToken);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +61,7 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         TelemetryModel.Configure(modelBuilder);
         AlarmModel.Configure(modelBuilder);
         MaintenanceModel.Configure(modelBuilder);
+        KnowledgeModel.Configure(modelBuilder);
         modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);
         var access = modelBuilder.Entity<UserPlantAccess>();
         access.HasKey(x => new { x.UserId, x.PlantId });

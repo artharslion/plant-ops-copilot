@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { request } from '../api'
 import type { components } from '../generated/api'
 import TelemetryConfiguration from './TelemetryConfiguration.vue'
+import { subscribePlantEvents } from '../realtime'
 type Point = components['schemas']['PointOverview']
 type Trend = components['schemas']['MeasurementTrend']
 const props = defineProps<{ assetId: string; plantId: string; admin: boolean; archived: boolean }>()
@@ -34,7 +35,8 @@ async function refresh() {
 function change() { generation++; busy.value = false; trend.value = null; void refresh() }
 watch(() => props.assetId, () => { generation++; busy.value = false; points.value = []; pointId.value = ''; trend.value = null; error.value = ''; configure.value = false; void refresh() }, { immediate: true })
 timer = setInterval(() => { if (auto.value && !configure.value) void refresh() }, 5000)
-onUnmounted(() => { generation++; clearInterval(timer) })
+const unsubscribe = subscribePlantEvents(event => { if (!configure.value && auto.value && (!event || event.plantId === props.plantId && event.eventType === 'MeasurementChanged')) void refresh() })
+onUnmounted(() => { generation++; clearInterval(timer); unsubscribe() })
 const chart = computed(() => {
   const t = trend.value
   if (!t) return { segments: [] as string[], dots: [] as { x: number; y: number }[], max: 1, min: 0 }

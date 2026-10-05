@@ -131,6 +131,8 @@ DocumentVersion：`Id, DocumentId, VersionNumber, FileName, MediaType, StorageKe
 
 Status = Draft / Published / Withdrawn；IndexStatus = NotRequested / Pending / Processing / Ready / NeedsText / Failed。发布事务更新当前发布版本，旧版本内容保留但默认 RAG 只检索当前版本。撤回、ACL 更改和归档立即阻止检索/下载；后台删除向量可延迟，但查询必须实时校验源文档状态。历史引用受当前权限约束，不能借旧链接绕过撤回。
 
+P1.6 已实现文档/版本/ACL，当前版本撤回后全部历史链接拒绝，单独撤回旧版本则该版本拒绝。读取文档元数据需同厂与 ACL，普通读者仅可见有发布版本的文档及 Published 版本；维护角色可查看自己的授权范围内草稿。最多 200 内容版本，版本号不可变，文件 SHA-256 可追溯。PDF 为 NeedsText，Phase 1 不解析或索引。
+
 ### User
 
 `Id, IdentitySubject, DisplayName, IsEnabled, Roles, SecurityStamp`；密码哈希等由 Identity 管理，不在 API DTO 暴露。

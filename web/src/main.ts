@@ -6,17 +6,18 @@ import OverviewPage from './pages/OverviewPage.vue'
 import LoginPage from './pages/LoginPage.vue'
 import AssetDirectoryPage from './pages/AssetDirectoryPage.vue'
 import AlarmsPage from './pages/AlarmsPage.vue'
+import DocumentsPage from './pages/DocumentsPage.vue'
 import { useSession } from './stores/session'
 import './style.css'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [{ path: '/', component: OverviewPage }, { path: '/login', component: LoginPage },
-    { path: '/assets', component: AssetDirectoryPage }, { path: '/alarms', component: AlarmsPage }, { path: '/:pathMatch(.*)*', redirect: '/' }],
+    { path: '/assets', component: AssetDirectoryPage }, { path: '/alarms', component: AlarmsPage }, { path: '/documents', component: DocumentsPage }, { path: '/:pathMatch(.*)*', redirect: '/' }],
 })
 const pinia = createPinia()
 router.beforeEach(async to => {
-  if (!['/assets', '/alarms'].includes(to.path)) return
+  if (!['/assets', '/alarms', '/documents'].includes(to.path)) return
   const session = useSession(pinia)
   try { await session.load() } catch { return '/login' }
   if (!session.user) return '/login'

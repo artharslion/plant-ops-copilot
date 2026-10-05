@@ -31,6 +31,8 @@ public static class DependencyInjection
         services.AddScoped<IAlarmRuntimeReset, AlarmRuntimeReset>();
         services.AddScoped<IAlarmService, AlarmService>();
         services.AddScoped<PlantOps.Application.Maintenance.IWorkOrderService, PlantOps.Infrastructure.Maintenance.WorkOrderService>();
+        services.AddScoped<PlantOps.Application.Knowledge.IDocumentService, PlantOps.Infrastructure.Knowledge.DocumentService>();
+        services.AddSingleton<PlantOps.Application.Knowledge.IDocumentFileStore, PlantOps.Infrastructure.Knowledge.LocalDocumentFileStore>();
         services.AddIdentity<PlantOpsUser, IdentityRole>(options =>
         {
             options.Password.RequiredLength = 12;

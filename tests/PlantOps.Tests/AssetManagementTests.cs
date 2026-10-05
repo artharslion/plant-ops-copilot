@@ -44,6 +44,7 @@ public sealed class AssetManagementTests
         public string Name { get; } = "test-" + Guid.NewGuid().ToString("N");
         public string UserId { get; private set; } = "";
         public string Token { get; private set; } = "";
+        public string DocumentRoot => Path.GetFullPath(Path.Combine("artifacts", "test-documents"));
         public Session(TimeProvider? clock = null)
         {
             Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -51,6 +52,8 @@ public sealed class AssetManagementTests
                 builder.UseEnvironment("Development");
                 builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> {
                     ["ConnectionStrings:PlantOps"] = TestDatabase.Connection, ["Demo:Password"] = Password,
+                    ["Realtime:Enabled"] = "false",
+                    ["Documents:StorageRoot"] = DocumentRoot,
                     ["Logging:LogLevel:Default"] = "Warning" }));
                 builder.ConfigureServices(services => services.AddDbContext<PlantOpsDbContext>(options => options.AddInterceptors(Failure)));
                 if (clock != null) builder.ConfigureServices(services => services.AddSingleton(clock));

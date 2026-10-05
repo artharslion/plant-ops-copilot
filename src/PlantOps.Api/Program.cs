@@ -12,6 +12,13 @@ builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["correlationId"] = ctx.HttpContext.TraceIdentifier);
 builder.Services.AddOpenApi();
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<PlantConnections>();
+builder.Services.AddScoped<SignalRPlantPublisher>();
+builder.Services.AddScoped<PlantOps.Application.Operations.IPlantEventPublisher>(s => s.GetRequiredService<SignalRPlantPublisher>());
+builder.Services.AddScoped<PlantOps.Application.Operations.IOutboxDispatcher, PlantOps.Infrastructure.Operations.OutboxDispatcher>();
+if (builder.Configuration["Realtime:Enabled"] != "false") builder.Services.AddHostedService<PlantEventWorker>();
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = 11 * 1024 * 1024);
 builder.Services.AddAntiforgery(o =>
 {
     o.HeaderName = "X-CSRF-TOKEN";
@@ -43,6 +50,9 @@ app.Use(async (ctx, next) =>
 {
     try
     {
+        if (ctx.Request.Path.StartsWithSegments("/hubs") && ctx.Request.Headers.Origin.Count > 0
+            && ctx.Request.Headers.Origin.ToString() != $"{ctx.Request.Scheme}://{ctx.Request.Host}")
+        { await Results.Problem(statusCode: 403, title: "Same-origin realtime connection required.").ExecuteAsync(ctx); return; }
         if (ctx.User.Identity?.IsAuthenticated == true)
         {
             var users = ctx.RequestServices.GetRequiredService<UserManager<PlantOpsUser>>();
@@ -67,6 +77,8 @@ app.MapDirectory();
 app.MapTelemetry();
 app.MapAlarms();
 app.MapWorkOrders();
+app.MapDocuments();
+app.MapHub<PlantEventsHub>("/hubs/plant-events");
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

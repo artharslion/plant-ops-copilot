@@ -5,6 +5,7 @@ import { listAll, request, type DirectoryRecord } from '../api'
 import { useSession } from '../stores/session'
 import type { components } from '../generated/api'
 import AlarmRuleConfiguration from '../components/AlarmRuleConfiguration.vue'
+import { subscribePlantEvents } from '../realtime'
 type Alarm = components['schemas']['AlarmDto']
 type Page = components['schemas']['AlarmPage']
 type Event = components['schemas']['AlarmEventDto']
@@ -62,7 +63,8 @@ onMounted(async () => {
   finally { busy.value = false; await refresh() }
 })
 const timer = setInterval(() => { if (auto.value && !configuring.value) void refresh() }, 5000)
-onUnmounted(() => { generation++; clearInterval(timer) })
+const unsubscribe = subscribePlantEvents(event => { if (!configuring.value && auto.value && (!event || event.plantId === plantId.value && event.eventType === 'AlarmChanged')) void refresh() })
+onUnmounted(() => { generation++; clearInterval(timer); unsubscribe() })
 </script>
 <template>
   <header class="topbar"><span>工作空间 / 告警台</span><span class="stage-chip">{{ session.user?.roles.join(' / ') }}</span></header>
