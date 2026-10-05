@@ -80,10 +80,13 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
             .HasPrincipalKey(x => new { x.PlantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
     }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    private void CheckImmutableReadings()
     {
         if (ChangeTracker.Entries<MeasurementReading>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Measurement readings are immutable.");
-        return base.SaveChangesAsync(cancellationToken);
     }
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    { CheckImmutableReadings(); return base.SaveChanges(acceptAllChangesOnSuccess); }
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    { CheckImmutableReadings(); return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken); }
 }

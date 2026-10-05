@@ -149,6 +149,43 @@ public sealed class TelemetryTests
     private static async Task<IReadOnlyList<SourceConfiguration>> ConfigurationList(AssetManagementTests.Session s)
     { await using var scope = s.Factory.Services.CreateAsyncScope(); return await scope.ServiceProvider.GetRequiredService<ISourceConfigurationReader>().GetEnabledAsync(); }
 
+    [DatabaseFact]
+    public async Task SourceAndMappingVersionsAndRepeatedSeedPreserveEdits()
+    {
+        await using var s = new AssetManagementTests.Session(); await s.Initialize(); await s.Login(); var f = await Configure(s);
+        var path = $"/api/v1/assets/{f.Asset.Id}/measurement-points/{f.Point.Id}/source-mappings/{f.Mapping.Id}";
+        var disabled = new MappingInput(f.Source.Id, f.Mapping.SourceKey, Enabled: false, Version: f.Mapping.Version);
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync(path, disabled)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await s.Client.PatchAsJsonAsync(path, disabled)).StatusCode);
+        var changed = new MappingInput(f.Source.Id, "new-key", Scale: 2, Enabled: false, Version: f.Mapping.Version + 1);
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync(path, changed)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync(path, changed with { Enabled = true, Version = changed.Version + 1 })).StatusCode);
+        var c = await Configuration(s, f.Point.Id); Assert.Equal(2, c.Scale); Assert.Equal("new-key", c.SourceKey);
+        var sourcePath = $"/api/v1/plants/{North}/data-sources/{f.Source.Id}";
+        var source = new SourceInput("Stopped", false, f.Source.Version);
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync(sourcePath, source)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await s.Client.PatchAsJsonAsync(sourcePath, source)).StatusCode);
+        Assert.DoesNotContain(await ConfigurationList(s), x => x.PointId == f.Point.Id);
+        await using var scope = s.Factory.Services.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        var seedId = Guid.Parse("40000000-0000-0000-0000-000000000001");
+        var seed = await db.MeasurementPoints.SingleAsync(x => x.Id == seedId);
+        var oldName = seed.Name; var oldEnabled = seed.Enabled;
+        seed.Name = "Preserve telemetry edit"; seed.Enabled = false; await db.SaveChangesAsync();
+        try
+        {
+            await DevelopmentDatabaseInitializer.InitializeAsync(db, "Development");
+            await DevelopmentDatabaseInitializer.InitializeAsync(db, "Development"); await db.Entry(seed).ReloadAsync();
+            Assert.Equal("Preserve telemetry edit", seed.Name); Assert.False(seed.Enabled);
+            Assert.Single(await db.MeasurementPoints.Where(x => x.Id == seedId).ToListAsync());
+            Assert.Equal(4, await db.AuditLogs.CountAsync(x => x.ResourceId == f.Mapping.Id));
+            Assert.Equal(2, await db.AuditLogs.CountAsync(x => x.ResourceId == f.Source.Id));
+        }
+        finally { seed.Name = oldName; seed.Enabled = oldEnabled; await db.SaveChangesAsync(); }
+        // The relational constraint independently rejects a foreign-plant point, even without the API.
+        db.MeasurementPoints.Add(new MeasurementPoint { Id = Guid.NewGuid(), PlantId = South, AssetId = f.Asset.Id, Code = "Invalid", Name = "Invalid" });
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+    }
+
     [Fact]
     public void SimulationAndMinuteTrendsAreDeterministicAndExposeInvalidDataAndGaps()
     {
