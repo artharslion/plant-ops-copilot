@@ -144,6 +144,8 @@ public sealed class AssetDirectory(PlantOpsDbContext db, UserManager<PlantOpsUse
         }
         if (kind == "assets" && !await db.Locations.AnyAsync(x => x.Id == input.LocationId && x.PlantId == scopeId && !x.IsArchived))
             throw new DirectoryException(400, "Asset location must be active and in the same plant.");
+        if (kind == "assets" && input.IsArchived && await db.Alarms.AnyAsync(x => x.AssetId == id && x.State == "Active"))
+            throw new DirectoryException(400, "An asset with an active alarm cannot be archived. Acknowledgement does not recover it.");
         var version = (before?.Version ?? 0) + 1;
         var entityId = id ?? (kind == "plants" ? scopeId : Guid.NewGuid());
         switch (kind)

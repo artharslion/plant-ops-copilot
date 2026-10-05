@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PlantOps.Application.Telemetry;
 using PlantOps.Domain.Telemetry;
 using PlantOps.Infrastructure.Persistence;
+using PlantOps.Infrastructure.Alarms;
 
 namespace PlantOps.Infrastructure.Telemetry;
 
@@ -21,7 +22,7 @@ public sealed class SourceConfigurationReader(PlantOpsDbContext db) : ISourceCon
             .ToListAsync(cancellationToken);
 }
 
-public sealed class MeasurementIngestor(PlantOpsDbContext db) : IMeasurementIngestor
+public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock) : IMeasurementIngestor
 {
     public async Task<IngestResult> IngestAsync(IReadOnlyList<NormalizedSample> samples, CancellationToken cancellationToken = default)
     {
@@ -51,6 +52,9 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db) : IMeasurementInge
             .Select(x => new { x.PointId, x.SourceEventKey }).ToListAsync(cancellationToken))
             .Select(x => (x.PointId, x.SourceEventKey)).ToHashSet();
         var states = await db.PointLatestStates.Where(x => pointIds.Contains(x.PointId)).ToDictionaryAsync(x => x.PointId, cancellationToken);
+        var alarms = new AlarmBatchEvaluator(db, clock);
+        await alarms.LoadAsync(pointIds, cancellationToken);
+        var correlation = "ingest-" + Guid.NewGuid().ToString("N");
         // Reset tracked snapshots after acquiring the lock if this scope was used before.
         foreach (var state in states.Values) await db.Entry(state).ReloadAsync(cancellationToken);
         var inserted = 0;
@@ -67,6 +71,7 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db) : IMeasurementInge
             var reading = SamplePolicy.ToReading(sample);
             db.MeasurementReadings.Add(reading);
             SamplePolicy.Apply(state, reading, c.StaleAfterMs); state.Version++; inserted++;
+            await alarms.ApplyAsync(reading, c, correlation, cancellationToken);
         }
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

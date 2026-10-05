@@ -10,6 +10,8 @@ using PlantOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using PlantOps.Application.Telemetry;
 using PlantOps.Infrastructure.Telemetry;
+using PlantOps.Application.Alarms;
+using PlantOps.Infrastructure.Alarms;
 
 namespace PlantOps.Infrastructure;
 
@@ -26,6 +28,8 @@ public static class DependencyInjection
         services.AddScoped<ISourceConfigurationReader, SourceConfigurationReader>();
         services.AddScoped<IMeasurementIngestor, MeasurementIngestor>();
         services.AddScoped<ITelemetryService, TelemetryService>();
+        services.AddScoped<IAlarmRuntimeReset, AlarmRuntimeReset>();
+        services.AddScoped<IAlarmService, AlarmService>();
         services.AddIdentity<PlantOpsUser, IdentityRole>(options =>
         {
             options.Password.RequiredLength = 12;

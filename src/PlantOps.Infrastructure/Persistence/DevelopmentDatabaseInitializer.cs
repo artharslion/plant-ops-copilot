@@ -50,6 +50,11 @@ public static class DevelopmentDatabaseInitializer
             db.SourceMappings.Add(new SourceMapping { Id = mappingId, PlantId = plantId, PointId = pointId,
                 DataSourceId = sourceId, SourceKey = "P101.VibrationRms" });
         await db.SaveChangesAsync(cancellationToken);
+        var ruleId = Guid.Parse("70000000-0000-0000-0000-000000000001");
+        if (!await db.AlarmRules.AnyAsync(x => x.Id == ruleId, cancellationToken))
+            db.AlarmRules.Add(new PlantOps.Domain.Alarms.AlarmRule { Id = ruleId, PlantId = plantId, PointId = pointId,
+                Name = "P-101 high vibration" });
+        await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 }

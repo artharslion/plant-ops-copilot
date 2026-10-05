@@ -44,7 +44,7 @@ public sealed class AssetManagementTests
         public string Name { get; } = "test-" + Guid.NewGuid().ToString("N");
         public string UserId { get; private set; } = "";
         public string Token { get; private set; } = "";
-        public Session()
+        public Session(TimeProvider? clock = null)
         {
             Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
@@ -53,6 +53,7 @@ public sealed class AssetManagementTests
                     ["ConnectionStrings:PlantOps"] = TestDatabase.Connection, ["Demo:Password"] = Password,
                     ["Logging:LogLevel:Default"] = "Warning" }));
                 builder.ConfigureServices(services => services.AddDbContext<PlantOpsDbContext>(options => options.AddInterceptors(Failure)));
+                if (clock != null) builder.ConfigureServices(services => services.AddSingleton(clock));
             });
             Client = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         }

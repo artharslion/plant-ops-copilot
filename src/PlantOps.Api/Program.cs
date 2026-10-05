@@ -65,10 +65,11 @@ app.Use(async (ctx, next) =>
 app.MapAuth();
 app.MapDirectory();
 app.MapTelemetry();
+app.MapAlarms();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapGet("/api/v1/system", () => new { name = "Plant Ops Copilot", stage = "P1.3", version = "0.3.0" })
+    app.MapGet("/api/v1/system", () => new { name = "Plant Ops Copilot", stage = "P1.4", version = "0.4.0" })
         .WithName("GetSystemInfo");
 }
 app.Run();

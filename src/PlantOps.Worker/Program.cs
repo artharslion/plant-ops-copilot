@@ -24,5 +24,5 @@ app.UseHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.UseHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 // Explicit ordering also prevents minimal-host automatic authentication preceding health probes.
 app.UseAuthentication();
-app.Logger.LogInformation("PlantOps Worker started. No OPC UA, alarm rules or AI jobs are enabled.");
+app.Logger.LogInformation("PlantOps Worker started. Simulation and deterministic alarm rules are enabled; OPC UA and AI are not configured.");
 await app.RunAsync();

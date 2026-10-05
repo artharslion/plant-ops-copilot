@@ -4,6 +4,7 @@ using PlantOps.Domain.Identity;
 using PlantOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using PlantOps.Domain.Telemetry;
+using PlantOps.Domain.Alarms;
 
 namespace PlantOps.Infrastructure.Persistence;
 
@@ -19,11 +20,16 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     public DbSet<SourceMapping> SourceMappings => Set<SourceMapping>();
     public DbSet<MeasurementReading> MeasurementReadings => Set<MeasurementReading>();
     public DbSet<PointLatestState> PointLatestStates => Set<PointLatestState>();
+    public DbSet<AlarmRule> AlarmRules => Set<AlarmRule>();
+    public DbSet<RuleRuntimeState> RuleRuntimeStates => Set<RuleRuntimeState>();
+    public DbSet<Alarm> Alarms => Set<Alarm>();
+    public DbSet<AlarmEvent> AlarmEvents => Set<AlarmEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         TelemetryModel.Configure(modelBuilder);
+        AlarmModel.Configure(modelBuilder);
         modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);
         var access = modelBuilder.Entity<UserPlantAccess>();
         access.HasKey(x => new { x.UserId, x.PlantId });
@@ -82,6 +88,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
 
     private void CheckImmutableReadings()
     {
+        if (ChangeTracker.Entries<AlarmEvent>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Alarm events are immutable.");
         if (ChangeTracker.Entries<MeasurementReading>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Measurement readings are immutable.");
     }

@@ -1,4 +1,5 @@
 using PlantOps.Application.Telemetry;
+using PlantOps.Application.Alarms;
 
 namespace PlantOps.Worker;
 
@@ -7,14 +8,21 @@ public sealed class MeasurementWorker(IServiceScopeFactory scopes, IEnumerable<I
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!configuration.GetValue("Telemetry:SimulationEnabled", true))
-        { logger.LogInformation("Simulation collection is disabled."); return; }
+        var simulationEnabled = configuration.GetValue("Telemetry:SimulationEnabled", true);
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        var initialized = false;
         logger.LogInformation("Single-worker simulation collection enabled. Only configured active mappings are collected.");
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                if (!initialized)
+                {
+                    await using var startupScope = scopes.CreateAsyncScope();
+                    await startupScope.ServiceProvider.GetRequiredService<IAlarmRuntimeReset>().ResetAsync(stoppingToken);
+                    initialized = true;
+                }
+                if (!simulationEnabled) { logger.LogInformation("Pending alarm timers reset; simulation collection is disabled."); return; }
                 IReadOnlyList<SourceConfiguration> configurations;
                 await using (var scope = scopes.CreateAsyncScope())
                     configurations = await scope.ServiceProvider.GetRequiredService<ISourceConfigurationReader>().GetEnabledAsync(stoppingToken);

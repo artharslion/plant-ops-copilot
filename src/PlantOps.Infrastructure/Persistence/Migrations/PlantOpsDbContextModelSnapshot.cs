@@ -154,6 +154,224 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Alarms.Alarm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AcknowledgedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastEvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RecoveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RuleVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ThresholdSnapshot")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("TriggerReadingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("TriggerValue")
+                        .HasColumnType("double precision");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RuleId")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'Active'");
+
+                    b.HasIndex("PlantId", "AssetId", "PointId");
+
+                    b.HasIndex("PlantId", "PointId", "RuleId");
+
+                    b.HasIndex("PlantId", "StartedAt", "Id");
+
+                    b.ToTable("Alarms", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Alarm_State", "\"State\" IN ('Active','Recovered')");
+                        });
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.AlarmEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid>("AlarmId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReadingId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlarmId", "OccurredAt");
+
+                    b.ToTable("AlarmEvents");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.AlarmRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("ClearBelow")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("ClearForMs")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MaxSampleGapMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("RaiseAbove")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("RaiseForMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RuleType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PointId");
+
+                    b.ToTable("AlarmRules", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Rule_Threshold", "\"ClearBelow\" < \"RaiseAbove\" AND \"RaiseAbove\" > '-Infinity'::double precision AND \"RaiseAbove\" < 'Infinity'::double precision AND \"ClearBelow\" > '-Infinity'::double precision AND \"ClearBelow\" < 'Infinity'::double precision AND \"RaiseForMs\" BETWEEN 0 AND 300000 AND \"ClearForMs\" BETWEEN 0 AND 300000 AND \"MaxSampleGapMs\" BETWEEN 1 AND 300000 AND \"Severity\" IN ('Low','Medium','High') AND \"RuleType\" = 'HighThreshold'");
+                        });
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.RuleRuntimeState", b =>
+                {
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LastEvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("LastInputTrusted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LastTrustedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("MappingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("MappingVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("PendingClearSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("PendingRaiseSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("PointVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("RuleVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SourceVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("RuleId");
+
+                    b.ToTable("RuleRuntimeStates");
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Assets.Asset", b =>
                 {
                     b.Property<Guid>("Id")
@@ -795,6 +1013,51 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.Alarm", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId", "PointId")
+                        .HasPrincipalKey("PlantId", "AssetId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Alarms.AlarmRule", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "PointId", "RuleId")
+                        .HasPrincipalKey("PlantId", "PointId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.AlarmEvent", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Alarms.Alarm", null)
+                        .WithMany()
+                        .HasForeignKey("AlarmId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.AlarmRule", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "PointId")
+                        .HasPrincipalKey("PlantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Alarms.RuleRuntimeState", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Alarms.AlarmRule", null)
+                        .WithOne()
+                        .HasForeignKey("PlantOps.Domain.Alarms.RuleRuntimeState", "RuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
