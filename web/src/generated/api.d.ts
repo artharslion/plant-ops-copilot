@@ -1784,6 +1784,7 @@ export interface components {
             /** Format: int64 */
             version: number | string;
             currentObservationTrusted: boolean;
+            triggerReadingAvailable: boolean;
         };
         AlarmEventDto: {
             /** Format: uuid */

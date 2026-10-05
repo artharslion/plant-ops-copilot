@@ -12,7 +12,7 @@ public sealed class LocalDocumentFileStore(IConfiguration config, IHostEnvironme
         {
             if (!environment.IsDevelopment())
                 throw new InvalidOperationException("Configure Documents:StorageRoot.");
-            root = System.IO.Path.Combine(AppContext.BaseDirectory, "document-storage");
+            root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PlantOpsCopilot", "documents");
         }
         root = System.IO.Path.GetFullPath(root); Directory.CreateDirectory(root); return System.IO.Path.Combine(root, key);
     }

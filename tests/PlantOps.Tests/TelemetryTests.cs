@@ -149,6 +149,28 @@ public sealed class TelemetryTests
     private static async Task<IReadOnlyList<SourceConfiguration>> ConfigurationList(AssetManagementTests.Session s)
     { await using var scope = s.Factory.Services.CreateAsyncScope(); return await scope.ServiceProvider.GetRequiredService<ISourceConfigurationReader>().GetEnabledAsync(); }
 
+    private sealed class HistoricalClock(DateTimeOffset at) : TimeProvider { public override DateTimeOffset GetUtcNow() => at; }
+    [DatabaseFact]
+    public async Task RetainedMinutesAndSnapshotsPreventRelabelingUnitsAfterRawDeletion()
+    {
+        await using var s = new AssetManagementTests.Session(connection: await TestDatabase.IsolatedConnection()); await s.Initialize(); await s.Login(); var f = await Configure(s);
+        var c = await Configuration(s, f.Point.Id); var old = DateTimeOffset.UtcNow.AddDays(-8);
+        await using (var scope = s.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+            await new MeasurementIngestor(db, new HistoricalClock(old)).IngestAsync([SamplePolicy.Normalize(c, 4, "Good", old, null, old, "retained")]);
+            var maintenance = scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>();
+            await maintenance.AggregateAsync(); Assert.Equal(1, (await maintenance.RetainAsync()).DroppedPartitions);
+            Assert.Empty(await db.MeasurementReadings.Where(x => x.PointId == c.PointId).ToListAsync());
+            Assert.Single(await db.MeasurementMinutes.Where(x => x.PointId == c.PointId).ToListAsync());
+        }
+        var path = $"/api/v1/assets/{f.Asset.Id}/measurement-points/{f.Point.Id}";
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync(path + "/source-mappings/" + f.Mapping.Id, new MappingInput(f.Source.Id, f.Mapping.SourceKey, Enabled: false, Version: f.Mapping.Version))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PatchAsJsonAsync(path, new PointInput(f.Point.Code, f.Point.Name, CanonicalUnit: "m/s", Version: f.Point.Version))).StatusCode);
+        var overview = Assert.Single((await s.Client.GetFromJsonAsync<PointOverview[]>($"/api/v1/assets/{f.Asset.Id}/measurement-points"))!);
+        Assert.Equal("mm/s", overview.CanonicalUnit); Assert.Equal(4, overview.LastGood!.Value);
+    }
+
     [DatabaseFact]
     public async Task SourceAndMappingVersionsAndRepeatedSeedPreserveEdits()
     {

@@ -27,7 +27,7 @@ async function logout() {
       <RouterLink v-if="!session.user" class="nav-item" to="/login">登录 <span>→</span></RouterLink>
       <div v-else class="session-panel"><p>{{ session.user.displayName }}</p><small>{{ session.user.roles.join(' / ') }}</small><button class="secondary" :disabled="busy" @click="logout">退出登录</button><p v-if="error" role="alert">{{ error }}</p></div>
       <p class="sidebar-note">资产、告警与维护先行。<br />AI 提供有证据的辅助调查。<br />{{ realtimeStatus }}</p>
-      <div class="sidebar-footer">LOCAL DEVELOPMENT<br /><span>可信测量与告警 · P1.4</span></div>
+      <div class="sidebar-footer">LOCAL DEVELOPMENT<br /><span>资产、告警、维护与资料 · P1.7</span></div>
     </aside>
     <main><RouterView /></main>
   </div>

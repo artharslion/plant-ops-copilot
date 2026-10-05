@@ -28,7 +28,7 @@ public static class SamplePolicy
             SourceKind = c.SourceKind, DataSourceId = c.DataSourceId, SourceMappingId = c.MappingId, MappingVersion = c.MappingVersion,
             RawStatusCode = sample.RawStatusCode, StatusSymbol = sample.StatusSymbol, Quality = sample.Quality,
             SourceTimestamp = sample.SourceTimestamp, ServerTimestamp = sample.ServerTimestamp, ReceivedAt = sample.ReceivedAt,
-            EffectiveAt = effective, TimestampOrigin = sample.SourceTimestamp.HasValue ? "Source" : sample.ServerTimestamp.HasValue ? "Server" : "Receive",
+            EffectiveAt = effective, EffectiveDate = DateOnly.FromDateTime(effective.UtcDateTime), TimestampOrigin = sample.SourceTimestamp.HasValue ? "Source" : sample.ServerTimestamp.HasValue ? "Server" : "Receive",
             SourceEventKey = sample.SourceEventKey, TimeAnomaly = effective > sample.ReceivedAt.AddSeconds(5)
         };
     }

@@ -27,6 +27,7 @@ public static class DependencyInjection
         services.AddSingleton<IMeasurementSource, SimulationSource>();
         services.AddScoped<ISourceConfigurationReader, SourceConfigurationReader>();
         services.AddScoped<IMeasurementIngestor, MeasurementIngestor>();
+        services.AddScoped<IMeasurementMaintenance, MeasurementMaintenance>();
         services.AddScoped<ITelemetryService, TelemetryService>();
         services.AddScoped<IAlarmRuntimeReset, AlarmRuntimeReset>();
         services.AddScoped<IAlarmService, AlarmService>();

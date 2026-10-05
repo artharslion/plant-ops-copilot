@@ -44,6 +44,7 @@ public sealed class SourceMapping
 
 public sealed class MeasurementReading
 {
+    public DateOnly EffectiveDate { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid PlantId { get; set; }
     public Guid AssetId { get; set; }
@@ -66,6 +67,43 @@ public sealed class MeasurementReading
     public string TimestampOrigin { get; set; } = "Receive";
     public string SourceEventKey { get; set; } = "";
     public bool TimeAnomaly { get; set; }
+}
+
+public sealed class MeasurementMinute
+{
+    public Guid PointId { get; set; }
+    public DateTimeOffset BucketStart { get; set; }
+    public double? Min { get; set; }
+    public double? Max { get; set; }
+    public double? Average { get; set; }
+    public int GoodCount { get; set; }
+    public int UncertainCount { get; set; }
+    public int BadCount { get; set; }
+    public int AnomalyCount { get; set; }
+    public int SampleCount { get; set; }
+    public bool HasGap { get; set; }
+    public double CoverageRatio { get; set; }
+}
+public sealed class DirtyMeasurementMinute
+{
+    public Guid PointId { get; set; }
+    public DateTimeOffset BucketStart { get; set; }
+}
+public sealed class MeasurementPartition
+{
+    public DateOnly Date { get; set; }
+    public long Revision { get; set; }
+    public long AggregatedRevision { get; set; }
+}
+public sealed class IngestionGap
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid PointId { get; set; }
+    public Guid? DataSourceId { get; set; }
+    public DateTimeOffset From { get; set; }
+    public DateTimeOffset? To { get; set; }
+    public string Reason { get; set; } = "SampleIntervalGap";
+    public DateTimeOffset DetectedAt { get; set; }
 }
 
 public sealed class PointLatestState

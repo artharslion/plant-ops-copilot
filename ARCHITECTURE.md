@@ -175,7 +175,7 @@ Hub 加入工厂组必须服务端检查范围；组名由服务端生成。权�
 
 P1.3 实际边界：Application 定义样本/源/入库/查询端口和质量规则；Infrastructure 的 SimulationSource 不访问数据库，MeasurementIngestor 用最多 500 样本的事务写入读数与最新投影。Worker 等待每批提交，最多重试 3 次，保持事件键不变；工厂 advisory transaction lock 与资产归档、点位和来源配置共用，提交前重查启用状态及版本。配置与审计同事务，历史读数禁止 EF 修改/删除。API 不提供测量写入接口；所有查询先校验角色和资产/点位范围，配置仅允许有该厂授权的 Admin。
 
-当前读数表未分区，唯一 `(PointId, SourceEventKey)`；Simulation 的键包含映射 ID/version、来源 version、UTC 秒，重复批次不会重复写。分钟统计按需计算（有效 Good 的 min/max/avg、质量计数、覆盖率与缺口），尚无 MeasurementMinute、Outbox、保留任务或源连接健康表。页面 5 秒轮询，不宣称达到 p95 <2s 推送或 100 点 30 分钟性能目标。持久化分钟聚合/分区/保留在 P1.7 实现；协议队列/重连/变化通知覆盖率在 P2 验证。最新投影的 ReadingId 不建读数外键，为后续保留清理保存值/质量/时间摘要。
+P1.3 当时使用未分区读数与按需统计。P1.7 已实现 UTC 日分区、含日期去重、持久分钟聚合、dirty 重算与原始 7 天/分钟 90 天保留；P1.6 已实现事务 Outbox 与 API SignalR。Simulation 的键包含映射 ID/version、来源 version、UTC 秒，重试相同批次不会重复写。最新投影和告警 ReadingId 不建读数外键，清理后保留值/质量/时间快照。100 点/30 分钟/五客户端性能与容量边界见 docs/P1_7_VALIDATION.md；协议队列/重连/变化通知覆盖率留在 P2 验证。
 
 领域测试覆盖状态机/回差/质量；数据库集成测试覆盖事务、范围、幂等与并发；模拟器测试覆盖采集/重连；UI E2E 覆盖一次完整业务闭环；AI 评估覆盖有证据、无证据、越权与注入。性能基准见 [项目规格](PROJECT_SPEC.md)。
 

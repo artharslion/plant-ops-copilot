@@ -65,6 +65,13 @@ public sealed class DatabaseFoundationTests
 
 public static class TestDatabase
 {
+    public static async Task<string> IsolatedConnection()
+    {
+        var schema = "p17_isolated_" + Guid.NewGuid().ToString("N");
+        await using var db = new PlantOpsDbContext(new DbContextOptionsBuilder<PlantOpsDbContext>().UseNpgsql(Connection).Options);
+        var sql = $"CREATE SCHEMA \"{schema}\""; await db.Database.ExecuteSqlRawAsync(sql);
+        return Connection + ";Search Path=" + schema;
+    }
     public static string Connection
     {
         get

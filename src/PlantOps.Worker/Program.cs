@@ -8,6 +8,7 @@ var initializeDatabase = args.Contains("--initialize-db");
 var builder = WebApplication.CreateBuilder(args.Where(arg => arg != "--initialize-db").ToArray());
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
 if (!initializeDatabase) builder.Services.AddHostedService<MeasurementWorker>();
+if (!initializeDatabase) builder.Services.AddHostedService<RetentionWorker>();
 
 var app = builder.Build();
 if (initializeDatabase)

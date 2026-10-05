@@ -45,14 +45,15 @@ public sealed class AssetManagementTests
         public string UserId { get; private set; } = "";
         public string Token { get; private set; } = "";
         public string DocumentRoot => Path.GetFullPath(Path.Combine("artifacts", "test-documents"));
-        public Session(TimeProvider? clock = null)
+        public Session(TimeProvider? clock = null, string? connection = null)
         {
             Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Development");
                 builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> {
-                    ["ConnectionStrings:PlantOps"] = TestDatabase.Connection, ["Demo:Password"] = Password,
+                    ["ConnectionStrings:PlantOps"] = connection ?? TestDatabase.Connection, ["Demo:Password"] = Password,
                     ["Realtime:Enabled"] = "false",
+                    ["Demo:SeedHistory"] = "false",
                     ["Documents:StorageRoot"] = DocumentRoot,
                     ["Logging:LogLevel:Default"] = "Warning" }));
                 builder.ConfigureServices(services => services.AddDbContext<PlantOpsDbContext>(options => options.AddInterceptors(Failure)));
@@ -243,6 +244,12 @@ public sealed class AssetManagementTests
         var enabled = demo.IsEnabled;
         var grants = await db.UserPlantAccess.Where(x => x.UserId == demo.Id).ToListAsync();
         var originalRoles = await users.GetRolesAsync(demo);
+        var seededPoint = await db.MeasurementPoints.SingleAsync(x => x.Id == Guid.Parse("41000000-0000-0000-0000-000000000005"));
+        var pointName = seededPoint.Name; var pointEnabled = seededPoint.Enabled;
+        var seededDocument = await db.Documents.SingleAsync(x => x.Id == Guid.Parse("81000000-0000-0000-0000-000000000001"));
+        var documentTitle = seededDocument.Title; var documentRoles = seededDocument.AllowedRoles;
+        seededPoint.Name = "Preserved scale edit"; seededPoint.Enabled = false;
+        seededDocument.Title = "Preserved guide edit"; seededDocument.AllowedRoles = ["Admin"];
         db.UserPlantAccess.RemoveRange(grants); await db.SaveChangesAsync();
         await users.RemoveFromRolesAsync(demo, originalRoles);
         demo.IsEnabled = false; await users.UpdateAsync(demo);
@@ -252,11 +259,15 @@ public sealed class AssetManagementTests
             Assert.False(demo.IsEnabled); Assert.Equal(hash, demo.PasswordHash);
             Assert.Empty(await db.UserPlantAccess.Where(x => x.UserId == demo.Id).ToListAsync());
             Assert.Empty(await users.GetRolesAsync(demo));
+            await db.Entry(seededPoint).ReloadAsync(); await db.Entry(seededDocument).ReloadAsync();
+            Assert.Equal("Preserved scale edit", seededPoint.Name); Assert.False(seededPoint.Enabled);
+            Assert.Equal("Preserved guide edit", seededDocument.Title); Assert.Equal(new[] { "Admin" }, seededDocument.AllowedRoles);
             Assert.Equal(2, await db.Plants.CountAsync(x => x.Id == North || x.Id == South));
             Assert.False(db.Database.HasPendingModelChanges());
         }
         finally
         {
+            seededPoint.Name = pointName; seededPoint.Enabled = pointEnabled; seededDocument.Title = documentTitle; seededDocument.AllowedRoles = documentRoles;
             demo.IsEnabled = enabled; await users.UpdateAsync(demo);
             db.UserPlantAccess.AddRange(grants); await db.SaveChangesAsync();
             await users.AddToRolesAsync(demo, originalRoles);

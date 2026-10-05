@@ -41,6 +41,8 @@ public static class DevelopmentIdentityInitializer
         }
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
+        await transaction.DisposeAsync();
+        await DevelopmentScaleInitializer.InitializeAsync(services, configuration);
     }
     private static void Check(IdentityResult result)
     {

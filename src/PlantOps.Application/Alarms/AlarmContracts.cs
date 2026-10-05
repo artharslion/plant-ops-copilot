@@ -11,7 +11,7 @@ public sealed record AlarmDto(Guid Id, Guid PlantId, Guid AssetId, string AssetC
     string PointCode, Guid RuleId, string RuleName, long RuleVersion, string Severity, string State,
     Guid TriggerReadingId, double TriggerValue, string ThresholdSnapshot, DateTimeOffset StartedAt,
     DateTimeOffset? RecoveredAt, DateTimeOffset? AcknowledgedAt, string? AcknowledgedByUserId,
-    DateTimeOffset LastEvaluatedAt, long Version, bool CurrentObservationTrusted);
+    DateTimeOffset LastEvaluatedAt, long Version, bool CurrentObservationTrusted, bool TriggerReadingAvailable);
 public sealed record AlarmPage(IReadOnlyList<AlarmDto> Items, string? NextCursor);
 public sealed record AlarmEventDto(Guid Id, string EventType, DateTimeOffset OccurredAt, string? ActorUserId,
     Guid? ReadingId, string CorrelationId);

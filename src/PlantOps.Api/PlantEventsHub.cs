@@ -52,10 +52,11 @@ public sealed class SignalRPlantPublisher(IHubContext<PlantEventsHub> hub, Plant
             await hub.Clients.Client(c.Id).SendAsync("PlantEvent", change, cancellationToken);
     }
 }
-public sealed class PlantEventWorker(IServiceScopeFactory scopes, ILogger<PlantEventWorker> logger) : BackgroundService
+public sealed class PlantEventWorker(IServiceScopeFactory scopes, ILogger<PlantEventWorker> logger, IConfiguration configuration) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!configuration.GetValue("Realtime:Enabled", true)) return;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {

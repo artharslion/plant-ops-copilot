@@ -82,7 +82,7 @@ app.MapHub<PlantEventsHub>("/hubs/plant-events");
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapGet("/api/v1/system", () => new { name = "Plant Ops Copilot", stage = "P1.4", version = "0.4.0" })
+    app.MapGet("/api/v1/system", () => new { name = "Plant Ops Copilot", stage = "P1.7", version = "0.7.0" })
         .WithName("GetSystemInfo");
 }
 app.Run();

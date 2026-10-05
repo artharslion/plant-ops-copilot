@@ -44,6 +44,9 @@ public sealed class AlarmService(PlantOpsDbContext db, IAssetDirectory directory
         var assets = await db.Assets.AsNoTracking().Where(x => assetIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
         var plants = await db.Plants.AsNoTracking().Where(x => plantIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
         var now = clock.GetUtcNow();
+        var readingIds = rows.Select(x => x.TriggerReadingId).ToArray();
+        var dates = rows.Select(x => DateOnly.FromDateTime(x.StartedAt.UtcDateTime)).Distinct().ToArray();
+        var availableReadings = (await db.MeasurementReadings.AsNoTracking().Where(x => dates.Contains(x.EffectiveDate) && readingIds.Contains(x.Id)).Select(x => x.Id).ToListAsync()).ToHashSet();
         return rows.Select(a =>
         {
             var point = points[a.PointId]; var rule = rules[a.RuleId]; var asset = assets[a.AssetId];
@@ -58,7 +61,7 @@ public sealed class AlarmService(PlantOpsDbContext db, IAssetDirectory directory
                 && state.LastTrustedAt.HasValue && SamplePolicy.IsFresh(state.LastTrustedAt.Value, now, point.StaleAfterMs);
             return new AlarmDto(a.Id, a.PlantId, a.AssetId, asset.Code, asset.Name, a.PointId, point.Code, a.RuleId, rule.Name,
                 a.RuleVersion, a.Severity, a.State, a.TriggerReadingId, a.TriggerValue, a.ThresholdSnapshot, a.StartedAt,
-                a.RecoveredAt, a.AcknowledgedAt, a.AcknowledgedByUserId, a.LastEvaluatedAt, a.Version, trusted);
+                a.RecoveredAt, a.AcknowledgedAt, a.AcknowledgedByUserId, a.LastEvaluatedAt, a.Version, trusted, availableReadings.Contains(a.TriggerReadingId));
         }).ToList();
     }
     public async Task<AlarmPage> ListAsync(Actor actor, Guid plantId, bool? active, Guid? assetId, int limit, string? cursor)

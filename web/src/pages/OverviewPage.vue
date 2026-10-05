@@ -48,7 +48,7 @@ onMounted(refresh)
     <div class="section-title"><div><p class="eyebrow">GOLDEN PATH</p><h2>一台泵，一条完整的业务路径。</h2></div><span>演示规划</span></div>
     <div class="asset-story"><span class="asset-code">P-101</span><div><h3>Cooling Pump P-101</h3><p>North Plant <span>→</span> Utilities</p></div><span class="fictional">虚构演示设备</span></div>
     <ol class="path-steps"><li><b>01</b>振动上升</li><li><b>02</b>规则告警</li><li><b>03</b>人工确认</li><li><b>04</b>维护工单</li><li><b>05</b>完成关闭</li></ol>
-    <p class="path-note">P1.4 已接入模拟振动、持续时间与回差告警、人工确认。登录后查看授权设备与告警；维护工单将在后续阶段接入。</p>
+    <p class="path-note">已接入模拟振动、持续时间与回差告警、人工确认和关联维护工单。完成工单后保留处理记录，可继续查询设备履历与已发布文档。</p>
   </section>
   <footer class="principle"><span>设计原则</span><strong>AI is not the source of truth.</strong><p>业务状态与动作由数据和业务服务决定；AI 负责检索、解释与建议。</p></footer>
 </template>

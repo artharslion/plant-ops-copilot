@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using PlantOps.Application.Telemetry;
 using PlantOps.Domain.Telemetry;
 using PlantOps.Infrastructure.Persistence;
@@ -22,7 +23,7 @@ public sealed class SourceConfigurationReader(PlantOpsDbContext db) : ISourceCon
             .ToListAsync(cancellationToken);
 }
 
-public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock) : IMeasurementIngestor
+public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock, IConfiguration? settings = null) : IMeasurementIngestor
 {
     public async Task<IngestResult> IngestAsync(IReadOnlyList<NormalizedSample> samples, CancellationToken cancellationToken = default)
     {
@@ -40,6 +41,20 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
             using var raw = JsonDocument.Parse(sample.RawValueJson);
         }
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await MeasurementMaintenance.LockAsync(db, cancellationToken);
+        var dates = samples.Select(x => DateOnly.FromDateTime((x.SourceTimestamp ?? x.ServerTimestamp ?? x.ReceivedAt).UtcDateTime)).Distinct().ToArray();
+        var rawDays = settings?.GetValue<int?>("Telemetry:RawRetentionDays") ?? 7;
+        if (rawDays is < 1 or > 365) throw new InvalidOperationException("Invalid raw retention period.");
+        var cutoff = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime).AddDays(-rawDays);
+        if (dates.Any(x => x < cutoff)) throw new ArgumentException("Sample is outside raw retention; retained aggregates cannot be rewritten.");
+        foreach (var day in dates)
+        {
+            var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)); var end = start.AddDays(1);
+            if (!await db.MeasurementPartitions.AnyAsync(x => x.Date == day, cancellationToken)
+                && await db.MeasurementMinutes.AnyAsync(x => x.BucketStart >= start && x.BucketStart < end, cancellationToken))
+                throw new ArgumentException("Raw partition was already retired; changing retention cannot rewrite historical aggregates.");
+        }
+        var partitions = await MeasurementMaintenance.EnsureAsync(db, dates, cancellationToken);
         foreach (var plant in samples.Select(x => x.Configuration.PlantId).Distinct().OrderBy(x => x))
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({plant.ToString()}, 0))", cancellationToken);
         var current = await new SourceConfigurationReader(db).GetEnabledAsync(cancellationToken);
@@ -48,9 +63,9 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
         var pointIds = samples.Select(x => x.Configuration.PointId).Distinct().ToArray();
         var keys = samples.Select(x => x.SourceEventKey).Distinct().ToArray();
         var existing = (await db.MeasurementReadings.AsNoTracking()
-            .Where(x => pointIds.Contains(x.PointId) && keys.Contains(x.SourceEventKey))
-            .Select(x => new { x.PointId, x.SourceEventKey }).ToListAsync(cancellationToken))
-            .Select(x => (x.PointId, x.SourceEventKey)).ToHashSet();
+            .Where(x => dates.Contains(x.EffectiveDate) && pointIds.Contains(x.PointId) && keys.Contains(x.SourceEventKey))
+            .Select(x => new { x.EffectiveDate, x.PointId, x.SourceEventKey }).ToListAsync(cancellationToken))
+            .Select(x => (x.EffectiveDate, x.PointId, x.SourceEventKey)).ToHashSet();
         var states = await db.PointLatestStates.Where(x => pointIds.Contains(x.PointId)).ToDictionaryAsync(x => x.PointId, cancellationToken);
         var alarms = new AlarmBatchEvaluator(db, clock);
         await alarms.LoadAsync(pointIds, cancellationToken);
@@ -58,22 +73,28 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
         // Reset tracked snapshots after acquiring the lock if this scope was used before.
         foreach (var state in states.Values) await db.Entry(state).ReloadAsync(cancellationToken);
         var inserted = 0;
+        var added = new List<MeasurementReading>();
         foreach (var sample in samples)
         {
             var c = sample.Configuration;
             if (!states.TryGetValue(c.PointId, out var state))
             { state = new PointLatestState { PointId = c.PointId }; states.Add(c.PointId, state); db.PointLatestStates.Add(state); }
-            if (!existing.Add((c.PointId, sample.SourceEventKey)))
+            var reading = SamplePolicy.ToReading(sample);
+            if (!existing.Add((reading.EffectiveDate, c.PointId, sample.SourceEventKey)))
             {
                 if (sample.ReceivedAt > state.LastReceivedAt) { state.LastReceivedAt = sample.ReceivedAt; state.Version++; }
                 continue;
             }
-            var reading = SamplePolicy.ToReading(sample);
+            if (!reading.TimeAnomaly && state.LatestObservedEffectiveAt is DateTimeOffset prior && reading.EffectiveAt - prior > TimeSpan.FromMilliseconds(c.ExpectedIntervalMs * 1.5))
+                db.IngestionGaps.Add(new IngestionGap { PointId = c.PointId, DataSourceId = c.DataSourceId, From = prior.AddMilliseconds(c.ExpectedIntervalMs), To = reading.EffectiveAt, DetectedAt = reading.ReceivedAt });
+            added.Add(reading);
             db.MeasurementReadings.Add(reading);
             SamplePolicy.Apply(state, reading, c.StaleAfterMs); state.Version++; inserted++;
             await alarms.ApplyAsync(reading, c, correlation, cancellationToken);
         }
+        foreach (var day in added.Select(x => x.EffectiveDate).Distinct()) partitions[day].Revision++;
         await db.SaveChangesAsync(cancellationToken);
+        await MeasurementMaintenance.DirtyAsync(db, added, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new(inserted, samples.Count - inserted);
     }

@@ -849,6 +849,20 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("WorkOrderNotes");
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Operations.DevelopmentSeedState", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("SeededAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Name");
+
+                    b.ToTable("DevelopmentSeedStates");
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Operations.OutboxEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -924,6 +938,111 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("DataSources");
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.DirtyMeasurementMinute", b =>
+                {
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("BucketStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("PointId", "BucketStart");
+
+                    b.ToTable("DirtyMeasurementMinutes");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.IngestionGap", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DataSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("DetectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("From")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("To")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PointId", "From");
+
+                    b.ToTable("IngestionGaps");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementMinute", b =>
+                {
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("BucketStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("AnomalyCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double?>("Average")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("BadCount")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("CoverageRatio")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("GoodCount")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("HasGap")
+                        .HasColumnType("boolean");
+
+                    b.Property<double?>("Max")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("Min")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UncertainCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("PointId", "BucketStart");
+
+                    b.ToTable("MeasurementMinutes");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementPartition", b =>
+                {
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<long>("AggregatedRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Date");
+
+                    b.ToTable("MeasurementPartitions");
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementPoint", b =>
                 {
                     b.Property<Guid>("Id")
@@ -987,8 +1106,10 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementReading", b =>
                 {
+                    b.Property<DateOnly>("EffectiveDate")
+                        .HasColumnType("date");
+
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("AssetId")
@@ -1068,13 +1189,13 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
-                    b.HasKey("Id");
+                    b.HasKey("EffectiveDate", "Id");
 
                     b.HasIndex("PlantId", "DataSourceId");
 
                     b.HasIndex("PointId", "EffectiveAt");
 
-                    b.HasIndex("PointId", "SourceEventKey")
+                    b.HasIndex("EffectiveDate", "PointId", "SourceEventKey")
                         .IsUnique();
 
                     b.HasIndex("PlantId", "AssetId", "PointId");
@@ -1083,7 +1204,7 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
 
                     b.ToTable("MeasurementReadings", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Reading_Quality", "\"Quality\" IN ('Good','Uncertain','Bad') AND (\"NumericValue\" IS NULL OR (\"NumericValue\" <> 'NaN'::double precision AND \"NumericValue\" <> 'Infinity'::double precision AND \"NumericValue\" <> '-Infinity'::double precision))");
+                            t.HasCheckConstraint("CK_Reading_Quality", "\"EffectiveDate\" = (\"EffectiveAt\" AT TIME ZONE 'UTC')::date AND \"Quality\" IN ('Good','Uncertain','Bad') AND (\"NumericValue\" IS NULL OR (\"NumericValue\" <> 'NaN'::double precision AND \"NumericValue\" <> 'Infinity'::double precision AND \"NumericValue\" <> '-Infinity'::double precision))");
                         });
                 });
 
@@ -1447,6 +1568,24 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasOne("PlantOps.Domain.Assets.Plant", null)
                         .WithMany()
                         .HasForeignKey("PlantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.IngestionGap", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PointId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.MeasurementMinute", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

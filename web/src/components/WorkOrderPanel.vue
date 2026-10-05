@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { request } from '../api'
 import { useSession } from '../stores/session'
 import { subscribePlantEvents } from '../realtime'
-const props = defineProps<{ assetId: string; plantId: string; archived?: boolean; history?: boolean }>()
+const props = defineProps<{ assetId: string; plantId: string; archived?: boolean; history?: boolean; initialAlarmId?: string }>()
 type Order = { id: string; number: string; title: string; description: string; priority: string; status: string; version: number; alarmId: string | null; assignedToUserId: string | null; resolution: string | null; createdAt: string; completedAt: string | null; closedAt: string | null }
 type Note = { id: string; text: string; kind: string; actorUserId: string; occurredAt: string }
 const session = useSession()
@@ -25,7 +25,7 @@ async function select(w: Order) { busy.value = true; error.value = ''; selected.
   catch (e) { error.value = e instanceof Error ? e.message : '加载失败。' } finally { busy.value = false }
 }
 async function prepare() { busy.value = true; error.value = ''; selected.value = null
-  try { users.value = await request(`/plants/${props.plantId}/maintenance-users`); alarms.value = (await request<{ items: typeof alarms.value }>(`/alarms?plantId=${props.plantId}&assetId=${props.assetId}&limit=200`)).items; creating.value = true }
+  try { users.value = await request(`/plants/${props.plantId}/maintenance-users`); alarms.value = (await request<{ items: typeof alarms.value }>(`/alarms?plantId=${props.plantId}&assetId=${props.assetId}&limit=200`)).items; alarmId.value = alarms.value.some(x => x.id === props.initialAlarmId) ? props.initialAlarmId! : ''; creating.value = true }
   catch (e) { error.value = e instanceof Error ? e.message : '加载失败。' } finally { busy.value = false }
 }
 async function create() { busy.value = true; error.value = ''; notice.value = ''

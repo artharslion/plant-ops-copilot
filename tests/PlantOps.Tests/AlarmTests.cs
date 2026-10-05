@@ -53,6 +53,22 @@ public sealed class AlarmTests
     { for (var t = 0; t <= 3; t++) await Send(s, f, clock, t); return Assert.Single(await Alarms(s, f, true)); }
 
     [DatabaseFact]
+    public async Task ExpiredTriggerReadingIsExplicitWhileAlarmSnapshotAndEventsSurvive()
+    {
+        var clock = new Clock(); await using var s = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection()); await s.Initialize(); await s.Login(); var f = await Configure(s);
+        var alarm = await Raise(s, f, clock); Assert.True(alarm.TriggerReadingAvailable);
+        clock.Now = At.AddDays(8);
+        await using (var scope = s.Factory.Services.CreateAsyncScope())
+        {
+            var maintenance = scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>();
+            await maintenance.AggregateAsync(); Assert.True((await maintenance.RetainAsync()).DroppedPartitions > 0);
+        }
+        await s.Login();
+        var retained = (await s.Client.GetFromJsonAsync<AlarmDto>($"/api/v1/alarms/{alarm.Id}"))!;
+        Assert.False(retained.TriggerReadingAvailable); Assert.Equal(alarm.TriggerValue, retained.TriggerValue); Assert.Equal(alarm.ThresholdSnapshot, retained.ThresholdSnapshot); Assert.Equal("Active", retained.State);
+        Assert.Contains((await s.Client.GetFromJsonAsync<AlarmEventDto[]>($"/api/v1/alarms/{alarm.Id}/events"))!, x => x.EventType == "Raised" && x.ReadingId == alarm.TriggerReadingId);
+    }
+    [DatabaseFact]
     public async Task IngestionRaisesOnceAcknowledgesIndependentlyAndRecoversOnlyFromTrustedLowDuration()
     {
         var clock = new Clock(); await using var s = new AssetManagementTests.Session(clock); await s.Initialize(); await s.Login(); var f = await Configure(s);

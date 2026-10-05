@@ -20,6 +20,11 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     public DbSet<SourceMapping> SourceMappings => Set<SourceMapping>();
     public DbSet<MeasurementReading> MeasurementReadings => Set<MeasurementReading>();
     public DbSet<PointLatestState> PointLatestStates => Set<PointLatestState>();
+    public DbSet<MeasurementMinute> MeasurementMinutes => Set<MeasurementMinute>();
+    public DbSet<DirtyMeasurementMinute> DirtyMeasurementMinutes => Set<DirtyMeasurementMinute>();
+    public DbSet<MeasurementPartition> MeasurementPartitions => Set<MeasurementPartition>();
+    public DbSet<IngestionGap> IngestionGaps => Set<IngestionGap>();
+    public DbSet<PlantOps.Domain.Operations.DevelopmentSeedState> DevelopmentSeedStates => Set<PlantOps.Domain.Operations.DevelopmentSeedState>();
     public DbSet<AlarmRule> AlarmRules => Set<AlarmRule>();
     public DbSet<RuleRuntimeState> RuleRuntimeStates => Set<RuleRuntimeState>();
     public DbSet<Alarm> Alarms => Set<Alarm>();
@@ -62,6 +67,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         AlarmModel.Configure(modelBuilder);
         MaintenanceModel.Configure(modelBuilder);
         KnowledgeModel.Configure(modelBuilder);
+        modelBuilder.Entity<PlantOps.Domain.Operations.DevelopmentSeedState>().HasKey(x => x.Name);
+        modelBuilder.Entity<PlantOps.Domain.Operations.DevelopmentSeedState>().Property(x => x.Name).HasMaxLength(64);
         modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);
         var access = modelBuilder.Entity<UserPlantAccess>();
         access.HasKey(x => new { x.UserId, x.PlantId });

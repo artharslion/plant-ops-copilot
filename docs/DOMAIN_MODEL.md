@@ -181,7 +181,7 @@ P1.3 已实现 MeasurementPoint/DataSource/SourceMapping/MeasurementReading/Poin
 
 入库验证当前配置版本及启用状态，跨厂或旧配置样本整批拒绝；未来有效时间超过接收时间 5 秒标记 TimeAnomaly 并仅入历史。乱序照常存历史；LatestObserved 按时间元组单调更新；LastGood 只接受接收时新鲜的有效 Good。LastReceivedAt 可由去重通知更新，不能据此把旧有效时间视为新鲜。NaN/Infinity/转换溢出标准化为 Bad/null 并保留有长度限制的原值 JSON。
 
-本阶段尚未分区，读数去重约束为 `(PointId, SourceEventKey)`；未来分区列调整需迁移此约束。MeasurementMinute 仍为目标设计，目前返回按需统计，不保存分钟投影。P1.3 不实现告警/规则/Outbox/IngestionGap 实体；缺口由查询中的期望间隔和时间边界推导。设备归档同事务停用点位与映射、递增版本并分别审计，历史可在原授权范围内查询。
+P1.3 时读数尚未分区、分钟统计按需计算；P1.7 已迁移到 UTC EffectiveDate 日分区，唯一约束为 `(EffectiveDate, PointId, SourceEventKey)`。MeasurementMinute 持久保存 Good min/max/avg、质量数量、SampleCount、覆盖率和缺口。DirtyMeasurementMinute 标记迟到或新数据待重算；MeasurementPartition 保存 Revision/AggregatedRevision，保留任务还核对 raw/aggregate 样本数。采样间断持久保存 IngestionGap；图表仍按期望间隔断线。设备归档同事务停用点位与映射、递增版本并分别审计，历史可在原授权范围内查询。
 
 - 工厂范围在所有读取、写入、检索和实时推送统一强制；不能只过滤列表而漏掉按 ID 查询。
 - 资产位置修改、工单迁移、审批执行均带 version；直接覆盖更新不允许。

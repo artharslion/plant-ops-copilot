@@ -65,8 +65,24 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         if (from.Offset != TimeSpan.Zero || to.Offset != TimeSpan.Zero || from >= to || to - from > TimeSpan.FromHours(24)
             || bucket is not ("raw" or "1m") || bucket == "1m" && Math.Ceiling((to - from).TotalMinutes) + (from.Second > 0 || from.Millisecond > 0 ? 1 : 0) > 1440)
             throw new DirectoryException(400, "Use a UTC window up to 24h and bucket raw or 1m (at most 1440 minute buckets).");
-        var maxRows = bucket == "raw" ? 10000 : 100000;
-        var readings = await db.MeasurementReadings.AsNoTracking().Where(x => x.PointId == pointId && x.EffectiveAt >= from && x.EffectiveAt < to)
+        if (bucket == "1m")
+        {
+            if (from.UtcTicks % TimeSpan.TicksPerMinute != 0 || to.UtcTicks % TimeSpan.TicksPerMinute != 0 || to > MeasurementMaintenance.Minute(clock.GetUtcNow()))
+                throw new DirectoryException(400, "Minute trends require complete UTC minutes ending before the current minute.");
+            var saved = await db.MeasurementMinutes.AsNoTracking().Where(x => x.PointId == pointId && x.BucketStart >= from && x.BucketStart < to).ToDictionaryAsync(x => x.BucketStart);
+            var dirty = (await db.DirtyMeasurementMinutes.AsNoTracking().Where(x => x.PointId == pointId && x.BucketStart >= from && x.BucketStart < to).Select(x => x.BucketStart).ToListAsync()).ToHashSet();
+            var buckets = new List<TrendBucket>();
+            for (var at = from; at < to; at = at.AddMinutes(1))
+            {
+                var m = saved.GetValueOrDefault(at);
+                buckets.Add(m == null || dirty.Contains(at) ? new(at, null, null, null, 0, 0, 0, 0, true, 0)
+                    : new(at, m.Min, m.Max, m.Average, m.GoodCount, m.UncertainCount, m.BadCount, m.AnomalyCount, m.HasGap, m.CoverageRatio));
+            }
+            return new(pointId, point.CanonicalUnit, from, to, bucket, clock.GetUtcNow(), [], buckets, buckets[0].HasGap, buckets[^1].HasGap);
+        }
+        const int maxRows = 100000;
+        var fromDate = DateOnly.FromDateTime(from.UtcDateTime); var toDate = DateOnly.FromDateTime(to.AddTicks(-1).UtcDateTime);
+        var readings = await db.MeasurementReadings.AsNoTracking().Where(x => x.PointId == pointId && x.EffectiveDate >= fromDate && x.EffectiveDate <= toDate && x.EffectiveAt >= from && x.EffectiveAt < to)
             .OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).Take(maxRows + 1).ToListAsync();
         if (readings.Count > maxRows) throw new DirectoryException(400, "Too many samples. Choose a smaller window or minute buckets.");
         return TrendBuilder.Build(point, readings, from, to, bucket, clock.GetUtcNow());
@@ -102,7 +118,8 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         {
             await db.Entry(point).ReloadAsync(); Version(point.Version, input.Version); before = JsonSerializer.Serialize(point);
             if ((point.Quantity != input.Quantity || point.CanonicalUnit != input.CanonicalUnit)
-                && (await db.MeasurementReadings.AnyAsync(x => x.PointId == point.Id) || await db.SourceMappings.AnyAsync(x => x.PointId == point.Id && x.Enabled)))
+                && (await db.PointLatestStates.AnyAsync(x => x.PointId == point.Id) || await db.MeasurementMinutes.AnyAsync(x => x.PointId == point.Id)
+                    || await db.MeasurementReadings.AnyAsync(x => x.PointId == point.Id) || await db.SourceMappings.AnyAsync(x => x.PointId == point.Id && x.Enabled)))
                 throw new DirectoryException(400, "A point with readings or an enabled mapping cannot change quantity/unit. Create a new point.");
             point.Version++;
         }

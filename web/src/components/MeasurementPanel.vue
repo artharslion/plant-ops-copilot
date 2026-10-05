@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { request } from '../api'
 import type { components } from '../generated/api'
 import TelemetryConfiguration from './TelemetryConfiguration.vue'
@@ -10,6 +10,8 @@ const props = defineProps<{ assetId: string; plantId: string; admin: boolean; ar
 const points = ref<Point[]>([]), pointId = ref(''), trend = ref<Trend | null>(null)
 const error = ref(''), checked = ref(''), busy = ref(false), auto = ref(true), configure = ref(false)
 const windowMinutes = ref(15), bucket = ref('raw')
+const observationLatencies = ref<number[]>([])
+let recordedReading: string | null = null
 const point = computed(() => points.value.find(p => p.id === pointId.value))
 let generation = 0, timer: ReturnType<typeof setInterval> | undefined
 function at(value?: string | null) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—' }
@@ -22,12 +24,19 @@ async function refresh() {
     const list = await request<Point[]>(`/assets/${asset}/measurement-points`)
     if (current !== generation) return
     points.value = list
-    if (!list.some(x => x.id === pointId.value)) pointId.value = list[0]?.id ?? ''
+    if (!list.some(x => x.id === pointId.value)) pointId.value = list.find(x => x.code === 'VIBRATION_RMS')?.id ?? list[0]?.id ?? ''
     const end = bucket.value === '1m' ? new Date(Math.floor(Date.now() / 60000) * 60000) : new Date()
     const start = new Date(end.getTime() - windowMinutes.value * 60000)
     const result = pointId.value ? await request<Trend>(`/assets/${asset}/measurements?pointId=${pointId.value}&from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}&bucket=${bucket.value}`) : null
     if (current !== generation) return
     trend.value = result; checked.value = end.toISOString(); error.value = ''
+    await nextTick()
+    const observed = point.value?.latestObserved
+    if (observed && recordedReading !== observed.id) {
+      recordedReading = observed.id
+      const delay = Date.now() - Date.parse(observed.receivedAt)
+      if (delay >= 0 && delay < 10000) { observationLatencies.value.push(delay); if (observationLatencies.value.length > 2000) observationLatencies.value.shift() }
+    }
   } catch (e) {
     if (current === generation) { error.value = e instanceof Error ? e.message : '测量读取失败'; points.value = []; trend.value = null; checked.value = '' }
   } finally { if (current === generation) busy.value = false }
@@ -66,7 +75,7 @@ const quality = computed(() => {
 })
 </script>
 <template>
-  <section class="measurement-panel" :aria-busy="busy">
+  <section class="measurement-panel" :aria-busy="busy" :data-observation-latencies="JSON.stringify(observationLatencies)">
     <div class="section-title"><div><p class="eyebrow">MEASUREMENTS / SIMULATION</p><h2>观测、质量与时间。</h2></div><div class="actions"><button :disabled="busy" class="secondary" @click="refresh">刷新测量</button><button v-if="admin && !archived" class="secondary" @click="configure = !configure">{{ configure ? '关闭配置' : '配置测量' }}</button></div></div>
     <p v-if="error" role="alert" class="error-banner">{{ error }} 已隐藏未验证的测量状态，请重试。</p>
     <div class="measurement-toolbar"><label>点位<select v-model="pointId" :disabled="busy" @change="change"><option v-if="!points.length" value="">暂无点位</option><option v-for="p in points" :key="p.id" :value="p.id">{{ p.code }} · {{ p.name }}{{ p.enabled ? '' : '（已停用）' }}</option></select></label><label>时间窗口<select v-model="windowMinutes" @change="change"><option :value="15">最近 15 分钟</option><option :value="60">最近 1 小时</option><option :value="1440">最近 24 小时</option></select></label><label>粒度<select v-model="bucket" @change="change"><option value="raw">原始观测</option><option value="1m">分钟统计</option></select></label><label class="check-label"><input v-model="auto" type="checkbox">每 5 秒刷新</label></div>
