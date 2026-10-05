@@ -139,7 +139,7 @@ P1.6 已实现文档/版本/ACL，当前版本撤回后全部历史链接拒绝�
 
 UserPlantAccess：`UserId, PlantId, GrantedAt, GrantedByUserId`，组合唯一。禁用/撤权更新会话安全状态、关闭实时连接并使待执行提案重新校验失败。
 
-P1.2 已实现 ASP.NET Core Identity 的 PlantOpsUser（Id/UserName/DisplayName/IsEnabled/SecurityStamp）、Identity 角色表与上述 UserPlantAccess。IdentitySubject 留给外部身份映射，当前本地账号以 Identity Id 为用户标识；无实时连接或动作提案。Plant/Location/Asset 上述字段已迁移。位置父节点和设备位置以复合外键强制同厂，删除关系 Restrict；位置自引用/循环由事务用例验证。归档不删除任何行，当前不支持恢复；归档工厂拒绝未归档设备，归档位置拒绝未归档子位置/设备。AuditLog 持久化 actor、工厂、资源、before/after、UTC 时间与 correlationId；历史摘要不依赖可删除的当前实体外键。
+P1.2 已实现 ASP.NET Core Identity 的 PlantOpsUser（Id/UserName/DisplayName/IsEnabled/SecurityStamp）、Identity 角色表与上述 UserPlantAccess。IdentitySubject 留给外部身份映射，当前本地账号以 Identity Id 为用户标识；P1.2 当时无实时连接，P1.6 已新增 SignalR 并持续复查权限，动作提案仍未实现。Plant/Location/Asset 上述字段已迁移。位置父节点和设备位置以复合外键强制同厂，删除关系 Restrict；位置自引用/循环由事务用例验证。归档不删除任何行，当前不支持恢复；归档工厂拒绝未归档设备，归档位置拒绝未归档子位置/设备。AuditLog 持久化 actor、工厂、资源、before/after、UTC 时间与 correlationId；历史摘要不依赖可删除的当前实体外键。
 
 ## 4. 告警规则与状态语义
 

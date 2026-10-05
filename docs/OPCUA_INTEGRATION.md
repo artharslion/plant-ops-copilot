@@ -2,6 +2,8 @@
 
 日期：2026-10-03。Phase 2 仅实现 Client/Server 模式的数值变量读取与订阅。业务不依赖特定服务器 NodeId；不写变量、不调用设备方法、不提供完整 Alarms & Conditions 客户端。
 
+2026-10-05：实现仍未开始。按 [P1 复盘](P1_REVIEW.md) 与 [P2 可执行计划](plans/2026-10-05-p2-opcua.md) 推进固定 SDK/许可 spike、容量门槛、持续采集生命周期、历史采样语义与显式缺口账本；下文是设计要求，不表示 P1 已实现协议连接/队列/重连。
+
 OPC UA Source 与保留的 Simulation Source 均实现 PlantOps.Application 的 `IMeasurementSource`。Phase 2 是新增来源能力；两种源分别跑通同一 Golden Path，不替换模拟实现，也不在断线时自动使用模拟值。
 
 ## 1. Adapter 边界

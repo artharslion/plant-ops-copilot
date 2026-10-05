@@ -89,11 +89,11 @@ Vue 官方脚手架支持 Vite 与 TypeScript，见 [Vue Quick Start](https://vu
 
 人工写操作与 AuditLog 同事务；核心状态更新与 Outbox 同事务。Dispatcher 发布后标记完成，崩溃可能重复发布，因此推送带 eventId / entityVersion，客户端去重后补查。Outbox 使用领取锁、重试与失败计数，失败不影响已提交业务数据。
 
-P1.6 已实现：DbContext 将设备/最新测量/告警/工单/资料变化写入 Outbox；API 每秒 SKIP LOCKED 领取最多 500 条，测量合并，业务事件逐条发送。Hub 无写方法或客户端范围参数，按服务端连接授权发送，每轮检查 grants/role/stamp/启用状态并中断失效连接。文档使用配置 Documents:StorageRoot 的受控文件目录；下载在同厂锁内实时复查 ACL/发布，随机存储 key 不返回客户端。开发默认目录位于 API 输出目录内，生产必须显式配置持久存储。
+P1.6 已实现：DbContext 将设备/最新测量/告警/工单/资料变化写入 Outbox；API 每秒 SKIP LOCKED 领取最多 500 条，测量合并，业务事件逐条发送。Hub 无写方法或客户端范围参数，按服务端连接授权发送，每轮检查 grants/role/stamp/启用状态并中断失效连接。文档使用配置 Documents:StorageRoot 的受控文件目录；下载在同厂锁内实时复查 ACL/发布，随机存储 key 不返回客户端。P1.7 已将 Development 默认目录改为同用户 LocalApplicationData/PlantOpsCopilot/documents，API/Worker 共用；生产必须显式配置持久存储。
 
 P1.2 实现：Application 的 IAssetDirectory/Actor/DTO 不引用 EF 或 Identity；Infrastructure 的 AssetDirectory 实现真实角色与 UserPlantAccess 检查、关系校验和事务审计。所有目录写事务先取得工厂级 PostgreSQL advisory lock，再重新加载版本及校验树/归档关系，防止并发结构修改形成循环；不同工厂独立。SaveChanges 与 AuditLog 处于一个显式事务，版本冲突返回 409。创建工厂同时显式授权创建者；没有 Admin 范围绕过。Outbox 尚未实现，本阶段没有实时事件。
 
-遥测批写初始每 500 ms 或 500 条（先到者触发）；Adapter 回调仅写入有界 Channel，不执行 SQL 或调用模型。容量、丢失策略见 [OPC UA 设计](docs/OPCUA_INTEGRATION.md)。写入顺序、幂等键和新鲜度规则统一用于内置模拟源和 OPC UA。
+Phase 2 的遥测批写目标为每 500 ms 或 500 条（先到者触发）；Adapter 回调仅写入有界缓冲，不执行 SQL 或调用模型。P1 当前是每秒枚举有限 Simulation 批次，满 500 条或枚举结束提交，尚无持续订阅的时间触发缓冲。容量、丢失策略见 [OPC UA 设计](docs/OPCUA_INTEGRATION.md)，实施门槛与回归见 [P2 计划](docs/plans/2026-10-05-p2-opcua.md)。写入顺序、幂等键和新鲜度规则统一用于内置模拟源和 OPC UA。
 
 ## 5. 数据与文件
 
