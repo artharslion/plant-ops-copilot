@@ -5,7 +5,7 @@ namespace PlantOps.Application.Telemetry;
 public sealed record SourceConfiguration(Guid PlantId, Guid AssetId, Guid PointId, long PointVersion,
     string CanonicalUnit, int ExpectedIntervalMs, int StaleAfterMs, Guid DataSourceId, long SourceVersion,
     string SourceKind, Guid MappingId, long MappingVersion, string SourceKey, string RawUnit,
-    double Scale, double Offset, string SourceParameters);
+    double Scale, double Offset, string SourceParameters, string ConnectionParameters = "{}");
 
 public sealed record NormalizedSample(SourceConfiguration Configuration, double? NumericValue, string Quality,
     string RawValueJson, uint? RawStatusCode, string? StatusSymbol, DateTimeOffset? SourceTimestamp,
@@ -47,7 +47,8 @@ public sealed record TrendSample(Guid Id, DateTimeOffset EffectiveAt, DateTimeOf
     DateTimeOffset? ServerTimestamp, uint? RawStatusCode, string? StatusSymbol);
 
 public sealed record TrendBucket(DateTimeOffset Start, double? Min, double? Max, double? Average,
-    int GoodCount, int UncertainCount, int BadCount, int AnomalyCount, bool HasGap, double CoverageRatio);
+    int GoodCount, int UncertainCount, int BadCount, int AnomalyCount, bool HasGap, double? CoverageRatio,
+    string SamplingMode = "Periodic");
 
 public sealed record MeasurementTrend(Guid PointId, string Unit, DateTimeOffset From, DateTimeOffset To,
     string Bucket, DateTimeOffset CheckedAt, IReadOnlyList<TrendSample> Samples,
@@ -56,12 +57,14 @@ public sealed record MeasurementTrend(Guid PointId, string Unit, DateTimeOffset 
 public sealed record PointInput(string Code, string Name, string Quantity = "Vibration", string CanonicalUnit = "mm/s",
     int ExpectedIntervalMs = 1000, int StaleAfterMs = 5000, bool Enabled = true, long Version = 0);
 
-public sealed record SourceInput(string Name, bool Enabled = true, long Version = 0);
+public sealed record SourceInput(string Name, bool Enabled = true, long Version = 0,
+    string Kind = "Simulation", OpcUaConnectionInput? OpcUa = null);
 
-public sealed record SourceDto(Guid Id, Guid PlantId, string Name, string Kind, bool Enabled, long Version);
+public sealed record SourceDto(Guid Id, Guid PlantId, string Name, string Kind, bool Enabled, long Version,
+    OpcUaConnectionInput? OpcUa = null);
 
 public sealed record MappingInput(Guid DataSourceId, string SourceKey, string RawUnit = "mm/s", double Scale = 1,
-    double Offset = 0, bool Enabled = true, long Version = 0);
+    double Offset = 0, bool Enabled = true, long Version = 0, OpcUaMappingInput? OpcUa = null);
 
 public sealed record MappingDto(Guid Id, Guid PlantId, Guid PointId, Guid DataSourceId, string SourceKey,
     string RawUnit, double Scale, double Offset, string SourceParameters, bool Enabled, long Version);

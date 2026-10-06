@@ -1,5 +1,7 @@
 # 隔离 OPC UA 实验
 
+应用预配置示例见 `appsettings.example.json`（需由部署端加载），批准范围可使用 NamespaceUri + String IdentifierPrefix 或 Nodes 精确 `Type:Identifier` 列表。API 仍拒绝启用；这不是启动持续采集的配置。当前没有工业凭据解析、浏览命令或证书运维入口，剩余项见 [P2.2 验收](../../docs/P2_2_VALIDATION.md)。
+
 固定 SDK Client/Server **1.5.378.182**，源码 tag 对应 commit `6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b`；.NET SDK 10.0.112 / net10.0。使用官方 Server 库及原创 NodeManager，不复制示例项目、不使用第三方镜像。版本与内容哈希见 spike 的 `packages.lock.json`，许可与通知随此目录保存。
 
 ```powershell

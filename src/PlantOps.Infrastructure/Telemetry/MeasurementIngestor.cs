@@ -19,7 +19,8 @@ public sealed class SourceConfigurationReader(PlantOpsDbContext db) : ISourceCon
                where mapping.Enabled && source.Enabled && point.Enabled && !asset.IsArchived && !plant.IsArchived
                select new SourceConfiguration(point.PlantId, point.AssetId, point.Id, point.Version,
                    point.CanonicalUnit, point.ExpectedIntervalMs, point.StaleAfterMs, source.Id, source.Version, source.Kind,
-                   mapping.Id, mapping.Version, mapping.SourceKey, mapping.RawUnit, mapping.Scale, mapping.Offset, mapping.SourceParameters))
+                   mapping.Id, mapping.Version, mapping.SourceKey, mapping.RawUnit, mapping.Scale, mapping.Offset, mapping.SourceParameters,
+                   source.ConnectionParameters))
             .ToListAsync(cancellationToken);
 }
 
@@ -109,6 +110,8 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
             .Concat(samples.Select(x => x.SourceTimestamp ?? x.ServerTimestamp ?? x.ReceivedAt)).Min();
         var latest = samples.Max(x => x.SourceTimestamp ?? x.ServerTimestamp ?? x.ReceivedAt);
         var gaps = await db.IngestionGaps.Where(x => pointIds.Contains(x.PointId) && x.From <= latest && (x.To == null || x.To >= earliest)).ToListAsync(cancellationToken);
+        var profiles = await db.SamplingProfiles.AsNoTracking().Where(x => pointIds.Contains(x.PointId)
+            && x.EffectiveFrom <= latest && (x.EffectiveTo == null || x.EffectiveTo >= earliest)).ToListAsync(cancellationToken);
         var correlation = "ingest-" + Guid.NewGuid().ToString("N");
         // Reset tracked snapshots after acquiring the lock if this scope was used before.
         foreach (var state in states.Values)
@@ -137,9 +140,36 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
                 }
                 continue;
             }
-            if (!reading.TimeAnomaly && state.LatestObservedEffectiveAt is DateTimeOffset prior && reading.EffectiveAt - prior > TimeSpan.FromMilliseconds(c.ExpectedIntervalMs * 1.5))
+            double? interval = c.SourceKind == "Simulation" ? c.ExpectedIntervalMs : null;
+            if (c.SourceKind == "OpcUa")
             {
-                db.IngestionGaps.Add(new IngestionGap { PointId = c.PointId, DataSourceId = c.DataSourceId, From = prior.AddMilliseconds(c.ExpectedIntervalMs), To = reading.EffectiveAt, DetectedAt = reading.ReceivedAt });
+                var matchingProfiles = profiles.Where(x => x.PointId == c.PointId && x.SourceMappingId == c.MappingId
+                    && x.MappingVersion == c.MappingVersion && x.EffectiveFrom <= reading.EffectiveAt
+                    && (x.EffectiveTo == null || x.EffectiveTo > reading.EffectiveAt)).ToArray();
+                if (matchingProfiles.Length == 1 && matchingProfiles[0].Mode == "Periodic")
+                {
+                    interval = matchingProfiles[0].RevisedSamplingIntervalMs;
+                }
+            }
+            if (!reading.TimeAnomaly && interval is { } expected && state.LatestObservedEffectiveAt is DateTimeOffset prior
+                && reading.EffectiveAt - prior > TimeSpan.FromMilliseconds(expected * 1.5))
+            {
+                db.IngestionGaps.Add(new IngestionGap { PointId = c.PointId, DataSourceId = c.DataSourceId, From = prior.AddMilliseconds(expected), To = reading.EffectiveAt, DetectedAt = reading.ReceivedAt });
+            }
+            if (SamplePolicy.HasOverflow(reading.RawStatusCode))
+            {
+                var overflow = new IngestionGap
+                {
+                    PointId = c.PointId,
+                    DataSourceId = c.DataSourceId,
+                    From = reading.EffectiveAt,
+                    To = reading.EffectiveAt.AddTicks(1),
+                    DetectedAt = reading.ReceivedAt,
+                    Reason = "ServerOverflow",
+                    IsPossible = true
+                };
+                db.IngestionGaps.Add(overflow);
+                gaps.Add(overflow);
             }
 
             added.Add(reading);

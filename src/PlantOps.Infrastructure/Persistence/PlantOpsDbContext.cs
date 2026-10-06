@@ -38,6 +38,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
 
     public DbSet<IngestionGap> IngestionGaps => Set<IngestionGap>();
 
+    public DbSet<SamplingProfile> SamplingProfiles => Set<SamplingProfile>();
+
     public DbSet<PlantOps.Domain.Operations.DevelopmentSeedState> DevelopmentSeedStates => Set<PlantOps.Domain.Operations.DevelopmentSeedState>();
 
     public DbSet<AlarmRule> AlarmRules => Set<AlarmRule>();

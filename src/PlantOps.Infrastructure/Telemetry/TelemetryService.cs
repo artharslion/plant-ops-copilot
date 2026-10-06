@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Npgsql;
 using PlantOps.Application.Assets;
 using PlantOps.Application.Telemetry;
@@ -13,7 +14,7 @@ using PlantOps.Infrastructure.Persistence;
 namespace PlantOps.Infrastructure.Telemetry;
 
 public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory directory, UserManager<PlantOpsUser> users,
-    TimeProvider clock) : ITelemetryService
+    TimeProvider clock, IConfiguration? settings = null) : ITelemetryService
 {
     private async Task Admin(Actor actor)
     {
@@ -57,7 +58,8 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         var now = clock.GetUtcNow();
         ReadingSnapshot? observed = state?.LatestObservedReadingId is Guid id && state.LatestObservedEffectiveAt is DateTimeOffset at
             ? new(id, state.LatestObservedValue, state.LatestObservedQuality!, at, state.LatestObservedReceivedAt!.Value,
-                SamplePolicy.IsFresh(at, now, point.StaleAfterMs), state.LatestObservedQuality == "Good" && state.LatestObservedValue.HasValue && SamplePolicy.IsFresh(at, now, point.StaleAfterMs)) : null;
+                SamplePolicy.IsFresh(at, now, point.StaleAfterMs), state.LatestObservedReadingId == state.LastGoodReadingId
+                    && SamplePolicy.IsFresh(at, now, point.StaleAfterMs)) : null;
         ReadingSnapshot? good = state?.LastGoodReadingId is Guid goodId && state.LastTrustedEffectiveAt is DateTimeOffset goodAt
             ? new(goodId, state.LastGoodValue, "Good", goodAt, state.LastGoodReceivedAt!.Value,
                 SamplePolicy.IsFresh(goodAt, now, point.StaleAfterMs), SamplePolicy.IsFresh(goodAt, now, point.StaleAfterMs)) : null;
@@ -105,7 +107,7 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
                 var m = saved.GetValueOrDefault(at);
                 var explicitGap = gaps.Any(x => x.From < at.AddMinutes(1) && (x.To == null || x.To > at));
                 buckets.Add(m == null || dirty.Contains(at) ? new(at, null, null, null, 0, 0, 0, 0, true, 0)
-                    : new(at, m.Min, m.Max, m.Average, m.GoodCount, m.UncertainCount, m.BadCount, m.AnomalyCount, m.HasGap || explicitGap, m.CoverageRatio));
+                    : new(at, m.Min, m.Max, m.Average, m.GoodCount, m.UncertainCount, m.BadCount, m.AnomalyCount, m.HasGap || explicitGap, m.CoverageRatio, m.SamplingMode));
             }
             return new(pointId, point.CanonicalUnit, from, to, bucket, clock.GetUtcNow(), [], buckets, buckets[0].HasGap, buckets[^1].HasGap);
         }
@@ -119,7 +121,9 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
             throw new DirectoryException(400, "Too many samples. Choose a smaller window or minute buckets.");
         }
 
-        return TrendBuilder.Build(point, readings, from, to, bucket, clock.GetUtcNow(), gaps);
+        var profiles = await db.SamplingProfiles.AsNoTracking().Where(x => x.PointId == pointId
+            && x.EffectiveFrom < to && (x.EffectiveTo == null || x.EffectiveTo > from)).ToListAsync();
+        return TrendBuilder.Build(point, readings, from, to, bucket, clock.GetUtcNow(), gaps, profiles);
     }
 
     private static void Text(string? value, int max)
@@ -224,8 +228,51 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
     public async Task<IReadOnlyList<SourceDto>> SourcesAsync(Actor actor, Guid plantId)
     {
         await directory.GetAsync(actor, "plants", plantId);
-        return await db.DataSources.AsNoTracking().Where(x => x.PlantId == plantId).OrderBy(x => x.Id).Take(200)
-            .Select(x => new SourceDto(x.Id, x.PlantId, x.Name, x.Kind, x.Enabled, x.Version)).ToListAsync();
+        return (await db.DataSources.AsNoTracking().Where(x => x.PlantId == plantId).OrderBy(x => x.Id).Take(200)
+            .ToListAsync()).Select(MapSource).ToArray();
+    }
+
+    private static SourceDto MapSource(DataSource source) => new(source.Id, source.PlantId, source.Name,
+        source.Kind, source.Enabled, source.Version, source.Kind == "OpcUa"
+            ? JsonSerializer.Deserialize<OpcUaConnectionInput>(source.ConnectionParameters) : null);
+
+    private void ValidateOpcUaSource(SourceInput input)
+    {
+        if (input.Kind is not ("Simulation" or "OpcUa"))
+        {
+            throw new DirectoryException(400, "Unsupported source kind.");
+        }
+        if (input.Kind == "Simulation")
+        {
+            if (input.OpcUa != null)
+            {
+                throw new DirectoryException(400, "Simulation cannot have OPC UA connection parameters.");
+            }
+            return;
+        }
+        if (input.Enabled)
+        {
+            throw new DirectoryException(400, "OPC UA activation is gated: capacity and secure Worker lifecycle acceptance are still required. Save disabled configuration.");
+        }
+        if (input.OpcUa == null)
+        {
+            throw new DirectoryException(400, "Approved OPC UA endpoint reference required.");
+        }
+        try
+        {
+            OpcUaConfigurationPolicy.Validate(input.OpcUa);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new DirectoryException(400, exception.Message);
+        }
+        var approved = settings?[$"OpcUa:ApprovedEndpoints:{input.OpcUa.EndpointReference}:Url"];
+        if (!Uri.TryCreate(approved, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "opc.tcp"
+            || !string.IsNullOrEmpty(endpoint.UserInfo) || !string.IsNullOrEmpty(endpoint.Query)
+            || !string.IsNullOrEmpty(endpoint.Fragment) || endpoint.Port < 1)
+        {
+            throw new DirectoryException(400, "Endpoint reference is not approved by deployment configuration.");
+        }
     }
 
     public async Task<SourceDto> SaveSourceAsync(Actor actor, Guid plantId, Guid? id, SourceInput input)
@@ -233,6 +280,7 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         await Admin(actor);
         var plant = await directory.GetAsync(actor, "plants", plantId);
         Text(input.Name, 200);
+        ValidateOpcUaSource(input);
         await using var transaction = await db.Database.BeginTransactionAsync();
         await Lock(plantId);
         await Admin(actor);
@@ -249,6 +297,10 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         {
             await db.Entry(source).ReloadAsync();
             Version(source.Version, input.Version);
+            if (source.Kind != input.Kind)
+            {
+                throw new DirectoryException(400, "Source kind is immutable. Create a separate source.");
+            }
             before = JsonSerializer.Serialize(source);
             source.Version++;
         }
@@ -262,11 +314,14 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
             db.DataSources.Add(source);
         }
         source.Name = input.Name;
+        source.Kind = input.Kind;
+        source.ConnectionParameters = input.Kind == "OpcUa" ? JsonSerializer.Serialize(input.OpcUa)
+            : "{\"schemaVersion\":1,\"intervalMs\":1000}";
         source.Enabled = input.Enabled;
         Audit(actor, plantId, source.Id, "DataSource", before, source);
         await Save();
         await transaction.CommitAsync();
-        return new(source.Id, source.PlantId, source.Name, source.Kind, source.Enabled, source.Version);
+        return MapSource(source);
     }
 
     public async Task<IReadOnlyList<MappingDto>> MappingsAsync(Actor actor, Guid assetId, Guid pointId)
@@ -296,7 +351,39 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         await db.Entry(point).ReloadAsync();
         var source = await db.DataSources.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.DataSourceId && x.PlantId == asset.PlantId)
             ?? throw new DirectoryException(400, "Source must be in the same plant.");
-        if (source.Kind != "Simulation" || point.Quantity != "Vibration" || point.CanonicalUnit != "mm/s" || input.RawUnit != "mm/s")
+        var sourceKey = input.SourceKey;
+        var parameters = "{\"schemaVersion\":1,\"scenario\":\"GoldenPath\"}";
+        if (source.Kind == "OpcUa")
+        {
+            if (input.OpcUa == null || !OpcUaConfigurationPolicy.ValidConversion(input.RawUnit, point.CanonicalUnit, input.Scale, input.Offset)
+                || !((point.Quantity == "Vibration" && point.CanonicalUnit is "mm/s" or "m/s")
+                    || (point.Quantity == "Temperature" && point.CanonicalUnit is "degC" or "K")))
+            {
+                throw new DirectoryException(400, "OPC UA requires an explicit node identity and a supported quantity/unit conversion.");
+            }
+            try
+            {
+                sourceKey = OpcUaConfigurationPolicy.Key(input.OpcUa);
+            }
+            catch (ArgumentException exception)
+            {
+                throw new DirectoryException(400, exception.Message);
+            }
+            var connection = JsonSerializer.Deserialize<OpcUaConnectionInput>(source.ConnectionParameters)
+                ?? throw new DirectoryException(400, "Source connection configuration is invalid.");
+            var approvedScope = settings?.GetSection($"OpcUa:ApprovedEndpoints:{connection.EndpointReference}");
+            var prefix = approvedScope?["IdentifierPrefix"];
+            var exactNode = approvedScope?.GetSection("Nodes").Get<string[]>()?.Contains(
+                input.OpcUa.IdentifierType + ":" + input.OpcUa.Identifier, StringComparer.Ordinal) == true;
+            if (approvedScope?["NamespaceUri"] != input.OpcUa.NamespaceUri
+                || !exactNode && (input.OpcUa.IdentifierType != "String" || string.IsNullOrEmpty(prefix)
+                || !input.OpcUa.Identifier.StartsWith(prefix, StringComparison.Ordinal)))
+            {
+                throw new DirectoryException(400, "Node is outside the deployment-approved Namespace and identifier range.");
+            }
+            parameters = JsonSerializer.Serialize(input.OpcUa);
+        }
+        else if (source.Kind != "Simulation" || input.OpcUa != null || point.Quantity != "Vibration" || point.CanonicalUnit != "mm/s" || input.RawUnit != "mm/s")
         {
             throw new DirectoryException(400, "GoldenPath simulation supports Vibration in mm/s only.");
         }
@@ -314,8 +401,9 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
             await db.Entry(mapping).ReloadAsync();
             Version(mapping.Version, input.Version);
             before = JsonSerializer.Serialize(mapping);
-            if (mapping.Enabled && (mapping.DataSourceId != input.DataSourceId || mapping.SourceKey != input.SourceKey
-                || mapping.Scale != input.Scale || mapping.Offset != input.Offset || mapping.RawUnit != input.RawUnit))
+            if (mapping.Enabled && (mapping.DataSourceId != input.DataSourceId || mapping.SourceKey != sourceKey
+                || mapping.Scale != input.Scale || mapping.Offset != input.Offset || mapping.RawUnit != input.RawUnit
+                || source.Kind == "OpcUa" && mapping.SourceParameters != parameters))
             {
                 throw new DirectoryException(400, "Disable the mapping before changing its source or conversion.");
             }
@@ -332,7 +420,8 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
             db.SourceMappings.Add(mapping);
         }
         mapping.DataSourceId = input.DataSourceId;
-        mapping.SourceKey = input.SourceKey;
+        mapping.SourceKey = sourceKey;
+        mapping.SourceParameters = parameters;
         mapping.RawUnit = input.RawUnit;
         mapping.Scale = input.Scale;
         mapping.Offset = input.Offset;

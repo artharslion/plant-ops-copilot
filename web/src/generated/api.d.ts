@@ -2013,6 +2013,7 @@ export interface components {
              * @default 0
              */
             version: number | string;
+            opcUa?: null | components["schemas"]["OpcUaMappingInput"];
         };
         MeasurementTrend: {
             /** Format: uuid */
@@ -2029,6 +2030,31 @@ export interface components {
             buckets: components["schemas"]["TrendBucket"][];
             leadingGap: boolean;
             trailingGap: boolean;
+        };
+        OpcUaConnectionInput: {
+            endpointReference: string;
+            /**
+             * Format: int32
+             * @default 1000
+             */
+            publishingIntervalMs: number | string;
+        };
+        OpcUaMappingInput: {
+            namespaceUri: string;
+            identifierType: string;
+            identifier: string;
+            /**
+             * Format: int32
+             * @default 1000
+             */
+            samplingIntervalMs: number | string;
+            /**
+             * Format: int32
+             * @default 10
+             */
+            queueSize: number | string;
+            /** @default Periodic */
+            samplingMode: string;
         };
         PointInput: {
             code: string;
@@ -2190,6 +2216,7 @@ export interface components {
             enabled: boolean;
             /** Format: int64 */
             version: number | string;
+            opcUa?: null | components["schemas"]["OpcUaConnectionInput"];
         };
         SourceInput: {
             name: string;
@@ -2200,6 +2227,9 @@ export interface components {
              * @default 0
              */
             version: number | string;
+            /** @default Simulation */
+            kind: string;
+            opcUa?: null | components["schemas"]["OpcUaConnectionInput"];
         };
         TransitionWorkOrder: {
             /** Format: int64 */
@@ -2227,7 +2257,9 @@ export interface components {
             anomalyCount: number | string;
             hasGap: boolean;
             /** Format: double */
-            coverageRatio: number | string;
+            coverageRatio: null | number | string;
+            /** @default Periodic */
+            samplingMode: string;
         };
         TrendSample: {
             /** Format: uuid */

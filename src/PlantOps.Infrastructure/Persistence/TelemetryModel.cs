@@ -71,6 +71,7 @@ internal static class TelemetryModel
         latest.HasOne<MeasurementPoint>().WithOne().HasForeignKey<PointLatestState>(x => x.PointId).OnDelete(DeleteBehavior.Restrict);
         var minute = model.Entity<MeasurementMinute>();
         minute.HasKey(x => new { x.PointId, x.BucketStart });
+        minute.Property(x => x.SamplingMode).HasMaxLength(16).HasDefaultValue("Periodic");
         minute.HasOne<MeasurementPoint>().WithMany().HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<DirtyMeasurementMinute>().HasKey(x => new { x.PointId, x.BucketStart });
         model.Entity<MeasurementPartition>().HasKey(x => x.Date);
@@ -79,5 +80,15 @@ internal static class TelemetryModel
         gap.Property(x => x.Reason).HasMaxLength(64);
         gap.HasOne<MeasurementPoint>().WithMany().HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Restrict);
         gap.HasIndex(x => new { x.PointId, x.From });
+        var profile = model.Entity<SamplingProfile>();
+        profile.HasKey(x => x.Id);
+        profile.HasOne<MeasurementPoint>().WithMany().HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Restrict);
+        profile.Property(x => x.Mode).HasMaxLength(16);
+        profile.HasIndex(x => new { x.PointId, x.EffectiveFrom }).IsUnique();
+        profile.ToTable("SamplingProfiles", t => t.HasCheckConstraint("CK_SamplingProfile_Values",
+            "\"Mode\" IN ('Periodic','Changes','Unknown') AND (\"EffectiveTo\" IS NULL OR \"EffectiveTo\" > \"EffectiveFrom\")"
+            + " AND (\"Mode\" <> 'Periodic' OR (\"RevisedSamplingIntervalMs\" IS NOT NULL AND \"RevisedSamplingIntervalMs\" > 0 AND \"RevisedSamplingIntervalMs\" < 'Infinity'::double precision))"
+            + " AND (\"RevisedPublishingIntervalMs\" IS NULL OR (\"RevisedPublishingIntervalMs\" > 0 AND \"RevisedPublishingIntervalMs\" < 'Infinity'::double precision))"
+            + " AND (\"RevisedQueueSize\" IS NULL OR \"RevisedQueueSize\" BETWEEN 1 AND 10000)"));
     }
 }

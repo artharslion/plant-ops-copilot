@@ -74,7 +74,9 @@ DisplayTimeZone 仅影响显示；业务时间计算使用 UTC。归档前必须
 
 `(AssetId, Code)` 唯一；MVP ValueType = Double，Quantity 如 Vibration/Temperature/Pressure。示例点位 `VIBRATION_RMS` 单位 `mm/s`。已存在样本后，Quantity、ValueType、CanonicalUnit 不原地改，需建新点位；不同源的单位在 Adapter 转换。
 
-2026-10-06 的 P1 历史保护同时冻结 ExpectedIntervalMs：存在快照、原始或分钟历史，或启用映射时，间隔/单位/量纲变更须建新点位。原始过期不解除分钟历史保护；P2 按生效区间保存修正采样/变化通知配置仍待实现。
+2026-10-06 的 P1 历史保护同时冻结 ExpectedIntervalMs：存在快照、原始或分钟历史，或启用映射时，间隔/单位/量纲变更须建新点位。原始过期不解除分钟历史保护。P2.2 增量已新增 SamplingProfile 的历史修正参数模型与统计读取；真实协议生产、区间关闭和配置切换屏障尚未实现，持续接入仍受 G0 门槛约束。
+
+**SamplingProfile**：`Id, PointId, SourceMappingId, MappingVersion, EffectiveFrom, EffectiveTo?, Mode, RevisedSamplingIntervalMs?, RevisedPublishingIntervalMs?, RevisedQueueSize?`。Mode = Periodic / Changes / Unknown；周期覆盖率按完整且不重叠的历史生效区间及修正间隔计算，Changes、未知或缺失区间返回 null，不回填猜测的旧配置。MeasurementMinute 新增 SamplingMode，CoverageRatio 可空；原 Simulation 的固定间隔统计继续保留。协议修正参数不能由管理员请求值冒充。
 
 ### SourceMapping（数据源到点位的映射）
 
@@ -99,7 +101,7 @@ NodeId 只在 OPC UA Adapter 内由映射参数解析；数据库保存 Namespac
 | EffectiveAt / TimestampOrigin | Source 优先、Server 次之、Receive 最后；标明来源 |
 | SourceEventKey / TimeAnomaly | 去重键、未来时间/异常标记 |
 
-无效值、NaN/Infinity 不进入可信数值；保留原始状态和异常。Freshness 不存成样本 Quality，它随当前时间变化。`IsTrusted = Good && 数值有效 && 无时间异常 && 未陈旧`；规则还必须满足时间顺序与间隔要求。
+无效值、NaN/Infinity 不进入可信数值；保留原始状态和异常。Freshness 不存成样本 Quality，它随当前时间变化。`IsTrusted = Good && 数值有效 && 无时间异常 && 无 DataValue Overflow && 未陈旧`；规则还必须满足时间顺序与间隔要求。Good+Overflow 保留原始质量与完整状态码，登记数量未知的 ServerOverflow 可能缺口，不推进 LastGood 或待判计时，也不参与可信分钟数值统计。
 
 按日期分区时，唯一约束至少包含分区列：`(EffectiveDate, PointId, SourceEventKey)`。重试同一 Envelope 保持 EffectiveAt/SourceEventKey 不变，避免分区间重复；已有可信源时间时重复通知产生同一键。无源/服务器时间的新通知无法可靠判定相同事件，不宣称 exactly-once。
 
@@ -163,7 +165,7 @@ AlarmEvent：`Id, AlarmId, EventType (Raised/Acknowledged/Recovered), OccurredAt
 
 | 实体 | 关键字段 / 约束 |
 |---|---|
-| DataSource | Id、PlantId、Name、Kind (Simulation/OpcUa)、ConnectionParameters、CredentialRef?、Enabled、Version；OPC UA 的 EndpointUrl/SecurityPolicy/MessageSecurityMode 属于经类型校验的连接配置，Simulation 无需这些参数；凭据只保存引用 |
+| DataSource | Id、PlantId、Name、Kind (Simulation/OpcUa)、ConnectionParameters、CredentialRef?、Enabled、Version；P2.2 只允许保存停用 OPC UA 配置：EndpointReference 与 PublishingIntervalMs，地址由部署批准列表解析；持续连接的安全与凭据生命周期尚未实现，凭据只保存引用 |
 | SourceMapping | 见核心实体定义；统一映射字段与按来源类型校验的参数分离，Phase 1 已用于 Simulation，Phase 2 新增 OPC UA 配置 |
 | IngestionGap | Id、PointId、DataSourceId?、From、To?、Reason、DetectedAt、RecoveredAt?、DroppedCount?、IsPossible；未知数量为 null，缺口不等同实际每个样本都已丢失 |
 | DocumentChunk | Id、DocumentVersionId、Ordinal、Page?、Section?、Text、ContentHash、EmbeddingModelId、Embedding；内容与版本不可变 |

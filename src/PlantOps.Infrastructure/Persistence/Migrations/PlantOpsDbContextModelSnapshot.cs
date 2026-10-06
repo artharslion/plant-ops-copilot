@@ -1013,7 +1013,7 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.Property<int>("BadCount")
                         .HasColumnType("integer");
 
-                    b.Property<double>("CoverageRatio")
+                    b.Property<double?>("CoverageRatio")
                         .HasColumnType("double precision");
 
                     b.Property<int>("GoodCount")
@@ -1030,6 +1030,13 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("SampleCount")
                         .HasColumnType("integer");
+
+                    b.Property<string>("SamplingMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Periodic");
 
                     b.Property<int>("UncertainCount")
                         .HasColumnType("integer");
@@ -1263,6 +1270,52 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasKey("PointId");
 
                     b.ToTable("PointLatestStates");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.SamplingProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("MappingVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double?>("RevisedPublishingIntervalMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<long?>("RevisedQueueSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("RevisedSamplingIntervalMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("SourceMappingId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PointId", "EffectiveFrom")
+                        .IsUnique();
+
+                    b.ToTable("SamplingProfiles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SamplingProfile_Values", "\"Mode\" IN ('Periodic','Changes','Unknown') AND (\"EffectiveTo\" IS NULL OR \"EffectiveTo\" > \"EffectiveFrom\") AND (\"Mode\" <> 'Periodic' OR (\"RevisedSamplingIntervalMs\" IS NOT NULL AND \"RevisedSamplingIntervalMs\" > 0 AND \"RevisedSamplingIntervalMs\" < 'Infinity'::double precision)) AND (\"RevisedPublishingIntervalMs\" IS NULL OR (\"RevisedPublishingIntervalMs\" > 0 AND \"RevisedPublishingIntervalMs\" < 'Infinity'::double precision)) AND (\"RevisedQueueSize\" IS NULL OR \"RevisedQueueSize\" BETWEEN 1 AND 10000)");
+                        });
                 });
 
             modelBuilder.Entity("PlantOps.Domain.Telemetry.SourceMapping", b =>
@@ -1641,6 +1694,15 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
                         .WithOne()
                         .HasForeignKey("PlantOps.Domain.Telemetry.PointLatestState", "PointId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.SamplingProfile", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

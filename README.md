@@ -1,5 +1,7 @@
 # Plant Ops Copilot
 
+2026-10-06 P2 正在按门槛推进：[固定 SDK 和安全隔离实验](docs/P2_1_SPIKE.md)、[P2.2 配置/标准化增量及剩余门槛](docs/P2_2_VALIDATION.md)。114 项后端测试通过；容量与完整协议 Source/运维/健康验收未通过，OPC UA 仅能保存停用配置。
+
 小型工业资产管理系统：先建立可信的业务与数据闭环，再接入 OPC UA，最后增加有证据、受权限约束的 AI Copilot。
 
 ## 当前状态

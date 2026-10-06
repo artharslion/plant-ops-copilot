@@ -116,7 +116,8 @@ const chart = computed(() => {
       ? t.samples.map((s) => ({
           at: s.effectiveAt,
           value: s.value == null ? null : Number(s.value),
-          valid: s.quality === 'Good' && !s.timeAnomaly,
+          valid:
+            s.quality === 'Good' && !s.timeAnomaly && (Number(s.rawStatusCode) & 0xc80) !== 0x480,
           gap: s.gapBefore,
         }))
       : t.buckets.map((s) => ({
@@ -354,7 +355,20 @@ const quality = computed(() => {
                 <td>{{ value(b.min) }} / {{ value(b.max) }} / {{ value(b.average) }}</td>
                 <td>{{ b.goodCount }} / {{ b.uncertainCount }} / {{ b.badCount }}</td>
                 <td>
-                  {{ (Number(b.coverageRatio) * 100).toFixed(0) }}% ·
+                  {{
+                    b.coverageRatio == null
+                      ? '覆盖率未知'
+                      : (Number(b.coverageRatio) * 100).toFixed(0) + '%'
+                  }}
+                  ·
+                  {{
+                    b.samplingMode === 'Changes'
+                      ? '变化通知'
+                      : b.samplingMode === 'Unknown'
+                        ? '采样区间未确认'
+                        : '周期采样'
+                  }}
+                  ·
                   {{ b.hasGap ? '有缺口' : '完整' }}
                 </td>
               </tr>

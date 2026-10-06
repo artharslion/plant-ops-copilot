@@ -1,5 +1,7 @@
 # 架构 v0.1
 
+2026-10-06 P2 增量：Integrations.OpcUa 固定 Client 1.5.378.182，新增节点身份/数值状态时间标准化；Application 的配置 DTO 仅含批准引用和节点参数；SamplingProfiles 保存历史修正区间，分钟支持未知覆盖率。集成库尚未注入 Worker，API 拒绝 OPC UA 启用。完整协议生命周期与容量仍待验收，详见 [P2.2 记录](docs/P2_2_VALIDATION.md)。
+
 日期：2026-10-03。所有 ADR 状态为 Proposed，作为第一版实现默认值；变更须同步规格、实体和路线图。
 
 ## 设计原则

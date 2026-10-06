@@ -66,7 +66,8 @@ public sealed class AssetManagementTests
 
         public string Token { get; private set; } = "";
 
-        public string DocumentRoot => Path.GetFullPath(Path.Combine("artifacts", "test-documents"));
+        public string DocumentRoot => Path.GetFullPath(Environment.GetEnvironmentVariable("PLANTOPS_TEST_DOCUMENT_ROOT")
+            ?? Path.Combine("artifacts", "test-documents"));
 
         public Session(TimeProvider? clock = null, string? connection = null)
         {
