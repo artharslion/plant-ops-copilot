@@ -18,6 +18,7 @@ builder.Services.AddScoped<SignalRPlantPublisher>();
 builder.Services.AddScoped<PlantOps.Application.Operations.IPlantEventPublisher>(s => s.GetRequiredService<SignalRPlantPublisher>());
 builder.Services.AddScoped<PlantOps.Application.Operations.IOutboxDispatcher, PlantOps.Infrastructure.Operations.OutboxDispatcher>();
 if (builder.Configuration["Realtime:Enabled"] != "false") builder.Services.AddHostedService<PlantEventWorker>();
+builder.Services.AddHostedService<OutboxRetentionWorker>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = 11 * 1024 * 1024);
 builder.Services.AddAntiforgery(o =>
 {

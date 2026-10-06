@@ -56,7 +56,9 @@ public sealed class MeasurementMaintenance(PlantOpsDbContext db, TimeProvider cl
                   OR extract(epoch FROM ("BucketStart" + interval '1 minute' - max("EffectiveAt")))*1000 > max("ExpectedIntervalMs")*1.5 AS timegap
               FROM samples GROUP BY "PointId", "BucketStart"
             ) INSERT INTO "MeasurementMinutes" ("PointId","BucketStart","Min","Max","Average","GoodCount","UncertainCount","BadCount","AnomalyCount","SampleCount","HasGap","CoverageRatio")
-            SELECT "PointId","BucketStart",minimum,maximum,average,good,uncertain,bad,anomaly,total,(good < expected OR timegap),least(1.0,good/expected) FROM stats
+            SELECT "PointId","BucketStart",minimum,maximum,average,good,uncertain,bad,anomaly,total,(good < expected OR timegap OR EXISTS (
+              SELECT 1 FROM "IngestionGaps" g WHERE g."PointId" = stats."PointId" AND g."From" < stats."BucketStart" + interval '1 minute'
+                AND (g."To" IS NULL OR g."To" > stats."BucketStart"))),least(1.0,good/expected) FROM stats
             ON CONFLICT ("PointId","BucketStart") DO UPDATE SET "Min"=EXCLUDED."Min","Max"=EXCLUDED."Max","Average"=EXCLUDED."Average",
               "GoodCount"=EXCLUDED."GoodCount","UncertainCount"=EXCLUDED."UncertainCount","BadCount"=EXCLUDED."BadCount","AnomalyCount"=EXCLUDED."AnomalyCount",
               "SampleCount"=EXCLUDED."SampleCount","HasGap"=EXCLUDED."HasGap","CoverageRatio"=EXCLUDED."CoverageRatio"

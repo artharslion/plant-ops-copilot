@@ -47,6 +47,8 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
         if (rawDays is < 1 or > 365) throw new InvalidOperationException("Invalid raw retention period.");
         var cutoff = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime).AddDays(-rawDays);
         if (dates.Any(x => x < cutoff)) throw new ArgumentException("Sample is outside raw retention; retained aggregates cannot be rewritten.");
+        if (dates.Any(x => x > DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime).AddDays(1)))
+            throw new ArgumentException("Sample timestamp is beyond the allowed future partition window.");
         foreach (var day in dates)
         {
             var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)); var end = start.AddDays(1);
@@ -69,6 +71,10 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
         var states = await db.PointLatestStates.Where(x => pointIds.Contains(x.PointId)).ToDictionaryAsync(x => x.PointId, cancellationToken);
         var alarms = new AlarmBatchEvaluator(db, clock);
         await alarms.LoadAsync(pointIds, cancellationToken);
+        var earliest = states.Values.Where(x => x.LastTrustedEffectiveAt.HasValue).Select(x => x.LastTrustedEffectiveAt!.Value)
+            .Concat(samples.Select(x => x.SourceTimestamp ?? x.ServerTimestamp ?? x.ReceivedAt)).Min();
+        var latest = samples.Max(x => x.SourceTimestamp ?? x.ServerTimestamp ?? x.ReceivedAt);
+        var gaps = await db.IngestionGaps.Where(x => pointIds.Contains(x.PointId) && x.From <= latest && (x.To == null || x.To >= earliest)).ToListAsync(cancellationToken);
         var correlation = "ingest-" + Guid.NewGuid().ToString("N");
         // Reset tracked snapshots after acquiring the lock if this scope was used before.
         foreach (var state in states.Values) await db.Entry(state).ReloadAsync(cancellationToken);
@@ -89,7 +95,14 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
                 db.IngestionGaps.Add(new IngestionGap { PointId = c.PointId, DataSourceId = c.DataSourceId, From = prior.AddMilliseconds(c.ExpectedIntervalMs), To = reading.EffectiveAt, DetectedAt = reading.ReceivedAt });
             added.Add(reading);
             db.MeasurementReadings.Add(reading);
+            var priorTrusted = state.LastTrustedEffectiveAt;
             SamplePolicy.Apply(state, reading, c.StaleAfterMs); state.Version++; inserted++;
+            // Explicit loss invalidates continuity even if surviving notifications have short intervals.
+            if (gaps.Any(x => x.PointId == c.PointId && x.From <= reading.EffectiveAt
+                && (x.To == null || x.To > reading.EffectiveAt || priorTrusted.HasValue && x.To > priorTrusted)))
+                await alarms.ResetPointAsync(c.PointId, cancellationToken);
+            foreach (var gap in gaps.Where(x => x.PointId == c.PointId && x.DataSourceId == c.DataSourceId && x.To == null && x.From <= reading.ReceivedAt))
+            { gap.To = reading.ReceivedAt; gap.RecoveredAt = reading.ReceivedAt; }
             await alarms.ApplyAsync(reading, c, correlation, cancellationToken);
         }
         foreach (var day in added.Select(x => x.EffectiveDate).Distinct()) partitions[day].Revision++;

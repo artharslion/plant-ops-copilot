@@ -6,6 +6,8 @@
 
 ## 贯穿阶段的 Golden Path
 
+2026-10-06：[P1 复盘整改](docs/P1_REVIEW_FIX_VALIDATION.md) 已完成通用持续采集、有界损失摘要/显式缺口、历史间隔保护与可选 Outbox 清理，88 项回归通过。七天满量和并发维护未通过；P2 协议实现尚未开始。
+
 `North Plant → Utilities → Cooling Pump P-101 → vibration rise → alarm → acknowledge → work order → close`
 
 Phase 1 用 Simulation Source 完成路径；Phase 2 保留该模式并增加 OPC UA Source 演示；Phase 3 在告警后插入联合证据调查；Phase 4 在创建工单前增加提案确认。人工确认告警、维护执行和工单关闭仍由业务服务管理。**AI is not the source of truth**，所有阶段必须保留无需 AI 的业务闭环。
@@ -30,7 +32,7 @@ Phase 1 用 Simulation Source 完成路径；Phase 2 保留该模式并增加 OP
 
 前置：Phase 1 采集、质量、告警和权限契约稳定。
 
-2026-10-05：[P1 复盘](docs/P1_REVIEW.md) 与 [P2 详细计划](docs/plans/2026-10-05-p2-opcua.md) 已完成，仅交付文档。计划细化以下编号并增加 G0 容量/Outbox 历史管理和 G1 固定版本/许可门槛；均尚未通过。小规模隔离 spike 可与容量调查推进，持续接入和满量试验必须先具备容量。当前 Worker 有限批次生命周期、显式损失账本、历史采样语义均须按计划补齐，不能只注册 Adapter。P2 实现未开始。
+2026-10-05：[P1 复盘](docs/P1_REVIEW.md) 与 [P2 详细计划](docs/plans/2026-10-05-p2-opcua.md) 已完成。2026-10-06 已补齐通用源生命周期、显式损失消费与固定间隔保护；P2 仍需协议事件、修正采样/变化通知与生效区间配置。G0 的 Outbox 策略已实现但容量尚未通过，G1 固定版本/许可尚未通过。小规模隔离 spike 可与容量调查推进，持续接入和满量试验必须先具备容量，不能只注册 Adapter。P2 协议实现未开始。
 
 | 编号 | 实现任务 | 完成证据 |
 |---|---|---|

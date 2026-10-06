@@ -65,6 +65,7 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         if (from.Offset != TimeSpan.Zero || to.Offset != TimeSpan.Zero || from >= to || to - from > TimeSpan.FromHours(24)
             || bucket is not ("raw" or "1m") || bucket == "1m" && Math.Ceiling((to - from).TotalMinutes) + (from.Second > 0 || from.Millisecond > 0 ? 1 : 0) > 1440)
             throw new DirectoryException(400, "Use a UTC window up to 24h and bucket raw or 1m (at most 1440 minute buckets).");
+        var gaps = await db.IngestionGaps.AsNoTracking().Where(x => x.PointId == pointId && x.From < to && (x.To == null || x.To > from)).ToListAsync();
         if (bucket == "1m")
         {
             if (from.UtcTicks % TimeSpan.TicksPerMinute != 0 || to.UtcTicks % TimeSpan.TicksPerMinute != 0 || to > MeasurementMaintenance.Minute(clock.GetUtcNow()))
@@ -75,8 +76,9 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
             for (var at = from; at < to; at = at.AddMinutes(1))
             {
                 var m = saved.GetValueOrDefault(at);
+                var explicitGap = gaps.Any(x => x.From < at.AddMinutes(1) && (x.To == null || x.To > at));
                 buckets.Add(m == null || dirty.Contains(at) ? new(at, null, null, null, 0, 0, 0, 0, true, 0)
-                    : new(at, m.Min, m.Max, m.Average, m.GoodCount, m.UncertainCount, m.BadCount, m.AnomalyCount, m.HasGap, m.CoverageRatio));
+                    : new(at, m.Min, m.Max, m.Average, m.GoodCount, m.UncertainCount, m.BadCount, m.AnomalyCount, m.HasGap || explicitGap, m.CoverageRatio));
             }
             return new(pointId, point.CanonicalUnit, from, to, bucket, clock.GetUtcNow(), [], buckets, buckets[0].HasGap, buckets[^1].HasGap);
         }
@@ -85,7 +87,7 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         var readings = await db.MeasurementReadings.AsNoTracking().Where(x => x.PointId == pointId && x.EffectiveDate >= fromDate && x.EffectiveDate <= toDate && x.EffectiveAt >= from && x.EffectiveAt < to)
             .OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).Take(maxRows + 1).ToListAsync();
         if (readings.Count > maxRows) throw new DirectoryException(400, "Too many samples. Choose a smaller window or minute buckets.");
-        return TrendBuilder.Build(point, readings, from, to, bucket, clock.GetUtcNow());
+        return TrendBuilder.Build(point, readings, from, to, bucket, clock.GetUtcNow(), gaps);
     }
     private static void Text(string? value, int max)
     { if (string.IsNullOrWhiteSpace(value) || value.Length > max) throw new DirectoryException(400, "Required text is missing or exceeds its limit."); }
@@ -117,10 +119,10 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         if (pointId.HasValue)
         {
             await db.Entry(point).ReloadAsync(); Version(point.Version, input.Version); before = JsonSerializer.Serialize(point);
-            if ((point.Quantity != input.Quantity || point.CanonicalUnit != input.CanonicalUnit)
+            if ((point.Quantity != input.Quantity || point.CanonicalUnit != input.CanonicalUnit || point.ExpectedIntervalMs != input.ExpectedIntervalMs)
                 && (await db.PointLatestStates.AnyAsync(x => x.PointId == point.Id) || await db.MeasurementMinutes.AnyAsync(x => x.PointId == point.Id)
                     || await db.MeasurementReadings.AnyAsync(x => x.PointId == point.Id) || await db.SourceMappings.AnyAsync(x => x.PointId == point.Id && x.Enabled)))
-                throw new DirectoryException(400, "A point with readings or an enabled mapping cannot change quantity/unit. Create a new point.");
+                throw new DirectoryException(400, "A point with readings or an enabled mapping cannot change quantity, unit or sampling interval. Create a new point.");
             point.Version++;
         }
         else

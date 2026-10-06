@@ -104,6 +104,9 @@ public sealed class IngestionGap
     public DateTimeOffset? To { get; set; }
     public string Reason { get; set; } = "SampleIntervalGap";
     public DateTimeOffset DetectedAt { get; set; }
+    public DateTimeOffset? RecoveredAt { get; set; }
+    public long? DroppedCount { get; set; }
+    public bool IsPossible { get; set; }
 }
 
 public sealed class PointLatestState

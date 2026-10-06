@@ -543,6 +543,12 @@
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
           "PlantOps.Application": "[1.0.0, )"
         }
+      },
+      "plantops.worker": {
+        "type": "Project",
+        "dependencies": {
+          "PlantOps.Infrastructure": "[1.0.0, )"
+        }
       }
     }
   }

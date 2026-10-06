@@ -16,8 +16,10 @@ public static class SamplePolicy
         if (quality == "Bad") value = null;
         return new(config, value, quality,
             JsonSerializer.Serialize(new { value = raw?.ToString("R", CultureInfo.InvariantCulture) }), status, symbol,
-            sourceAt?.ToUniversalTime(), serverAt?.ToUniversalTime(), receivedAt.ToUniversalTime(), eventKey);
+            ValidTimestamp(sourceAt), ValidTimestamp(serverAt), receivedAt.ToUniversalTime(), eventKey);
     }
+    public static DateTimeOffset? ValidTimestamp(DateTimeOffset? at) =>
+        at.HasValue && at.Value > DateTimeOffset.MinValue ? at.Value.ToUniversalTime() : null;
     public static MeasurementReading ToReading(NormalizedSample sample)
     {
         var c = sample.Configuration;

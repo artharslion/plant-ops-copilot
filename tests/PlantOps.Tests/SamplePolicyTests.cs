@@ -20,6 +20,14 @@ public sealed class SamplePolicyTests
         Assert.Equal("Bad", reading.Quality); Assert.Null(reading.NumericValue); Assert.False(SamplePolicy.IsGood(reading));
     }
     [Fact]
+    public void MinimumProtocolTimesAreMissingRatherThanAncientSamples()
+    {
+        var sample = SamplePolicy.Normalize(Configuration, 4, "Good", DateTimeOffset.MinValue, At, At.AddSeconds(1), "missing-source");
+        Assert.Null(sample.SourceTimestamp); Assert.Equal("Server", SamplePolicy.ToReading(sample).TimestampOrigin);
+        sample = SamplePolicy.Normalize(Configuration, 4, "Good", DateTimeOffset.MinValue, DateTimeOffset.MinValue, At, "missing-both");
+        Assert.Null(sample.SourceTimestamp); Assert.Null(sample.ServerTimestamp); Assert.Equal("Receive", SamplePolicy.ToReading(sample).TimestampOrigin);
+    }
+    [Fact]
     public void ScaleOffsetAndTimestampFallbackAreExplicit()
     {
         var sample = SamplePolicy.Normalize(Configuration with { Scale = 2, Offset = 1 }, 4, "Good", null, At, At.AddSeconds(1), "server");

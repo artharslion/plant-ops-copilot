@@ -29,6 +29,65 @@ public sealed class MeasurementMaintenanceTests
         public ValueTask DisposeAsync() => Db.DisposeAsync();
     }
     [DatabaseFact]
+    public async Task ExplicitLossResetsPendingIsIdempotentAndIsVisibleWithCompleteMinuteSamples()
+    {
+        await using var f = await Fixture.Create(); var start = f.Clock.Now;
+        // Every second is present, so sample counts alone cannot reveal this uncertain interval.
+        for (var i = 0; i < 60; i++) { f.Clock.Now = start.AddSeconds(i); await f.Send(start.AddSeconds(i), 4); }
+        f.Clock.Now = start.AddMinutes(2); await f.Maintenance.AggregateAsync();
+        Assert.False((await f.Db.MeasurementMinutes.SingleAsync()).HasGap);
+        var rule = new PlantOps.Domain.Alarms.AlarmRule { Id = Guid.NewGuid(), PlantId = f.Source.PlantId, PointId = f.Source.PointId, Name = "Continuity test" };
+        f.Db.AlarmRules.Add(rule);
+        var runtime = new PlantOps.Domain.Alarms.RuleRuntimeState { RuleId = rule.Id, PendingRaiseSince = start, LastEvaluatedAt = start.AddSeconds(30), LastInputTrusted = true };
+        f.Db.RuleRuntimeStates.Add(runtime); await f.Db.SaveChangesAsync();
+        var loss = new IngestionLoss(Guid.NewGuid(), f.Source, start.AddSeconds(20), start.AddSeconds(21), "QueueOverflow", 2);
+        var recorder = new IngestionGapRecorder(f.Db, f.Clock); await recorder.RecordAsync([loss]);
+        Assert.Null(runtime.PendingRaiseSince); var version = runtime.Version;
+        // A retried summary must not reset a newly started duration or add its count twice.
+        runtime.PendingRaiseSince = start.AddSeconds(40); await f.Db.SaveChangesAsync(); await recorder.RecordAsync([loss]);
+        Assert.Equal(start.AddSeconds(40), runtime.PendingRaiseSince); Assert.Equal(version, runtime.Version);
+        var gap = Assert.Single(await f.Db.IngestionGaps.ToListAsync()); Assert.Equal(2, gap.DroppedCount);
+        await f.Db.Database.ExecuteSqlRawAsync("INSERT INTO \"DirtyMeasurementMinutes\" SELECT \"PointId\", \"BucketStart\" FROM \"MeasurementMinutes\" ON CONFLICT DO NOTHING");
+        await f.Maintenance.AggregateAsync(); f.Db.ChangeTracker.Clear(); Assert.True((await f.Db.MeasurementMinutes.SingleAsync()).HasGap);
+        var point = await f.Db.MeasurementPoints.SingleAsync(); var readings = await f.Db.MeasurementReadings.ToListAsync();
+        var trend = TrendBuilder.Build(point, readings, start, start.AddMinutes(1), "raw", f.Clock.Now, [gap]);
+        Assert.True(trend.Samples.Single(x => x.EffectiveAt == start.AddSeconds(20)).GapBefore);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => recorder.RecordAsync([loss with { Id = Guid.NewGuid(), Configuration = f.Source with { PlantId = Guid.NewGuid() } }]));
+    }
+
+    [DatabaseFact]
+    public async Task OpenFailureIsRecordedBeforeRecoveryAndRecoveryDoesNotReopenOnRetry()
+    {
+        await using var f = await Fixture.Create(); var at = f.Clock.Now;
+        var loss = new IngestionLoss(Guid.NewGuid(), f.Source, at, null, "CollectionFailure", null, true);
+        var recorder = new IngestionGapRecorder(f.Db, f.Clock); await recorder.RecordAsync([loss]);
+        var gap = Assert.Single(await f.Db.IngestionGaps.ToListAsync()); Assert.Null(gap.To); Assert.True(gap.IsPossible);
+        await recorder.RecoverAsync([f.Source], at.AddSeconds(10)); f.Db.ChangeTracker.Clear();
+        await recorder.RecordAsync([loss]); gap = Assert.Single(await f.Db.IngestionGaps.ToListAsync());
+        Assert.Equal(at.AddSeconds(10), gap.To); Assert.Equal(at.AddSeconds(10), gap.RecoveredAt);
+    }
+
+    [DatabaseFact]
+    public async Task StartupWatermarkCreatesStablePossibleTailWithoutInventingLostCounts()
+    {
+        await using var f = await Fixture.Create(); var at = f.Clock.Now; await f.Send(at, 4);
+        f.Clock.Now = at.AddSeconds(20); var recorder = new IngestionGapRecorder(f.Db, f.Clock);
+        await recorder.DetectStartupAsync([f.Source]); await recorder.DetectStartupAsync([f.Source]);
+        var gap = Assert.Single(await f.Db.IngestionGaps.ToListAsync());
+        Assert.Equal("PossibleCrashTail", gap.Reason); Assert.True(gap.IsPossible); Assert.Null(gap.DroppedCount); Assert.Null(gap.To);
+        await f.Send(f.Clock.Now, 4); gap = Assert.Single(await f.Db.IngestionGaps.Where(x => x.Reason == "PossibleCrashTail").ToListAsync());
+        Assert.Equal(f.Clock.Now, gap.To);
+    }
+    [DatabaseFact]
+    public async Task DistantFutureCannotCreateArbitraryPartitions()
+    {
+        await using var f = await Fixture.Create();
+        await Assert.ThrowsAsync<ArgumentException>(() => new MeasurementIngestor(f.Db, f.Clock).IngestAsync([
+            SamplePolicy.Normalize(f.Source, 4, "Good", f.Clock.Now.AddYears(10), null, f.Clock.Now, "distant-future")]));
+        Assert.Empty(await f.Db.MeasurementPartitions.ToListAsync());
+    }
+
+    [DatabaseFact]
     public async Task DeduplicationUsesUtcDateAndSameDayRetriesAreIdempotent()
     {
         await using var f = await Fixture.Create(); var midnight = f.Clock.Now;

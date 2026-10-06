@@ -93,7 +93,9 @@ P1.6 已实现：DbContext 将设备/最新测量/告警/工单/资料变化写�
 
 P1.2 实现：Application 的 IAssetDirectory/Actor/DTO 不引用 EF 或 Identity；Infrastructure 的 AssetDirectory 实现真实角色与 UserPlantAccess 检查、关系校验和事务审计。所有目录写事务先取得工厂级 PostgreSQL advisory lock，再重新加载版本及校验树/归档关系，防止并发结构修改形成循环；不同工厂独立。SaveChanges 与 AuditLog 处于一个显式事务，版本冲突返回 409。创建工厂同时显式授权创建者；没有 Admin 范围绕过。Outbox 尚未实现，本阶段没有实时事件。
 
-Phase 2 的遥测批写目标为每 500 ms 或 500 条（先到者触发）；Adapter 回调仅写入有界缓冲，不执行 SQL 或调用模型。P1 当前是每秒枚举有限 Simulation 批次，满 500 条或枚举结束提交，尚无持续订阅的时间触发缓冲。容量、丢失策略见 [OPC UA 设计](docs/OPCUA_INTEGRATION.md)，实施门槛与回归见 [P2 计划](docs/plans/2026-10-05-p2-opcua.md)。写入顺序、幂等键和新鲜度规则统一用于内置模拟源和 OPC UA。
+2026-10-06 通用采集整改已实现每源独立生命周期、每 500 ms 或 500 条提交（先到者触发），总队列预算 10,000、最多 200 源；有限 Simulation 每秒枚举，持续源无需结束枚举。关闭模拟只影响 Simulation，配置变化取消并重建对应源。过载丢最旧样本并登记损失，数据库离线时保留内存摘要；进程崩溃只能标记可能尾部。显式缺口由趋势、分钟和规则共同消费，见 [整改验收](docs/P1_REVIEW_FIX_VALIDATION.md)。OPC UA Adapter 尚未实现，回调应只写有界缓冲，不执行 SQL 或调用模型；容量与协议门槛仍见 [P2 计划](docs/plans/2026-10-05-p2-opcua.md)。
+
+已发送 Outbox 增加部分索引与可选事务清理，默认关闭；启用后默认保留 24 小时、每 5 秒最多 1,000 条，SKIP LOCKED 跳过被占用行。未发送与审计保留；满量维护与容量仍须独立验收。
 
 ## 5. 数据与文件
 

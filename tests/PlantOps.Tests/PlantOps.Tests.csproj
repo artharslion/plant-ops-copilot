@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/PlantOps.Api/PlantOps.Api.csproj" />
+    <ProjectReference Include="../../src/PlantOps.Worker/PlantOps.Worker.csproj" Aliases="worker" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="xunit" Version="2.9.3" />

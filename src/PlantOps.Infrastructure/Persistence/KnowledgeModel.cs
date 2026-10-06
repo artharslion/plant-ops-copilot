@@ -20,5 +20,6 @@ internal static class KnowledgeModel
         v.ToTable("DocumentVersions", t => t.HasCheckConstraint("CK_DocumentVersion", "\"VersionNumber\" > 0 AND \"SizeBytes\" BETWEEN 1 AND 10485760 AND \"Status\" IN ('Draft','Published','Withdrawn')"));
         d.ToTable("Documents", t => t.HasCheckConstraint("CK_DocumentVisibility", "\"Visibility\" IN ('PlantReaders','RestrictedRoles')"));
         var o = m.Entity<OutboxEvent>(); o.HasKey(x => x.Id); o.Property(x => x.EventType).HasMaxLength(64); o.HasIndex(x => new { x.AvailableAt, x.OccurredAt }).HasFilter("\"DispatchedAt\" IS NULL");
+        o.HasIndex(x => new { x.DispatchedAt, x.Id }).HasFilter("\"DispatchedAt\" IS NOT NULL");
     }
 }

@@ -74,6 +74,8 @@ DisplayTimeZone 仅影响显示；业务时间计算使用 UTC。归档前必须
 
 `(AssetId, Code)` 唯一；MVP ValueType = Double，Quantity 如 Vibration/Temperature/Pressure。示例点位 `VIBRATION_RMS` 单位 `mm/s`。已存在样本后，Quantity、ValueType、CanonicalUnit 不原地改，需建新点位；不同源的单位在 Adapter 转换。
 
+2026-10-06 的 P1 历史保护同时冻结 ExpectedIntervalMs：存在快照、原始或分钟历史，或启用映射时，间隔/单位/量纲变更须建新点位。原始过期不解除分钟历史保护；P2 按生效区间保存修正采样/变化通知配置仍待实现。
+
 ### SourceMapping（数据源到点位的映射）
 
 `Id, PlantId, DataSourceId, PointId, SourceKey, RawUnit, Scale, Offset, SourceParameters, Enabled, Version`。
@@ -163,7 +165,7 @@ AlarmEvent：`Id, AlarmId, EventType (Raised/Acknowledged/Recovered), OccurredAt
 |---|---|
 | DataSource | Id、PlantId、Name、Kind (Simulation/OpcUa)、ConnectionParameters、CredentialRef?、Enabled、Version；OPC UA 的 EndpointUrl/SecurityPolicy/MessageSecurityMode 属于经类型校验的连接配置，Simulation 无需这些参数；凭据只保存引用 |
 | SourceMapping | 见核心实体定义；统一映射字段与按来源类型校验的参数分离，Phase 1 已用于 Simulation，Phase 2 新增 OPC UA 配置 |
-| IngestionGap | Id、PointId、DataSourceId?、From、To?、Reason、DetectedAt、RecoveredAt?；缺口不等同实际每个样本都已丢失 |
+| IngestionGap | Id、PointId、DataSourceId?、From、To?、Reason、DetectedAt、RecoveredAt?、DroppedCount?、IsPossible；未知数量为 null，缺口不等同实际每个样本都已丢失 |
 | DocumentChunk | Id、DocumentVersionId、Ordinal、Page?、Section?、Text、ContentHash、EmbeddingModelId、Embedding；内容与版本不可变 |
 | AiRun | Id、RequestedByUserId、PlantId、AlarmId、Status、PromptVersion、SchemaVersion、Provider/Model、StartedAt、CompletedAt?、Usage、ErrorCode、CorrelationId、ResultJson? |
 | ActionProposal | Id、AiRunId、RequestedByUserId、ActionType、TargetId、PayloadJson、PayloadHash、TargetVersionsJson、Status、ExpiresAt、ApprovedBy?、ApprovedAt?、ResultEntityId?、Version |

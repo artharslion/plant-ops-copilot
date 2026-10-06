@@ -5,7 +5,7 @@ namespace PlantOps.Application.Telemetry;
 public static class TrendBuilder
 {
     public static MeasurementTrend Build(MeasurementPoint point, IReadOnlyList<MeasurementReading> readings,
-        DateTimeOffset from, DateTimeOffset to, string bucket, DateTimeOffset checkedAt)
+        DateTimeOffset from, DateTimeOffset to, string bucket, DateTimeOffset checkedAt, IReadOnlyList<IngestionGap>? gaps = null)
     {
         var ordered = readings.OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToList();
         var tolerance = TimeSpan.FromMilliseconds(point.ExpectedIntervalMs * 1.5);
@@ -14,12 +14,12 @@ public static class TrendBuilder
         foreach (var r in ordered)
         {
             samples.Add(new(r.Id, r.EffectiveAt, r.ReceivedAt, r.NumericValue, r.Quality, r.TimeAnomaly,
-                r.EffectiveAt - prior > tolerance, r.DataSourceId, r.SourceMappingId, r.MappingVersion, r.SourceKind,
+                r.EffectiveAt - prior > tolerance || (gaps?.Any(g => g.From <= r.EffectiveAt && (g.To == null || g.To > prior)) ?? false), r.DataSourceId, r.SourceMappingId, r.MappingVersion, r.SourceKind,
                 r.TimestampOrigin, r.SourceTimestamp, r.ServerTimestamp, r.RawStatusCode, r.StatusSymbol));
             prior = r.EffectiveAt;
         }
-        var leading = ordered.Count == 0 || ordered[0].EffectiveAt - from > tolerance;
-        var trailing = ordered.Count == 0 || to - ordered[^1].EffectiveAt > tolerance;
+        var leading = ordered.Count == 0 || ordered[0].EffectiveAt - from > tolerance || (gaps?.Any(g => g.From <= from && (g.To == null || g.To > from)) ?? false);
+        var trailing = ordered.Count == 0 || to - ordered[^1].EffectiveAt > tolerance || (gaps?.Any(g => g.From < to && (g.To == null || g.To >= to)) ?? false);
         var buckets = new List<TrendBucket>();
         if (bucket == "1m")
         {

@@ -900,6 +900,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasIndex("AvailableAt", "OccurredAt")
                         .HasFilter("\"DispatchedAt\" IS NULL");
 
+                    b.HasIndex("DispatchedAt", "Id")
+                        .HasFilter("\"DispatchedAt\" IS NOT NULL");
+
                     b.ToTable("OutboxEvents");
                 });
 
@@ -963,8 +966,14 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("DetectedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long?>("DroppedCount")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTimeOffset>("From")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsPossible")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid>("PointId")
                         .HasColumnType("uuid");
@@ -973,6 +982,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("RecoveredAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("To")
                         .HasColumnType("timestamp with time zone");

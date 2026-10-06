@@ -60,6 +60,12 @@ internal sealed class AlarmBatchEvaluator(PlantOpsDbContext db, TimeProvider clo
             if (transition == "Recovered") await db.SaveChangesAsync(ct);
         }
     }
+    public Task ResetPointAsync(Guid pointId, CancellationToken ct)
+    {
+        foreach (var rule in rules.Where(x => x.PointId == pointId))
+            if (states.TryGetValue(rule.Id, out var state)) { ThresholdEvaluator.ResetPending(state); state.Version++; }
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class AlarmRuntimeReset(PlantOpsDbContext db) : IAlarmRuntimeReset

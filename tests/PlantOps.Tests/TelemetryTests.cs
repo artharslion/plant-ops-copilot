@@ -151,6 +151,49 @@ public sealed class TelemetryTests
 
     private sealed class HistoricalClock(DateTimeOffset at) : TimeProvider { public override DateTimeOffset GetUtcNow() => at; }
     [DatabaseFact]
+    public async Task LateExplicitGapRemainsVisibleInSavedMinuteAndRawApi()
+    {
+        await using var s = new AssetManagementTests.Session(connection: await TestDatabase.IsolatedConnection());
+        await s.Initialize(); await s.Login(); var f = await Configure(s); var c = await Configuration(s, f.Point.Id);
+        var start = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 60 * 60).AddMinutes(-2);
+        await Ingest(s, Enumerable.Range(0, 60).Select(i => SamplePolicy.Normalize(c, 4, "Good", start.AddSeconds(i), null, start.AddSeconds(i), "gap-api-" + i)).ToArray());
+        await using (var scope = s.Factory.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>().AggregateAsync();
+            await scope.ServiceProvider.GetRequiredService<IIngestionGapRecorder>().RecordAsync([
+                new(Guid.NewGuid(), c, start.AddSeconds(20), start.AddSeconds(21), "QueueOverflow", 2)]);
+            var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>(); Assert.Empty(await db.DirtyMeasurementMinutes.Where(x => x.PointId == c.PointId).ToListAsync());
+        }
+        var minute = (await s.Client.GetFromJsonAsync<MeasurementTrend>(Trend(f.Asset.Id, c.PointId, start, start.AddMinutes(1), "1m")))!;
+        Assert.True(Assert.Single(minute.Buckets).HasGap); Assert.Equal(4, minute.Buckets[0].Average);
+        var raw = (await s.Client.GetFromJsonAsync<MeasurementTrend>(Trend(f.Asset.Id, c.PointId, start, start.AddMinutes(1))))!;
+        Assert.True(raw.Samples.Single(x => x.EffectiveAt == start.AddSeconds(20)).GapBefore);
+    }
+
+    [DatabaseFact]
+    public async Task HistoricalSamplingIntervalCannotBeReinterpretedEvenAfterRawRetention()
+    {
+        await using var s = new AssetManagementTests.Session(connection: await TestDatabase.IsolatedConnection());
+        await s.Initialize(); await s.Login(); var f = await Configure(s);
+        var c = await Configuration(s, f.Point.Id); var old = DateTimeOffset.UtcNow.AddDays(-8);
+        await using (var scope = s.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+            await new MeasurementIngestor(db, new HistoricalClock(old)).IngestAsync([SamplePolicy.Normalize(c, 4, "Good", old, null, old, "interval-history")]);
+            var maintenance = scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>();
+            await maintenance.AggregateAsync(); await maintenance.RetainAsync();
+            Assert.Empty(await db.MeasurementReadings.Where(x => x.PointId == c.PointId).ToListAsync());
+        }
+        var path = $"/api/v1/assets/{f.Asset.Id}/measurement-points/{f.Point.Id}";
+        Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync(path + "/source-mappings/" + f.Mapping.Id,
+            new MappingInput(f.Source.Id, f.Mapping.SourceKey, Enabled: false, Version: f.Mapping.Version))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PatchAsJsonAsync(path,
+            new PointInput(f.Point.Code, f.Point.Name, ExpectedIntervalMs: 2000, Version: f.Point.Version))).StatusCode);
+        var point = Assert.Single((await s.Client.GetFromJsonAsync<PointOverview[]>($"/api/v1/assets/{f.Asset.Id}/measurement-points"))!);
+        Assert.Equal(1000, point.ExpectedIntervalMs); Assert.Equal(f.Point.Version, point.Version);
+    }
+
+    [DatabaseFact]
     public async Task RetainedMinutesAndSnapshotsPreventRelabelingUnitsAfterRawDeletion()
     {
         await using var s = new AssetManagementTests.Session(connection: await TestDatabase.IsolatedConnection()); await s.Initialize(); await s.Login(); var f = await Configure(s);
