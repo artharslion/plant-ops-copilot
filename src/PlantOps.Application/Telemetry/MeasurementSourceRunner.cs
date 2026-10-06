@@ -23,14 +23,30 @@ public sealed class MeasurementSourceRunner
     {
         if (capacity is < 1 or > 10000 || batchSize is < 1 or > 500 || configurations.Count is < 1 or > 200
             || configurations.Any(x => x.SourceKind != source.Kind) || configurations.Select(x => x.DataSourceId).Distinct().Count() != 1)
+        {
             throw new ArgumentException("A runner requires a bounded configuration set for one source.");
-        this.source = source; this.configurations = configurations.ToArray(); this.commit = commit;
-        this.recordLosses = recordLosses; this.reportFailure = reportFailure; this.clock = clock;
-        this.batchSize = batchSize; this.flushInterval = flushInterval ?? TimeSpan.FromMilliseconds(500);
+        }
+
+        this.source = source;
+        this.configurations = configurations.ToArray();
+        this.commit = commit;
+        this.recordLosses = recordLosses;
+        this.reportFailure = reportFailure;
+        this.clock = clock;
+        this.batchSize = batchSize;
+        this.flushInterval = flushInterval ?? TimeSpan.FromMilliseconds(500);
         this.shutdownTimeout = shutdownTimeout ?? TimeSpan.FromSeconds(5);
-        if (this.flushInterval <= TimeSpan.Zero || this.shutdownTimeout <= TimeSpan.Zero) throw new ArgumentException("Invalid pipeline timeout.");
+        if (this.flushInterval <= TimeSpan.Zero || this.shutdownTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentException("Invalid pipeline timeout.");
+        }
+
         channel = Channel.CreateBounded<NormalizedSample>(new BoundedChannelOptions(capacity)
-        { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.DropOldest },
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.DropOldest
+        },
             sample => Record(sample, "QueueOverflow", 1, false));
     }
 
@@ -41,11 +57,18 @@ public sealed class MeasurementSourceRunner
         using var registration = stoppingToken.Register(() => consumerCancellation.CancelAfter(shutdownTimeout));
         var producer = Task.Run(() => ProduceAsync(producerCancellation.Token), CancellationToken.None);
         var consumer = ConsumeAsync(consumerCancellation.Token);
-        try { await Task.WhenAll(producer, consumer); }
+        try
+        {
+            await Task.WhenAll(producer, consumer);
+        }
         finally
         {
             producerCancellation.Cancel();
-            while (channel.Reader.TryRead(out var remaining)) Record(remaining, "ShutdownTimeout", null, true);
+            while (channel.Reader.TryRead(out var remaining))
+            {
+                Record(remaining, "ShutdownTimeout", null, true);
+            }
+
             using var finalAttempt = new CancellationTokenSource(shutdownTimeout);
             await FlushLossesAsync(finalAttempt.Token);
         }
@@ -62,9 +85,16 @@ public sealed class MeasurementSourceRunner
                 {
                     await foreach (var sample in source.ReadAsync(configurations, ct).WithCancellation(ct))
                     {
-                        if (!configurations.Contains(sample.Configuration)) throw new InvalidOperationException("Source emitted an unconfigured sample.");
+                        if (!configurations.Contains(sample.Configuration))
+                        {
+                            throw new InvalidOperationException("Source emitted an unconfigured sample.");
+                        }
+
                         if (sample.RawValueJson.Length > 8000 || sample.SourceEventKey.Length > 200)
-                        { Record(sample, "InvalidSample", 1, false); continue; }
+                        {
+                            Record(sample, "InvalidSample", 1, false);
+                            continue;
+                        }
                         channel.Writer.TryWrite(sample);
                     }
                 }
@@ -72,9 +102,15 @@ public sealed class MeasurementSourceRunner
                 catch (Exception e)
                 {
                     reportFailure(e);
-                    foreach (var c in configurations) losses.Record(c, clock.GetUtcNow(), null, "CollectionFailure", possible: true);
+                    foreach (var c in configurations)
+                    {
+                        losses.Record(c, clock.GetUtcNow(), null, "CollectionFailure", possible: true);
+                    }
                 }
-                if (!await timer.WaitForNextTickAsync(ct)) break;
+                if (!await timer.WaitForNextTickAsync(ct))
+                {
+                    break;
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -95,9 +131,21 @@ public sealed class MeasurementSourceRunner
                 {
                     while (batch.Count < batchSize)
                     {
-                        while (batch.Count < batchSize && channel.Reader.TryRead(out var sample)) batch.Add(sample);
-                        if (batch.Count == batchSize) break;
-                        if (!await channel.Reader.WaitToReadAsync(deadline.Token)) { completed = true; break; }
+                        while (batch.Count < batchSize && channel.Reader.TryRead(out var sample))
+                        {
+                            batch.Add(sample);
+                        }
+
+                        if (batch.Count == batchSize)
+                        {
+                            break;
+                        }
+
+                        if (!await channel.Reader.WaitToReadAsync(deadline.Token))
+                        {
+                            completed = true;
+                            break;
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
@@ -115,31 +163,54 @@ public sealed class MeasurementSourceRunner
                     catch (Exception e)
                     {
                         reportFailure(e);
-                        foreach (var sample in batch) Record(sample,
+                        foreach (var sample in batch)
+                        {
+                            Record(sample,
                             e is ArgumentException or InvalidOperationException ? "BatchRejected" : "DatabaseUnavailable", null, true);
+                        }
                     }
                     batch.Clear();
                 }
                 await FlushLossesAsync(ct);
-                if (completed) break;
+                if (completed)
+                {
+                    break;
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        { foreach (var sample in batch) Record(sample, "ShutdownTimeout", null, true); }
+        {
+            foreach (var sample in batch)
+            {
+                Record(sample, "ShutdownTimeout", null, true);
+            }
+        }
     }
 
     private void Record(NormalizedSample sample, string reason, long? count, bool possible)
     {
         var at = sample.SourceTimestamp ?? sample.ServerTimestamp ?? sample.ReceivedAt;
-        if (at > sample.ReceivedAt.AddDays(1) || at < sample.ReceivedAt.AddDays(-365)) at = sample.ReceivedAt;
+        if (at > sample.ReceivedAt.AddDays(1) || at < sample.ReceivedAt.AddDays(-365))
+        {
+            at = sample.ReceivedAt;
+        }
+
         losses.Record(sample.Configuration, at, at.AddTicks(1), reason, count, possible);
     }
 
     private async Task FlushLossesAsync(CancellationToken ct)
     {
         var snapshot = losses.Snapshot();
-        if (snapshot.Length == 0) return;
-        try { await recordLosses(snapshot, ct); losses.Acknowledge(snapshot); }
+        if (snapshot.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await recordLosses(snapshot, ct);
+            losses.Acknowledge(snapshot);
+        }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception e) { reportFailure(e); }
     }

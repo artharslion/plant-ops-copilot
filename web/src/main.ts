@@ -12,14 +12,24 @@ import './style.css'
 
 const router = createRouter({
   history: createWebHistory(),
-  routes: [{ path: '/', component: OverviewPage }, { path: '/login', component: LoginPage },
-    { path: '/assets', component: AssetDirectoryPage }, { path: '/alarms', component: AlarmsPage }, { path: '/documents', component: DocumentsPage }, { path: '/:pathMatch(.*)*', redirect: '/' }],
+  routes: [
+    { path: '/', component: OverviewPage },
+    { path: '/login', component: LoginPage },
+    { path: '/assets', component: AssetDirectoryPage },
+    { path: '/alarms', component: AlarmsPage },
+    { path: '/documents', component: DocumentsPage },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
+  ],
 })
 const pinia = createPinia()
-router.beforeEach(async to => {
+router.beforeEach(async (to) => {
   if (!['/assets', '/alarms', '/documents'].includes(to.path)) return
   const session = useSession(pinia)
-  try { await session.load() } catch { return '/login' }
+  try {
+    await session.load()
+  } catch {
+    return '/login'
+  }
   if (!session.user) return '/login'
 })
 createApp(App).use(pinia).use(router).mount('#app')

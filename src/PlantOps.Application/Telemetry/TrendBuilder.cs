@@ -41,5 +41,6 @@ public static class TrendBuilder
         return new(point.Id, point.CanonicalUnit, from, to, bucket, checkedAt,
             bucket == "raw" ? samples : [], buckets, leading, trailing);
     }
+
     private static DateTimeOffset FloorMinute(DateTimeOffset at) => new(at.Year, at.Month, at.Day, at.Hour, at.Minute, 0, TimeSpan.Zero);
 }

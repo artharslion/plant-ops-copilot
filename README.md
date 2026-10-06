@@ -58,6 +58,7 @@ ASP.NET Core / .NET 10 LTS、EF Core、PostgreSQL；Vue 3 + TypeScript + Vite；
 
 ## 文档导航
 
+- [docs/CODE_STYLE.md](docs/CODE_STYLE.md)：源码风格、自动格式化、检查命令与持续检查。
 - [PROJECT_SPEC.md](PROJECT_SPEC.md)：业务范围、场景、权限、API 与验收契约。
 - [ARCHITECTURE.md](ARCHITECTURE.md)：模块、部署、数据流、故障处理和架构决策。
 - [ROADMAP.md](ROADMAP.md)：按依赖排列的实施任务和阶段验收。

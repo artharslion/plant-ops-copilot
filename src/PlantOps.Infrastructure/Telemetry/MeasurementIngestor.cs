@@ -12,14 +12,14 @@ public sealed class SourceConfigurationReader(PlantOpsDbContext db) : ISourceCon
 {
     public async Task<IReadOnlyList<SourceConfiguration>> GetEnabledAsync(CancellationToken cancellationToken = default) =>
         await (from mapping in db.SourceMappings.AsNoTracking()
-            join source in db.DataSources on mapping.DataSourceId equals source.Id
-            join point in db.MeasurementPoints on mapping.PointId equals point.Id
-            join asset in db.Assets on point.AssetId equals asset.Id
-            join plant in db.Plants on point.PlantId equals plant.Id
-            where mapping.Enabled && source.Enabled && point.Enabled && !asset.IsArchived && !plant.IsArchived
-            select new SourceConfiguration(point.PlantId, point.AssetId, point.Id, point.Version,
-                point.CanonicalUnit, point.ExpectedIntervalMs, point.StaleAfterMs, source.Id, source.Version, source.Kind,
-                mapping.Id, mapping.Version, mapping.SourceKey, mapping.RawUnit, mapping.Scale, mapping.Offset, mapping.SourceParameters))
+               join source in db.DataSources on mapping.DataSourceId equals source.Id
+               join point in db.MeasurementPoints on mapping.PointId equals point.Id
+               join asset in db.Assets on point.AssetId equals asset.Id
+               join plant in db.Plants on point.PlantId equals plant.Id
+               where mapping.Enabled && source.Enabled && point.Enabled && !asset.IsArchived && !plant.IsArchived
+               select new SourceConfiguration(point.PlantId, point.AssetId, point.Id, point.Version,
+                   point.CanonicalUnit, point.ExpectedIntervalMs, point.StaleAfterMs, source.Id, source.Version, source.Kind,
+                   mapping.Id, mapping.Version, mapping.SourceKey, mapping.RawUnit, mapping.Scale, mapping.Offset, mapping.SourceParameters))
             .ToListAsync(cancellationToken);
 }
 
@@ -27,8 +27,16 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
 {
     public async Task<IngestResult> IngestAsync(IReadOnlyList<NormalizedSample> samples, CancellationToken cancellationToken = default)
     {
-        if (samples.Count > 500) throw new ArgumentException("A measurement batch cannot exceed 500 samples.");
-        if (samples.Count == 0) return new(0, 0);
+        if (samples.Count > 500)
+        {
+            throw new ArgumentException("A measurement batch cannot exceed 500 samples.");
+        }
+
+        if (samples.Count == 0)
+        {
+            return new(0, 0);
+        }
+
         foreach (var sample in samples)
         {
             if (string.IsNullOrWhiteSpace(sample.SourceEventKey) || sample.SourceEventKey.Length > 200
@@ -37,31 +45,57 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
                 || sample.Quality == "Bad" && sample.NumericValue.HasValue || sample.StatusSymbol?.Length > 128
                 || sample.ReceivedAt.Offset != TimeSpan.Zero || sample.SourceTimestamp?.Offset != TimeSpan.Zero && sample.SourceTimestamp.HasValue
                 || sample.ServerTimestamp?.Offset != TimeSpan.Zero && sample.ServerTimestamp.HasValue)
+            {
                 throw new ArgumentException("Invalid normalized sample.");
+            }
+
             using var raw = JsonDocument.Parse(sample.RawValueJson);
         }
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await MeasurementMaintenance.LockAsync(db, cancellationToken);
         var dates = samples.Select(x => DateOnly.FromDateTime((x.SourceTimestamp ?? x.ServerTimestamp ?? x.ReceivedAt).UtcDateTime)).Distinct().ToArray();
         var rawDays = settings?.GetValue<int?>("Telemetry:RawRetentionDays") ?? 7;
-        if (rawDays is < 1 or > 365) throw new InvalidOperationException("Invalid raw retention period.");
+        if (rawDays is < 1 or > 365)
+        {
+            throw new InvalidOperationException("Invalid raw retention period.");
+        }
+
         var cutoff = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime).AddDays(-rawDays);
-        if (dates.Any(x => x < cutoff)) throw new ArgumentException("Sample is outside raw retention; retained aggregates cannot be rewritten.");
+        if (dates.Any(x => x < cutoff))
+        {
+            throw new ArgumentException("Sample is outside raw retention; retained aggregates cannot be rewritten.");
+        }
+
         if (dates.Any(x => x > DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime).AddDays(1)))
+        {
             throw new ArgumentException("Sample timestamp is beyond the allowed future partition window.");
+        }
+
         foreach (var day in dates)
         {
-            var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)); var end = start.AddDays(1);
+            var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+            var end = start.AddDays(1);
             if (!await db.MeasurementPartitions.AnyAsync(x => x.Date == day, cancellationToken)
                 && await db.MeasurementMinutes.AnyAsync(x => x.BucketStart >= start && x.BucketStart < end, cancellationToken))
+            {
                 throw new ArgumentException("Raw partition was already retired; changing retention cannot rewrite historical aggregates.");
+            }
         }
         var partitions = await MeasurementMaintenance.EnsureAsync(db, dates, cancellationToken);
         foreach (var plant in samples.Select(x => x.Configuration.PlantId).Distinct().OrderBy(x => x))
+        {
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({plant.ToString()}, 0))", cancellationToken);
+        }
+
         var current = await new SourceConfigurationReader(db).GetEnabledAsync(cancellationToken);
         foreach (var c in samples.Select(x => x.Configuration).Distinct())
-            if (!current.Contains(c)) throw new InvalidOperationException("Measurement configuration changed or is outside its plant/asset. Batch not committed.");
+        {
+            if (!current.Contains(c))
+            {
+                throw new InvalidOperationException("Measurement configuration changed or is outside its plant/asset. Batch not committed.");
+            }
+        }
+
         var pointIds = samples.Select(x => x.Configuration.PointId).Distinct().ToArray();
         var keys = samples.Select(x => x.SourceEventKey).Distinct().ToArray();
         var existing = (await db.MeasurementReadings.AsNoTracking()
@@ -77,35 +111,62 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
         var gaps = await db.IngestionGaps.Where(x => pointIds.Contains(x.PointId) && x.From <= latest && (x.To == null || x.To >= earliest)).ToListAsync(cancellationToken);
         var correlation = "ingest-" + Guid.NewGuid().ToString("N");
         // Reset tracked snapshots after acquiring the lock if this scope was used before.
-        foreach (var state in states.Values) await db.Entry(state).ReloadAsync(cancellationToken);
+        foreach (var state in states.Values)
+        {
+            await db.Entry(state).ReloadAsync(cancellationToken);
+        }
+
         var inserted = 0;
         var added = new List<MeasurementReading>();
         foreach (var sample in samples)
         {
             var c = sample.Configuration;
             if (!states.TryGetValue(c.PointId, out var state))
-            { state = new PointLatestState { PointId = c.PointId }; states.Add(c.PointId, state); db.PointLatestStates.Add(state); }
+            {
+                state = new PointLatestState { PointId = c.PointId };
+                states.Add(c.PointId, state);
+                db.PointLatestStates.Add(state);
+            }
             var reading = SamplePolicy.ToReading(sample);
             if (!existing.Add((reading.EffectiveDate, c.PointId, sample.SourceEventKey)))
             {
-                if (sample.ReceivedAt > state.LastReceivedAt) { state.LastReceivedAt = sample.ReceivedAt; state.Version++; }
+                if (sample.ReceivedAt > state.LastReceivedAt)
+                {
+                    state.LastReceivedAt = sample.ReceivedAt;
+                    state.Version++;
+                }
                 continue;
             }
             if (!reading.TimeAnomaly && state.LatestObservedEffectiveAt is DateTimeOffset prior && reading.EffectiveAt - prior > TimeSpan.FromMilliseconds(c.ExpectedIntervalMs * 1.5))
+            {
                 db.IngestionGaps.Add(new IngestionGap { PointId = c.PointId, DataSourceId = c.DataSourceId, From = prior.AddMilliseconds(c.ExpectedIntervalMs), To = reading.EffectiveAt, DetectedAt = reading.ReceivedAt });
+            }
+
             added.Add(reading);
             db.MeasurementReadings.Add(reading);
             var priorTrusted = state.LastTrustedEffectiveAt;
-            SamplePolicy.Apply(state, reading, c.StaleAfterMs); state.Version++; inserted++;
+            SamplePolicy.Apply(state, reading, c.StaleAfterMs);
+            state.Version++;
+            inserted++;
             // Explicit loss invalidates continuity even if surviving notifications have short intervals.
             if (gaps.Any(x => x.PointId == c.PointId && x.From <= reading.EffectiveAt
                 && (x.To == null || x.To > reading.EffectiveAt || priorTrusted.HasValue && x.To > priorTrusted)))
+            {
                 await alarms.ResetPointAsync(c.PointId, cancellationToken);
+            }
+
             foreach (var gap in gaps.Where(x => x.PointId == c.PointId && x.DataSourceId == c.DataSourceId && x.To == null && x.From <= reading.ReceivedAt))
-            { gap.To = reading.ReceivedAt; gap.RecoveredAt = reading.ReceivedAt; }
+            {
+                gap.To = reading.ReceivedAt;
+                gap.RecoveredAt = reading.ReceivedAt;
+            }
             await alarms.ApplyAsync(reading, c, correlation, cancellationToken);
         }
-        foreach (var day in added.Select(x => x.EffectiveDate).Distinct()) partitions[day].Revision++;
+        foreach (var day in added.Select(x => x.EffectiveDate).Distinct())
+        {
+            partitions[day].Revision++;
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         await MeasurementMaintenance.DirtyAsync(db, added, cancellationToken);
         await transaction.CommitAsync(cancellationToken);

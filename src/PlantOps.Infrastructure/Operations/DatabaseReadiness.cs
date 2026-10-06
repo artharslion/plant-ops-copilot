@@ -8,7 +8,11 @@ internal sealed class DatabaseReadiness(PlantOpsDbContext db) : IDatabaseReadine
 {
     public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
-        if (!await db.Database.CanConnectAsync(cancellationToken)) return false;
+        if (!await db.Database.CanConnectAsync(cancellationToken))
+        {
+            return false;
+        }
+
         return !(await db.Database.GetPendingMigrationsAsync(cancellationToken)).Any();
     }
 }

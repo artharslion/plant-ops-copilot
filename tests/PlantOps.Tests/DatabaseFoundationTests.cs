@@ -18,6 +18,7 @@ public sealed class DatabaseFoundationTests
             .UseNpgsql("Host=127.0.0.1;Port=59999;Database=unused").Options);
         await Assert.ThrowsAsync<InvalidOperationException>(() => DevelopmentDatabaseInitializer.InitializeAsync(db, environment));
     }
+
     [DatabaseFact]
     public async Task InitializationIsRepeatableWithoutOverwritingExistingSeed()
     {
@@ -54,8 +55,15 @@ public sealed class DatabaseFoundationTests
         db.Plants.Add(otherPlant);
         await db.SaveChangesAsync();
         var location = await db.Locations.SingleAsync(x => x.Code == "UTILITIES");
-        db.Assets.Add(new Asset { Id = Guid.NewGuid(), PlantId = otherPlant.Id, LocationId = location.Id,
-            Code = "INVALID", Name = "Cross-plant asset", AssetType = "Pump" });
+        db.Assets.Add(new Asset
+        {
+            Id = Guid.NewGuid(),
+            PlantId = otherPlant.Id,
+            LocationId = location.Id,
+            Code = "INVALID",
+            Name = "Cross-plant asset",
+            AssetType = "Pump"
+        });
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
 
@@ -69,9 +77,11 @@ public static class TestDatabase
     {
         var schema = "p17_isolated_" + Guid.NewGuid().ToString("N");
         await using var db = new PlantOpsDbContext(new DbContextOptionsBuilder<PlantOpsDbContext>().UseNpgsql(Connection).Options);
-        var sql = $"CREATE SCHEMA \"{schema}\""; await db.Database.ExecuteSqlRawAsync(sql);
+        var sql = $"CREATE SCHEMA \"{schema}\"";
+        await db.Database.ExecuteSqlRawAsync(sql);
         return Connection + ";Search Path=" + schema;
     }
+
     public static string Connection
     {
         get
@@ -79,7 +89,10 @@ public static class TestDatabase
             var value = Environment.GetEnvironmentVariable("PLANTOPS_TEST_CONNECTION")
                 ?? throw new InvalidOperationException("Dedicated test connection required.");
             if (new NpgsqlConnectionStringBuilder(value).Database != "plantops_tests")
+            {
                 throw new InvalidOperationException("Tests require database name plantops_tests; business databases are forbidden.");
+            }
+
             return value;
         }
     }
@@ -93,7 +106,9 @@ public sealed class DatabaseFactAttribute : FactAttribute
     public DatabaseFactAttribute()
     {
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PLANTOPS_TEST_CONNECTION")))
+        {
             Skip = "Set PLANTOPS_TEST_CONNECTION to a dedicated PostgreSQL test database.";
+        }
     }
 }
 

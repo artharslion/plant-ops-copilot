@@ -7,9 +7,17 @@ public sealed class OutboxRetentionWorker(IServiceScopeFactory scopes, IConfigur
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!configuration.GetValue("Outbox:RetentionEnabled", false)) return;
+        if (!configuration.GetValue("Outbox:RetentionEnabled", false))
+        {
+            return;
+        }
+
         var interval = configuration.GetValue("Outbox:CleanupIntervalSeconds", 5);
-        if (interval is < 1 or > 300) throw new InvalidOperationException("Invalid Outbox cleanup interval.");
+        if (interval is < 1 or > 300)
+        {
+            throw new InvalidOperationException("Invalid Outbox cleanup interval.");
+        }
+
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(interval));
         do
         {
@@ -23,6 +31,7 @@ public sealed class OutboxRetentionWorker(IServiceScopeFactory scopes, IConfigur
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
             catch (Exception e) { logger.LogWarning("Outbox retention deferred ({FailureType}); notification history retained.", e.GetType().Name); }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+        }
+        while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 }

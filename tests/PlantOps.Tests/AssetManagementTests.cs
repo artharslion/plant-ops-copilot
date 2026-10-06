@@ -28,39 +28,69 @@ public sealed class AssetManagementTests
 
     internal sealed class FailAfterSave : SaveChangesInterceptor
     {
-        public bool Enabled { get; set; }
+        public bool Enabled
+        {
+            get; set;
+        }
+
         public override ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
         {
-            if (Enabled) throw new InvalidOperationException("Injected failure after database statements, before commit.");
+            if (Enabled)
+            {
+                throw new InvalidOperationException("Injected failure after database statements, before commit.");
+            }
+
             return ValueTask.FromResult(result);
         }
     }
+
     internal sealed class Session : IAsyncDisposable
     {
-        public WebApplicationFactory<Program> Factory { get; }
-        public HttpClient Client { get; }
+        public WebApplicationFactory<Program> Factory
+        {
+            get;
+        }
+
+        public HttpClient Client
+        {
+            get;
+        }
+
         public FailAfterSave Failure { get; } = new();
+
         public string Password { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) + "a!";
+
         public string Name { get; } = "test-" + Guid.NewGuid().ToString("N");
+
         public string UserId { get; private set; } = "";
+
         public string Token { get; private set; } = "";
+
         public string DocumentRoot => Path.GetFullPath(Path.Combine("artifacts", "test-documents"));
+
         public Session(TimeProvider? clock = null, string? connection = null)
         {
             Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Development");
-                builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> {
-                    ["ConnectionStrings:PlantOps"] = connection ?? TestDatabase.Connection, ["Demo:Password"] = Password,
+                builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:PlantOps"] = connection ?? TestDatabase.Connection,
+                    ["Demo:Password"] = Password,
                     ["Realtime:Enabled"] = "false",
                     ["Demo:SeedHistory"] = "false",
                     ["Documents:StorageRoot"] = DocumentRoot,
-                    ["Logging:LogLevel:Default"] = "Warning" }));
+                    ["Logging:LogLevel:Default"] = "Warning"
+                }));
                 builder.ConfigureServices(services => services.AddDbContext<PlantOpsDbContext>(options => options.AddInterceptors(Failure)));
-                if (clock != null) builder.ConfigureServices(services => services.AddSingleton(clock));
+                if (clock != null)
+                {
+                    builder.ConfigureServices(services => services.AddSingleton(clock));
+                }
             });
             Client = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         }
+
         public async Task Initialize(string role = "Admin", bool both = false)
         {
             await using var scope = Factory.Services.CreateAsyncScope();
@@ -72,9 +102,14 @@ public sealed class AssetManagementTests
             UserId = user.Id;
             var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
             db.UserPlantAccess.Add(new UserPlantAccess { UserId = user.Id, PlantId = North, GrantedAt = DateTimeOffset.UtcNow });
-            if (both) db.UserPlantAccess.Add(new UserPlantAccess { UserId = user.Id, PlantId = South, GrantedAt = DateTimeOffset.UtcNow });
+            if (both)
+            {
+                db.UserPlantAccess.Add(new UserPlantAccess { UserId = user.Id, PlantId = South, GrantedAt = DateTimeOffset.UtcNow });
+            }
+
             await db.SaveChangesAsync();
         }
+
         public async Task RefreshToken()
         {
             var data = await Client.GetFromJsonAsync<Dictionary<string, string>>("/api/v1/auth/csrf");
@@ -82,14 +117,21 @@ public sealed class AssetManagementTests
             Client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
             Client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", Token);
         }
+
         public async Task Login()
         {
             await RefreshToken();
-            Assert.Equal(HttpStatusCode.NoContent, (await Client.PostAsJsonAsync("/api/v1/auth/login", new { UserName = Name, Password })).StatusCode);
+            Assert.Equal(HttpStatusCode.NoContent, (await Client.PostAsJsonAsync("/api/v1/auth/login", new
+            {
+                UserName = Name,
+                Password
+            })).StatusCode);
             await RefreshToken();
         }
+
         public async Task<DirectoryRecord> Get(string kind, Guid id) =>
             (await Client.GetFromJsonAsync<DirectoryRecord>($"/api/v1/{kind}/{id}"))!;
+
         public async Task<DirectoryRecord> Create(string kind, Guid plantId, Guid? parent = null)
         {
             var input = new DirectoryInput("TEST-" + Guid.NewGuid().ToString("N"), "Test resource", ParentLocationId: parent, LocationId: Utilities);
@@ -97,12 +139,14 @@ public sealed class AssetManagementTests
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
             return (await response.Content.ReadFromJsonAsync<DirectoryRecord>())!;
         }
+
         public async ValueTask DisposeAsync()
         {
             Client.Dispose();
             await Factory.DisposeAsync();
         }
     }
+
     private static DirectoryInput Edit(DirectoryRecord x, string? name = null, Guid? parent = null, Guid? location = null, bool? archive = null) =>
         new(x.Code, name ?? x.Name, x.Version, archive ?? x.IsArchived, x.Description, parent ?? x.ParentLocationId, x.SortOrder,
             x.DisplayTimeZone, location ?? x.LocationId, x.AssetType, x.LifecycleStatus, x.Criticality, x.Manufacturer, x.Model, x.SerialNumber, x.InstalledAt);
@@ -113,9 +157,16 @@ public sealed class AssetManagementTests
         await using var s = new Session();
         await s.Initialize();
         foreach (var path in new[] { "/api/v1/plants", $"/api/v1/assets/{Pump}", "/api/v1/auth/me" })
+        {
             Assert.Equal(HttpStatusCode.Unauthorized, (await s.Client.GetAsync(path)).StatusCode);
+        }
+
         Assert.Equal(HttpStatusCode.Unauthorized, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{Pump}", new DirectoryInput("P-101", "No access"))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PostAsJsonAsync("/api/v1/auth/login", new { UserName = s.Name, s.Password })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            UserName = s.Name,
+            s.Password
+        })).StatusCode);
         await s.Login();
         Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync("/api/v1/auth/me")).StatusCode);
         var pump = await s.Get("assets", Pump);
@@ -133,12 +184,15 @@ public sealed class AssetManagementTests
         foreach (var role in new[] { "Viewer", "Operator", "MaintenanceEngineer" })
         {
             await using var s = new Session();
-            await s.Initialize(role); await s.Login();
+            await s.Initialize(role);
+            await s.Login();
             var pump = await s.Get("assets", Pump);
             Assert.Equal(HttpStatusCode.Forbidden, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{Pump}", Edit(pump))).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await s.Client.PostAsJsonAsync("/api/v1/plants", new DirectoryInput("TEST", "Denied"))).StatusCode);
             foreach (var kind in new[] { "locations", "assets" })
+            {
                 Assert.Equal(HttpStatusCode.Forbidden, (await s.Client.PostAsJsonAsync($"/api/v1/plants/{North}/{kind}", new DirectoryInput("TEST", "Denied", LocationId: Utilities))).StatusCode);
+            }
         }
     }
 
@@ -146,25 +200,40 @@ public sealed class AssetManagementTests
     public async Task AdminStillNeedsScopeForListsIdsAndWrites()
     {
         await using var s = new Session();
-        await s.Initialize(); await s.Login();
+        await s.Initialize();
+        await s.Login();
         var plants = await s.Client.GetFromJsonAsync<DirectoryPage>("/api/v1/plants");
-        Assert.Single(plants!.Items); Assert.Equal(North, plants.Items[0].Id);
+        Assert.Single(plants!.Items);
+        Assert.Equal(North, plants.Items[0].Id);
         foreach (var path in new[] { $"plants/{South}", $"plants/{South}/locations", $"locations/{ProcessHall}", $"assets/{Fan}", $"assets?plantId={South}", $"assets?plantId={North}&locationId={ProcessHall}" })
+        {
             Assert.Equal(HttpStatusCode.NotFound, (await s.Client.GetAsync("/api/v1/" + path)).StatusCode);
+        }
+
         foreach (var (kind, id) in new[] { ("plants", South), ("locations", ProcessHall), ("assets", Fan) })
+        {
             Assert.Equal(HttpStatusCode.NotFound, (await s.Client.PatchAsJsonAsync($"/api/v1/{kind}/{id}", new DirectoryInput("TEST", "Denied"))).StatusCode);
+        }
+
         foreach (var kind in new[] { "locations", "assets" })
+        {
             Assert.Equal(HttpStatusCode.NotFound, (await s.Client.PostAsJsonAsync($"/api/v1/plants/{South}/{kind}", new DirectoryInput("TEST", "Denied", LocationId: ProcessHall))).StatusCode);
+        }
     }
 
     [DatabaseFact]
     public async Task LocationSelfReferenceCycleAndCrossPlantParentAreRejected()
     {
-        await using var s = new Session(); await s.Initialize(both: true); await s.Login();
+        await using var s = new Session();
+        await s.Initialize(both: true);
+        await s.Login();
         var root = await s.Create("locations", North);
         var child = await s.Create("locations", North, root.Id);
         foreach (var parent in new[] { root.Id, child.Id, ProcessHall })
+        {
             Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PatchAsJsonAsync($"/api/v1/locations/{root.Id}", Edit(root, parent: parent))).StatusCode);
+        }
+
         var other = await s.Create("locations", North);
         var replies = await Task.WhenAll(
             s.Client.PatchAsJsonAsync($"/api/v1/locations/{root.Id}", Edit(root, parent: other.Id)),
@@ -176,7 +245,9 @@ public sealed class AssetManagementTests
     [DatabaseFact]
     public async Task AssetMovesOnlyWithinPlantAndConcurrentEditReturns409()
     {
-        await using var s = new Session(); await s.Initialize(both: true); await s.Login();
+        await using var s = new Session();
+        await s.Initialize(both: true);
+        await s.Login();
         var asset = await s.Create("assets", North);
         Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{asset.Id}", Edit(asset, location: ProcessHall))).StatusCode);
         var location = await s.Create("locations", North);
@@ -186,32 +257,41 @@ public sealed class AssetManagementTests
         Assert.Single(replies, x => x.StatusCode == HttpStatusCode.OK);
         Assert.Single(replies, x => x.StatusCode == HttpStatusCode.Conflict);
         var current = await s.Get("assets", asset.Id);
-        Assert.Equal(asset.Version + 1, current.Version); Assert.Equal(location.Id, current.LocationId);
+        Assert.Equal(asset.Version + 1, current.Version);
+        Assert.Equal(location.Id, current.LocationId);
     }
 
     [DatabaseFact]
     public async Task AuditAndBusinessChangeRollbackTogetherAfterSqlExecution()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         var asset = await s.Create("assets", North);
         s.Failure.Enabled = true;
         Assert.Equal(HttpStatusCode.InternalServerError, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{asset.Id}", Edit(asset, "Must roll back"))).StatusCode);
         s.Failure.Enabled = false;
         var current = await s.Get("assets", asset.Id);
-        Assert.Equal(asset.Name, current.Name); Assert.Equal(asset.Version, current.Version);
+        Assert.Equal(asset.Name, current.Name);
+        Assert.Equal(asset.Version, current.Version);
         await using var scope = s.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         Assert.Single(await db.AuditLogs.Where(x => x.ResourceId == asset.Id).ToListAsync());
         Assert.Equal(HttpStatusCode.OK, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{asset.Id}", Edit(current, "Committed"))).StatusCode);
         var audit = await db.AuditLogs.SingleAsync(x => x.ResourceId == asset.Id && x.Action == "Update");
-        Assert.Equal(s.UserId, audit.ActorUserId); Assert.Equal(North, audit.PlantId);
-        Assert.Contains("Committed", audit.After); Assert.Contains(asset.Name, audit.Before!); Assert.NotEmpty(audit.CorrelationId);
+        Assert.Equal(s.UserId, audit.ActorUserId);
+        Assert.Equal(North, audit.PlantId);
+        Assert.Contains("Committed", audit.After);
+        Assert.Contains(asset.Name, audit.Before!);
+        Assert.NotEmpty(audit.CorrelationId);
     }
 
     [DatabaseFact]
     public async Task ArchivePreservesResourcesAndAuditHistoryAndBlocksActiveChildren()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         var create = await s.Client.PostAsJsonAsync("/api/v1/plants", new DirectoryInput("TEST-" + Guid.NewGuid().ToString("N"), "Archive test"));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var plant = (await create.Content.ReadFromJsonAsync<DirectoryRecord>())!;
@@ -235,7 +315,9 @@ public sealed class AssetManagementTests
     [DatabaseFact]
     public async Task RepeatedSeedPreservesAccountRevocationsAndPasswordAndAssetEdits()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         await using var scope = s.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<PlantOpsUser>>();
@@ -245,31 +327,46 @@ public sealed class AssetManagementTests
         var grants = await db.UserPlantAccess.Where(x => x.UserId == demo.Id).ToListAsync();
         var originalRoles = await users.GetRolesAsync(demo);
         var seededPoint = await db.MeasurementPoints.SingleAsync(x => x.Id == Guid.Parse("41000000-0000-0000-0000-000000000005"));
-        var pointName = seededPoint.Name; var pointEnabled = seededPoint.Enabled;
+        var pointName = seededPoint.Name;
+        var pointEnabled = seededPoint.Enabled;
         var seededDocument = await db.Documents.SingleAsync(x => x.Id == Guid.Parse("81000000-0000-0000-0000-000000000001"));
-        var documentTitle = seededDocument.Title; var documentRoles = seededDocument.AllowedRoles;
-        seededPoint.Name = "Preserved scale edit"; seededPoint.Enabled = false;
-        seededDocument.Title = "Preserved guide edit"; seededDocument.AllowedRoles = ["Admin"];
-        db.UserPlantAccess.RemoveRange(grants); await db.SaveChangesAsync();
+        var documentTitle = seededDocument.Title;
+        var documentRoles = seededDocument.AllowedRoles;
+        seededPoint.Name = "Preserved scale edit";
+        seededPoint.Enabled = false;
+        seededDocument.Title = "Preserved guide edit";
+        seededDocument.AllowedRoles = ["Admin"];
+        db.UserPlantAccess.RemoveRange(grants);
+        await db.SaveChangesAsync();
         await users.RemoveFromRolesAsync(demo, originalRoles);
-        demo.IsEnabled = false; await users.UpdateAsync(demo);
+        demo.IsEnabled = false;
+        await users.UpdateAsync(demo);
         try
         {
             await DevelopmentIdentityInitializer.InitializeAsync(scope.ServiceProvider, scope.ServiceProvider.GetRequiredService<IConfiguration>(), "Development");
-            Assert.False(demo.IsEnabled); Assert.Equal(hash, demo.PasswordHash);
+            Assert.False(demo.IsEnabled);
+            Assert.Equal(hash, demo.PasswordHash);
             Assert.Empty(await db.UserPlantAccess.Where(x => x.UserId == demo.Id).ToListAsync());
             Assert.Empty(await users.GetRolesAsync(demo));
-            await db.Entry(seededPoint).ReloadAsync(); await db.Entry(seededDocument).ReloadAsync();
-            Assert.Equal("Preserved scale edit", seededPoint.Name); Assert.False(seededPoint.Enabled);
-            Assert.Equal("Preserved guide edit", seededDocument.Title); Assert.Equal(new[] { "Admin" }, seededDocument.AllowedRoles);
+            await db.Entry(seededPoint).ReloadAsync();
+            await db.Entry(seededDocument).ReloadAsync();
+            Assert.Equal("Preserved scale edit", seededPoint.Name);
+            Assert.False(seededPoint.Enabled);
+            Assert.Equal("Preserved guide edit", seededDocument.Title);
+            Assert.Equal(new[] { "Admin" }, seededDocument.AllowedRoles);
             Assert.Equal(2, await db.Plants.CountAsync(x => x.Id == North || x.Id == South));
             Assert.False(db.Database.HasPendingModelChanges());
         }
         finally
         {
-            seededPoint.Name = pointName; seededPoint.Enabled = pointEnabled; seededDocument.Title = documentTitle; seededDocument.AllowedRoles = documentRoles;
-            demo.IsEnabled = enabled; await users.UpdateAsync(demo);
-            db.UserPlantAccess.AddRange(grants); await db.SaveChangesAsync();
+            seededPoint.Name = pointName;
+            seededPoint.Enabled = pointEnabled;
+            seededDocument.Title = documentTitle;
+            seededDocument.AllowedRoles = documentRoles;
+            demo.IsEnabled = enabled;
+            await users.UpdateAsync(demo);
+            db.UserPlantAccess.AddRange(grants);
+            await db.SaveChangesAsync();
             await users.AddToRolesAsync(demo, originalRoles);
         }
     }
@@ -277,40 +374,52 @@ public sealed class AssetManagementTests
     [DatabaseFact]
     public async Task ScopeAndRoleRevocationsApplyToExistingCookie()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         var asset = await s.Create("assets", North);
         await using var scope = s.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         var access = await db.UserPlantAccess.SingleAsync(x => x.UserId == s.UserId && x.PlantId == North);
-        db.UserPlantAccess.Remove(access); await db.SaveChangesAsync();
+        db.UserPlantAccess.Remove(access);
+        await db.SaveChangesAsync();
         Assert.Equal(HttpStatusCode.NotFound, (await s.Client.GetAsync($"/api/v1/assets/{asset.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{asset.Id}", Edit(asset))).StatusCode);
-        db.UserPlantAccess.Add(access); await db.SaveChangesAsync();
+        db.UserPlantAccess.Add(access);
+        await db.SaveChangesAsync();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<PlantOpsUser>>();
         var user = (await users.FindByIdAsync(s.UserId))!;
-        await users.RemoveFromRoleAsync(user, "Admin"); await users.AddToRoleAsync(user, "Viewer");
+        await users.RemoveFromRoleAsync(user, "Admin");
+        await users.AddToRoleAsync(user, "Viewer");
         Assert.Equal(HttpStatusCode.Forbidden, (await s.Client.PatchAsJsonAsync($"/api/v1/assets/{asset.Id}", Edit(asset))).StatusCode);
-        user.IsEnabled = false; await users.UpdateAsync(user);
+        user.IsEnabled = false;
+        await users.UpdateAsync(user);
         Assert.Equal(HttpStatusCode.Unauthorized, (await s.Client.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
     [DatabaseFact]
     public async Task DuplicateCodeFailsWithoutAuditAndListsHaveBoundedCursorPages()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         var asset = await s.Create("assets", North);
         Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.PostAsJsonAsync($"/api/v1/plants/{North}/assets", Edit(asset))).StatusCode);
         var page = (await s.Client.GetFromJsonAsync<DirectoryPage>($"/api/v1/assets?plantId={North}&limit=1"))!;
-        Assert.Single(page.Items); Assert.NotNull(page.NextCursor);
+        Assert.Single(page.Items);
+        Assert.NotNull(page.NextCursor);
         var next = (await s.Client.GetFromJsonAsync<DirectoryPage>($"/api/v1/assets?plantId={North}&limit=1&cursor={Uri.EscapeDataString(page.NextCursor!)}"))!;
-        Assert.Single(next.Items); Assert.NotEqual(page.Items[0].Id, next.Items[0].Id);
+        Assert.Single(next.Items);
+        Assert.NotEqual(page.Items[0].Id, next.Items[0].Id);
         Assert.Equal(HttpStatusCode.BadRequest, (await s.Client.GetAsync($"/api/v1/assets?plantId={North}&limit=201")).StatusCode);
     }
 
     [DatabaseFact]
     public async Task PlantAndLocationUpdatesRequireVersionAndErrorsIncludeCorrelation()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         var create = await s.Client.PostAsJsonAsync("/api/v1/plants", new DirectoryInput("TEST-" + Guid.NewGuid().ToString("N"), "Version plant"));
         var plant = (await create.Content.ReadFromJsonAsync<DirectoryRecord>())!;
         var location = await s.Create("locations", plant.Id);
@@ -330,8 +439,12 @@ public sealed class AssetManagementTests
     [DatabaseFact]
     public async Task ForgedAndOtherUsersAntiforgeryTokensAreRejected()
     {
-        await using var first = new Session(); await first.Initialize(); await first.Login();
-        await using var second = new Session(); await second.Initialize(); await second.Login();
+        await using var first = new Session();
+        await first.Initialize();
+        await first.Login();
+        await using var second = new Session();
+        await second.Initialize();
+        await second.Login();
         var asset = await first.Get("assets", Pump);
         foreach (var token in new[] { "forged", second.Token })
         {
@@ -345,7 +458,9 @@ public sealed class AssetManagementTests
     [DatabaseFact]
     public async Task HealthProbesIgnoreSignedInCookieWhenIdentityDatabaseIsOffline()
     {
-        await using var s = new Session(); await s.Initialize(); await s.Login();
+        await using var s = new Session();
+        await s.Initialize();
+        await s.Login();
         s.Factory.Services.GetRequiredService<IConfiguration>()["ConnectionStrings:PlantOps"] =
             "Host=127.0.0.1;Port=59999;Database=plantops_tests;Username=plantops;Timeout=1;Command Timeout=1";
         Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync("/health/live")).StatusCode);

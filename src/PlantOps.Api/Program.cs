@@ -17,7 +17,11 @@ builder.Services.AddSingleton<PlantConnections>();
 builder.Services.AddScoped<SignalRPlantPublisher>();
 builder.Services.AddScoped<PlantOps.Application.Operations.IPlantEventPublisher>(s => s.GetRequiredService<SignalRPlantPublisher>());
 builder.Services.AddScoped<PlantOps.Application.Operations.IOutboxDispatcher, PlantOps.Infrastructure.Operations.OutboxDispatcher>();
-if (builder.Configuration["Realtime:Enabled"] != "false") builder.Services.AddHostedService<PlantEventWorker>();
+if (builder.Configuration["Realtime:Enabled"] != "false")
+{
+    builder.Services.AddHostedService<PlantEventWorker>();
+}
+
 builder.Services.AddHostedService<OutboxRetentionWorker>();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = 11 * 1024 * 1024);
 builder.Services.AddAntiforgery(o =>
@@ -34,8 +38,16 @@ builder.Services.ConfigureApplicationCookie(o =>
     o.Cookie.SameSite = SameSiteMode.Strict;
     o.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
     o.ExpireTimeSpan = TimeSpan.FromHours(8);
-    o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
-    o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+    o.Events.OnRedirectToLogin = ctx =>
+    {
+        ctx.Response.StatusCode = 401;
+        return Task.CompletedTask;
+    };
+    o.Events.OnRedirectToAccessDenied = ctx =>
+    {
+        ctx.Response.StatusCode = 403;
+        return Task.CompletedTask;
+    };
 });
 
 var app = builder.Build();
@@ -53,7 +65,10 @@ app.Use(async (ctx, next) =>
     {
         if (ctx.Request.Path.StartsWithSegments("/hubs") && ctx.Request.Headers.Origin.Count > 0
             && ctx.Request.Headers.Origin.ToString() != $"{ctx.Request.Scheme}://{ctx.Request.Host}")
-        { await Results.Problem(statusCode: 403, title: "Same-origin realtime connection required.").ExecuteAsync(ctx); return; }
+        {
+            await Results.Problem(statusCode: 403, title: "Same-origin realtime connection required.").ExecuteAsync(ctx);
+            return;
+        }
         if (ctx.User.Identity?.IsAuthenticated == true)
         {
             var users = ctx.RequestServices.GetRequiredService<UserManager<PlantOpsUser>>();
@@ -65,13 +80,20 @@ app.Use(async (ctx, next) =>
             }
         }
         if (ctx.Request.Path.StartsWithSegments("/api") && !HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method))
+        {
             await ctx.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(ctx);
+        }
+
         await next();
     }
     catch (AntiforgeryValidationException)
-    { await Results.Problem(statusCode: 400, title: "Invalid antiforgery token. Refresh and retry.").ExecuteAsync(ctx); }
+    {
+        await Results.Problem(statusCode: 400, title: "Invalid antiforgery token. Refresh and retry.").ExecuteAsync(ctx);
+    }
     catch (DirectoryException e)
-    { await Results.Problem(statusCode: e.Status, title: e.Message).ExecuteAsync(ctx); }
+    {
+        await Results.Problem(statusCode: e.Status, title: e.Message).ExecuteAsync(ctx);
+    }
 });
 app.MapAuth();
 app.MapDirectory();

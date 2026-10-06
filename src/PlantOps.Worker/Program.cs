@@ -7,14 +7,24 @@ using PlantOps.Worker;
 var initializeDatabase = args.Contains("--initialize-db");
 var builder = WebApplication.CreateBuilder(args.Where(arg => arg != "--initialize-db").ToArray());
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
-if (!initializeDatabase) builder.Services.AddHostedService<MeasurementWorker>();
-if (!initializeDatabase) builder.Services.AddHostedService<RetentionWorker>();
+if (!initializeDatabase)
+{
+    builder.Services.AddHostedService<MeasurementWorker>();
+}
+
+if (!initializeDatabase)
+{
+    builder.Services.AddHostedService<RetentionWorker>();
+}
 
 var app = builder.Build();
 if (initializeDatabase)
 {
     if (!app.Environment.IsDevelopment())
+    {
         throw new InvalidOperationException("Development database initialization is disabled outside Development.");
+    }
+
     await using var scope = app.Services.CreateAsyncScope();
     await DevelopmentIdentityInitializer.InitializeAsync(scope.ServiceProvider, builder.Configuration, app.Environment.EnvironmentName);
     app.Logger.LogInformation("Development database migrated and Golden Path seed initialized.");

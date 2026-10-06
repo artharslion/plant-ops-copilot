@@ -11,28 +11,51 @@ namespace PlantOps.Infrastructure.Persistence;
 public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> options) : IdentityDbContext<PlantOpsUser>(options)
 {
     public DbSet<Plant> Plants => Set<Plant>();
+
     public DbSet<Location> Locations => Set<Location>();
+
     public DbSet<Asset> Assets => Set<Asset>();
+
     public DbSet<UserPlantAccess> UserPlantAccess => Set<UserPlantAccess>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
     public DbSet<MeasurementPoint> MeasurementPoints => Set<MeasurementPoint>();
+
     public DbSet<DataSource> DataSources => Set<DataSource>();
+
     public DbSet<SourceMapping> SourceMappings => Set<SourceMapping>();
+
     public DbSet<MeasurementReading> MeasurementReadings => Set<MeasurementReading>();
+
     public DbSet<PointLatestState> PointLatestStates => Set<PointLatestState>();
+
     public DbSet<MeasurementMinute> MeasurementMinutes => Set<MeasurementMinute>();
+
     public DbSet<DirtyMeasurementMinute> DirtyMeasurementMinutes => Set<DirtyMeasurementMinute>();
+
     public DbSet<MeasurementPartition> MeasurementPartitions => Set<MeasurementPartition>();
+
     public DbSet<IngestionGap> IngestionGaps => Set<IngestionGap>();
+
     public DbSet<PlantOps.Domain.Operations.DevelopmentSeedState> DevelopmentSeedStates => Set<PlantOps.Domain.Operations.DevelopmentSeedState>();
+
     public DbSet<AlarmRule> AlarmRules => Set<AlarmRule>();
+
     public DbSet<RuleRuntimeState> RuleRuntimeStates => Set<RuleRuntimeState>();
+
     public DbSet<Alarm> Alarms => Set<Alarm>();
+
     public DbSet<AlarmEvent> AlarmEvents => Set<AlarmEvent>();
+
     public DbSet<PlantOps.Domain.Maintenance.WorkOrder> WorkOrders => Set<PlantOps.Domain.Maintenance.WorkOrder>();
+
     public DbSet<PlantOps.Domain.Maintenance.WorkOrderNote> WorkOrderNotes => Set<PlantOps.Domain.Maintenance.WorkOrderNote>();
+
     public DbSet<PlantOps.Domain.Knowledge.Document> Documents => Set<PlantOps.Domain.Knowledge.Document>();
+
     public DbSet<PlantOps.Domain.Knowledge.DocumentVersion> DocumentVersions => Set<PlantOps.Domain.Knowledge.DocumentVersion>();
+
     public DbSet<PlantOps.Domain.Operations.OutboxEvent> OutboxEvents => Set<PlantOps.Domain.Operations.OutboxEvent>();
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -53,7 +76,11 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
             if (evt is { } e)
             {
                 var plant = e.plant;
-                if (plant == Guid.Empty) plant = await MeasurementPoints.Where(x => x.Id == e.id).Select(x => x.PlantId).SingleAsync(cancellationToken);
+                if (plant == Guid.Empty)
+                {
+                    plant = await MeasurementPoints.Where(x => x.Id == e.id).Select(x => x.PlantId).SingleAsync(cancellationToken);
+                }
+
                 OutboxEvents.Add(new PlantOps.Domain.Operations.OutboxEvent { PlantId = plant, EntityId = e.id, EntityVersion = e.version, EventType = e.type, OccurredAt = now, AvailableAt = now });
             }
         }
@@ -128,12 +155,25 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     private void CheckImmutableReadings()
     {
         if (ChangeTracker.Entries<AlarmEvent>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        {
             throw new InvalidOperationException("Alarm events are immutable.");
+        }
+
         if (ChangeTracker.Entries<MeasurementReading>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        {
             throw new InvalidOperationException("Measurement readings are immutable.");
+        }
     }
+
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
-    { CheckImmutableReadings(); return base.SaveChanges(acceptAllChangesOnSuccess); }
+    {
+        CheckImmutableReadings();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
-    { CheckImmutableReadings(); return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken); }
+    {
+        CheckImmutableReadings();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
 }

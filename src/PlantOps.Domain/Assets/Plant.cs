@@ -2,11 +2,26 @@ namespace PlantOps.Domain.Assets;
 
 public sealed class Plant
 {
-    public Guid Id { get; set; }
+    public Guid Id
+    {
+        get; set;
+    }
+
     public string Code { get; set; } = string.Empty;
+
     public string Name { get; set; } = string.Empty;
-    public string? Description { get; set; }
+
+    public string? Description
+    {
+        get; set;
+    }
+
     public string DisplayTimeZone { get; set; } = "UTC";
-    public bool IsArchived { get; set; }
+
+    public bool IsArchived
+    {
+        get; set;
+    }
+
     public long Version { get; set; } = 1;
 }

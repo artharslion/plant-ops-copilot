@@ -7,8 +7,11 @@ namespace PlantOps.Api;
 public static class AuthEndpoints
 {
     public sealed record LoginInput(string UserName, string Password);
+
     public sealed record CurrentUser(string Id, string? UserName, string DisplayName, IList<string> Roles);
+
     public sealed record CsrfToken(string Token);
+
     public static void MapAuth(this WebApplication app)
     {
         var auth = app.MapGroup("/api/v1/auth");
@@ -19,9 +22,16 @@ public static class AuthEndpoints
         auth.MapPost("/login", async (LoginInput input, UserManager<PlantOpsUser> users, SignInManager<PlantOpsUser> signIn) =>
         {
             if (string.IsNullOrWhiteSpace(input.UserName) || input.UserName.Length > 256 || string.IsNullOrEmpty(input.Password) || input.Password.Length > 1024)
+            {
                 return Results.Problem(statusCode: 400, title: "Invalid login input.");
+            }
+
             var user = await users.FindByNameAsync(input.UserName);
-            if (user == null || !user.IsEnabled) return Results.Problem(statusCode: 401, title: "Login failed.");
+            if (user == null || !user.IsEnabled)
+            {
+                return Results.Problem(statusCode: 401, title: "Login failed.");
+            }
+
             var result = await signIn.PasswordSignInAsync(user, input.Password, false, lockoutOnFailure: true);
             return result.Succeeded ? Results.NoContent() : Results.Problem(statusCode: 401, title: "Login failed.");
         }).AllowAnonymous().Produces(StatusCodes.Status204NoContent).ProducesProblem(400).ProducesProblem(401);

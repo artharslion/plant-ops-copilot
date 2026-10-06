@@ -7,8 +7,10 @@ export const useSession = defineStore('session', () => {
   const error = ref('')
   const admin = computed(() => user.value?.roles.includes('Admin') ?? false)
   async function load() {
-    try { user.value = await request<CurrentUser>('/auth/me'); error.value = '' }
-    catch (e) {
+    try {
+      user.value = await request<CurrentUser>('/auth/me')
+      error.value = ''
+    } catch (e) {
       user.value = null
       if (e instanceof ApiError && e.status === 401) return
       error.value = e instanceof Error ? e.message : '无法获取当前用户。'
@@ -16,8 +18,12 @@ export const useSession = defineStore('session', () => {
     }
   }
   async function login(userName: string, password: string) {
-    await request('/auth/login', 'POST', { userName, password }); await load()
+    await request('/auth/login', 'POST', { userName, password })
+    await load()
   }
-  async function logout() { await request('/auth/logout', 'POST'); user.value = null }
+  async function logout() {
+    await request('/auth/logout', 'POST')
+    user.value = null
+  }
   return { user, error, admin, load, login, logout }
 })
