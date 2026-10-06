@@ -38,6 +38,50 @@ public sealed class WorkOrderTests
     public void StateRules(string from, string to, string? reason, string? result, bool allowed) => Assert.Equal(allowed, WorkOrderState.Validate(from, to, reason, result) == null);
 
     [DatabaseFact]
+    public async Task PaginationHandlesEqualTimestampsAndRejectsInvalidCursors()
+    {
+        await using var session = new AssetManagementTests.Session();
+        await session.Initialize();
+        await session.Login();
+        var asset = await session.Create("assets", Guid.Parse("10000000-0000-0000-0000-000000000001"));
+        var workOrders = new List<WorkOrder>();
+        for (var index = 0; index < 3; index++)
+        {
+            workOrders.Add(await Create(session, asset.Id));
+        }
+
+        await using (var scope = session.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+            var stored = await db.WorkOrders.Where(x => x.AssetId == asset.Id).ToListAsync();
+            var createdAt = DateTimeOffset.UtcNow.AddHours(-1);
+            foreach (var workOrder in stored)
+            {
+                workOrder.CreatedAt = createdAt;
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        var path = $"/api/v1/work-orders?assetId={asset.Id}&limit=2";
+        var first = (await session.Client.GetFromJsonAsync<WorkOrderPage>(path))!;
+        Assert.Equal(2, first.Items.Count);
+        Assert.NotNull(first.NextCursor);
+        var second = (await session.Client.GetFromJsonAsync<WorkOrderPage>(
+            $"{path}&cursor={Uri.EscapeDataString(first.NextCursor)}"))!;
+        Assert.Single(second.Items);
+        Assert.Null(second.NextCursor);
+        var actualIds = first.Items.Concat(second.Items).Select(x => x.Id).ToArray();
+        Assert.Equal(workOrders.Select(x => x.Id).OrderByDescending(x => x), actualIds);
+
+        foreach (var invalidCursor in new[] { "not-base64", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("invalid:cursor")) })
+        {
+            var response = await session.Client.GetAsync($"{path}&cursor={Uri.EscapeDataString(invalidCursor)}");
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+    }
+
+    [DatabaseFact]
     public async Task LifecycleReworkNotesHistoryAndPersistence()
     {
         await using var s = new AssetManagementTests.Session();

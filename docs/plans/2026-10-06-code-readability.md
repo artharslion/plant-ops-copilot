@@ -26,3 +26,11 @@
 - Run existing work-order tests against the dedicated `plantops_tests` database, then the full suite. Report explicitly if database tests cannot run.
 - Document conventions and verification commands in `docs/CODE_STYLE.md` and link from README.
 - Commit after checks pass.
+
+## Verification results
+
+- Formatting/tooling stage: all 88 backend tests passed on a fresh schema in `plantops_tests`, with no skips; frontend format, lint, type check, build and realtime test passed.
+- Maintenance refactor: all 10 work-order cases passed. Added an API-level regression for pagination with equal timestamps and invalid cursors. Final full backend run passed all 89 cases, with no skips.
+- Final `dotnet format --verify-no-changes` passed. Dependency restore uses the committed locks.
+- The old test schema had 200 North-plant data sources and hit the existing configuration limit. Verification used fresh test schemas without deleting retained data or changing the business database.
+- The GitHub Actions workflow is added; its hosted run remains to be verified after pushing.

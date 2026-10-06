@@ -42,6 +42,7 @@ npm test
 ```
 
 Prettier 负责排版；ESLint 使用 JavaScript/TypeScript 推荐规则和 Vue 基础规则，关闭与 Prettier 冲突的格式规则。工具版本与依赖锁文件一并提交。
+ESLint 10 要求 Node 22.13 或更高的 22.x；本仓库开发与 CI 使用 22.23.1。
 
 ## 持续检查
 
