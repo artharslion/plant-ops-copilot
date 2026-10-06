@@ -1,0 +1,9 @@
+{
+  "ReorderNamespaces": false,
+  "Constant": false,
+  "Quality": "Cycle",
+  "Timestamp": "Normal",
+  "Overflow": false,
+  "DenyRead": false,
+  "MinimumSamplingMs": 1000
+}
