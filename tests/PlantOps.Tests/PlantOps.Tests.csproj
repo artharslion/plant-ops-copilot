@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../spikes/PlantOps.OpcUa.Spike/CapacityLimits.cs" Link="CapacityLimits.cs" />
     <ProjectReference Include="../../src/PlantOps.Api/PlantOps.Api.csproj" />
     <ProjectReference Include="../../src/PlantOps.Worker/PlantOps.Worker.csproj" Aliases="worker" />
     <ProjectReference Include="../../src/PlantOps.Integrations.OpcUa/PlantOps.Integrations.OpcUa.csproj" />

@@ -61,6 +61,29 @@ internal static class Program
         }
         await clientApplication.ApplicationConfiguration.CertificateValidator.UpdateAsync(clientApplication.ApplicationConfiguration.SecurityConfiguration);
         using var session = await ConnectAsync(clientApplication.ApplicationConfiguration, telemetry);
+        if (args.FirstOrDefault() == "capacity")
+        {
+            try
+            {
+                await File.WriteAllTextAsync(Path.Combine(root, "protocol-session.json"), JsonSerializer.Serialize(new
+                {
+                    UntrustedRejected = rejected,
+                    Policy = session.ConfiguredEndpoint.Description.SecurityPolicyUri,
+                    Mode = session.ConfiguredEndpoint.Description.SecurityMode.ToString(),
+                    ServerThumbprint = serverCertificate.Thumbprint,
+                    ClientThumbprint = clientCertificate.Thumbprint,
+                    SdkVersion = "1.5.378.182",
+                    Scope = "Isolated finite capacity experiment; no Worker source registration"
+                }, new JsonSerializerOptions { WriteIndented = true }));
+                await CapacityExperiment.RunAsync(session, root);
+            }
+            finally
+            {
+                await session.CloseAsync();
+                await server.StopAsync();
+            }
+            return;
+        }
         var namespaceIndex = session.NamespaceUris.GetIndex(NamespaceUri);
         if (namespaceIndex < 0)
         {

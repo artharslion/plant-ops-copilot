@@ -18,6 +18,23 @@ public sealed class OpcUaNormalizationTests
         new DataValue(new Variant(value), status, source ?? Received.UtcDateTime, server ?? Received.UtcDateTime), Received, envelope ?? Guid.NewGuid());
 
     [Fact]
+    public void NullBadValuePreservesProtocolSymbolAndKeepsNumericRejectionSeparate()
+    {
+        var bad = Normalize(null, StatusCodes.BadSensorFailure);
+        // SDK symbolic lookup is initialized by Core during other tests. Both SDK
+        // renderings denote the same protocol status; numeric rejection never does.
+        Assert.Contains(bad.StatusSymbol, new[] { "BadSensorFailure", "808C0000" });
+        Assert.Equal(StatusCodes.BadSensorFailure, bad.RawStatusCode);
+        Assert.Null(bad.NumericValue);
+        using var raw = JsonDocument.Parse(bad.RawValueJson);
+        Assert.Equal("Null", raw.RootElement.GetProperty("type").GetString());
+        Assert.Equal("UnsupportedOrInvalidNumericValue", raw.RootElement.GetProperty("normalizationError").GetString());
+        var invalidGood = Normalize("unsupported");
+        Assert.Contains(invalidGood.StatusSymbol, new[] { "Good", "00000000" });
+        Assert.Equal("Bad", invalidGood.Quality);
+    }
+
+    [Fact]
     public void NumericBoundariesPreserveOriginalTypeAndRejectLossOfIntegerPrecision()
     {
         foreach (var value in new object[]

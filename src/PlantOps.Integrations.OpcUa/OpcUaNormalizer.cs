@@ -23,12 +23,13 @@ public static class OpcUaNormalizer
         var status = observation.StatusCode.Code;
         var quality = StatusCode.IsBad(status) ? "Bad" : StatusCode.IsUncertain(status) ? "Uncertain" : "Good";
         var symbol = observation.StatusCode.ToString();
+        string? normalizationError = null;
         var value = numeric * configuration.Scale + configuration.Offset;
         if (!value.HasValue || !double.IsFinite(value.Value))
         {
             quality = "Bad";
             value = null;
-            symbol = "UnsupportedOrInvalidNumericValue";
+            normalizationError = "UnsupportedOrInvalidNumericValue";
         }
         if (quality == "Bad")
         {
@@ -42,11 +43,16 @@ public static class OpcUaNormalizer
             string text => text.Length > 512 ? text[..512] : text,
             _ => "Rejected:" + type
         };
-        var rawJson = JsonSerializer.Serialize(new
+        var rawFields = new Dictionary<string, object?>
         {
-            type,
-            value = rawText
-        });
+            ["type"] = type,
+            ["value"] = rawText
+        };
+        if (normalizationError is not null)
+        {
+            rawFields["normalizationError"] = normalizationError;
+        }
+        var rawJson = JsonSerializer.Serialize(rawFields);
         var sourceAt = Timestamp(observation.SourceTimestamp);
         var serverAt = Timestamp(observation.ServerTimestamp);
         var trustedAt = sourceAt ?? serverAt;

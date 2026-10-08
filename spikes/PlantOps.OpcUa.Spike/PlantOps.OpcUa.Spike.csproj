@@ -3,6 +3,7 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/PlantOps.Infrastructure/PlantOps.Infrastructure.csproj" />
     <ProjectReference Include="../../src/PlantOps.Integrations.OpcUa/PlantOps.Integrations.OpcUa.csproj" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" Version="1.5.378.182" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Server" Version="1.5.378.182" />
