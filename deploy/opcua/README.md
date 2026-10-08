@@ -18,7 +18,9 @@ dotnet run --project spikes/PlantOps.OpcUa.Spike --no-build -- server artifacts/
 
 独立 server 模式持续运行，需自行结束本次进程。客户端证书需预先放入该 server 的 trusted/certs，server 公钥需明确批准；无自动接受回调。匿名身份只读，变量的 AccessLevel/UserAccessLevel 均为 CurrentRead，未注册任何业务 Method。无工业凭据。
 
-100 个节点，Namespace URI `urn:plant-ops:simulator`。首节点 `North.Utilities.P101.VibrationRms`；其他为 `North.Point001.VibrationRms` 至 `North.Point049.VibrationRms` 和 `South.Point050.VibrationRms` 至 `South.Point099.VibrationRms`。全部 Double / Scalar，实验约定 mm/s（当前节点尚未发布 EngineeringUnits 元数据，应用不能据此自动批准单位）。
+100 个业务节点，Namespace URI `urn:plant-ops:simulator`。首节点 `North.Utilities.P101.VibrationRms`；其他为 `North.Point001.VibrationRms` 至 `North.Point049.VibrationRms` 和 `South.Point050.VibrationRms` 至 `South.Point099.VibrationRms`。全部 Double / Scalar，已发布 `0:EngineeringUnits` HasProperty / EUInformation（UN/CEFACT Namespace URI、C16 UnitId 4403510、mm/s）。
+
+额外 `Metadata.*` 原创静态节点用于对象/数组/读权限/字符串/单位缺失、未知、冲突、畸形和读取拒绝实验，`Metadata.Missing` 故意不存在。默认自检逐映射校验 17 个结果，包括 Namespace 缺失/非法标识符；错误后有效映射仍通过。元数据读取仅针对确切节点/属性，不是授权 Worker Browse 或持续源；详见 [独立验收](../../docs/P2_NODE_METADATA_VALIDATION.md)。自检元数据阶段最长 15 秒，随后订阅 8 秒；应使用默认参数或仅 ReorderNamespaces 复现成功自检，其他故障配置可能故意使订阅断言失败。
 
 示例配置为确定性 120 秒周期：0–9 秒 4.0，10–29 秒 12.6，其余 7.0；40–49 秒 Bad，50–59 秒 Uncertain；默认自检用恒值 4.0，每秒更新源时间。可设 `Constant`、`Quality`（Good/Bad/Uncertain/Cycle）、`Timestamp`（Normal/Missing/Future/Frozen）、`Overflow`、`DenyRead`、`MinimumSamplingMs` 和 `ReorderNamespaces`。重排将业务 Namespace 从 2 移至 3，客户端每次新会话按 URI 解析。Missing/Frozen 故障可能使恒值订阅静默；不应把通知数量等同物理采样。Overflow 注入保留 DataValue 信息位，真实队列溢出另行验收。
 

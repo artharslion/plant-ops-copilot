@@ -1,5 +1,6 @@
 using Opc.Ua;
 using Opc.Ua.Server;
+using PlantOps.Integrations.OpcUa;
 
 namespace PlantOps.OpcUa.Spike;
 
@@ -57,18 +58,101 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
                     StatusCode = StatusCodes.Good,
                     Timestamp = DateTime.UtcNow
                 };
-                variable.AddReference(ReferenceTypeIds.Organizes, true, ObjectIds.ObjectsFolder);
-                if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out var references))
-                {
-                    externalReferences[ObjectIds.ObjectsFolder] = references = new List<IReference>();
-                }
-                references.Add(new NodeStateReference(ReferenceTypeIds.Organizes, false, variable.NodeId));
-                AddPredefinedNode(SystemContext, variable);
+                AddUnits(variable, 4403510);
+                Register(variable, externalReferences);
                 variables.Add(variable);
             }
+            CreateMetadataFixtures(externalReferences);
             timer = new Timer(_ => UpdateValues(), null, 1000, 1000);
         }
     }
+
+    private static void AddUnits(BaseDataVariableState variable, int unitId, string? unitNamespace = null)
+    {
+        var units = new PropertyState<EUInformation>(variable)
+        {
+            NodeId = new NodeId(variable.NodeId.Identifier + ".EngineeringUnits", variable.NodeId.NamespaceIndex),
+            BrowseName = new QualifiedName("EngineeringUnits", 0),
+            DisplayName = "EngineeringUnits",
+            TypeDefinitionId = VariableTypeIds.PropertyType,
+            ReferenceTypeId = ReferenceTypeIds.HasProperty,
+            DataType = DataTypeIds.EUInformation,
+            ValueRank = ValueRanks.Scalar,
+            AccessLevel = AccessLevels.CurrentRead,
+            UserAccessLevel = AccessLevels.CurrentRead,
+            Value = new EUInformation
+            {
+                NamespaceUri = unitNamespace ?? OpcUaMetadataValidator.UnitNamespace,
+                UnitId = unitId,
+                DisplayName = "mm/s",
+                Description = "Simulator engineering unit"
+            }
+        };
+        variable.AddChild(units);
+    }
+
+    private void Register(NodeState node, IDictionary<NodeId, IList<IReference>> externalReferences)
+    {
+        node.AddReference(ReferenceTypeIds.Organizes, true, ObjectIds.ObjectsFolder);
+        if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out var references))
+        {
+            externalReferences[ObjectIds.ObjectsFolder] = references = new List<IReference>();
+        }
+        references.Add(new NodeStateReference(ReferenceTypeIds.Organizes, false, node.NodeId));
+        AddPredefinedNode(SystemContext, node);
+    }
+
+    private void CreateMetadataFixtures(IDictionary<NodeId, IList<IReference>> externalReferences)
+    {
+        var ns = Server.NamespaceUris.GetIndexOrAppend(Program.NamespaceUri);
+        Register(new BaseObjectState(null)
+        {
+            NodeId = new NodeId("Metadata.Object", ns),
+            BrowseName = new QualifiedName("Metadata.Object", ns),
+            DisplayName = "Metadata.Object",
+            TypeDefinitionId = ObjectTypeIds.BaseObjectType
+        }, externalReferences);
+        foreach (var name in new[] { "Array", "Access", "UserAccess", "ValueDenied", "SensorBad", "String", "UnitsMissing", "UnitsUnknown", "UnitsConflict", "UnitsMalformed", "UnitsUnreadable" })
+        {
+            var variable = new BaseDataVariableState(null)
+            {
+                NodeId = new NodeId("Metadata." + name, ns),
+                BrowseName = new QualifiedName("Metadata." + name, ns),
+                DisplayName = "Metadata." + name,
+                TypeDefinitionId = VariableTypeIds.BaseDataVariableType,
+                DataType = name == "String" ? DataTypeIds.String : DataTypeIds.Double,
+                ValueRank = name == "Array" ? ValueRanks.OneDimension : ValueRanks.Scalar,
+                AccessLevel = name == "Access" ? AccessLevels.None : AccessLevels.CurrentRead,
+                UserAccessLevel = name is "Access" or "UserAccess" ? AccessLevels.None : AccessLevels.CurrentRead,
+                Value = name == "String" ? "4.0" : name == "Array" ? new[] { 4.0 } : (object)4.0,
+                StatusCode = name == "SensorBad" ? StatusCodes.BadSensorFailure : StatusCodes.Good,
+                Timestamp = DateTime.UtcNow
+            };
+            if (name != "UnitsMissing")
+            {
+                AddUnits(variable, name == "UnitsConflict" ? 4408652 : 4403510, name == "UnitsUnknown" ? "urn:unknown" : null);
+            }
+            if (name == "UnitsMalformed")
+            {
+                var property = (PropertyState<EUInformation>)variable.FindChild(SystemContext, new QualifiedName("EngineeringUnits", 0));
+                property.Value = null!;
+            }
+            if (name == "ValueDenied")
+            {
+                variable.OnReadValue = DenyValue;
+            }
+            if (name == "UnitsUnreadable")
+            {
+                var property = (PropertyState<EUInformation>)variable.FindChild(SystemContext, new QualifiedName("EngineeringUnits", 0));
+                property.OnReadValue = DenyValue;
+            }
+            Register(variable, externalReferences);
+        }
+    }
+
+    private static ServiceResult DenyValue(ISystemContext context, NodeState node, NumericRange range,
+        QualifiedName encoding, ref object value, ref StatusCode status, ref DateTime timestamp)
+        => StatusCodes.BadUserAccessDenied;
 
     private void UpdateValues()
     {

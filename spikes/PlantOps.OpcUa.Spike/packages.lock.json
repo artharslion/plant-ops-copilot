@@ -126,6 +126,22 @@
         "type": "Transitive",
         "resolved": "1.2.0.556",
         "contentHash": "zvn9Mqs/ox/83cpYPignI8hJEM2A93s2HkHs8HYMOAQW0PkampyoErAiIyKxgTLqbbad29HX/shv/6LGSjPJNQ=="
+      },
+      "plantops.application": {
+        "type": "Project",
+        "dependencies": {
+          "PlantOps.Domain": "[1.0.0, )"
+        }
+      },
+      "plantops.domain": {
+        "type": "Project"
+      },
+      "plantops.integrations.opcua": {
+        "type": "Project",
+        "dependencies": {
+          "OPCFoundation.NetStandard.Opc.Ua.Client": "[1.5.378.182, )",
+          "PlantOps.Application": "[1.0.0, )"
+        }
       }
     }
   }

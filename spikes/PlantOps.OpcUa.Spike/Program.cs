@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Opc.Ua;
 using Opc.Ua.Client;
 using Opc.Ua.Configuration;
+using PlantOps.Application.Telemetry;
+using PlantOps.Integrations.OpcUa;
 
 namespace PlantOps.OpcUa.Spike;
 
@@ -87,6 +89,48 @@ internal static class Program
             throw new InvalidOperationException("Bounded Browse failed.");
         }
         var first = await session.ReadValueAsync(nodeId);
+        using var metadataTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var metadataResults = new List<OpcUaMappingValidation>();
+        foreach (var (identifier, expected) in new (string, string?)[]
+        {
+            ("North.Utilities.P101.VibrationRms", null),
+            ("Metadata.Missing", "NodeMissing"),
+            ("Metadata.Object", "NotVariable"),
+            ("Metadata.Array", "NotScalar"),
+            ("Metadata.Access", "NotReadable"),
+            ("Metadata.UserAccess", "UserNotReadable"),
+            ("Metadata.ValueDenied", "ValueNotReadable"),
+            ("Metadata.SensorBad", null),
+            ("Metadata.String", "UnsupportedDataType"),
+            ("Metadata.UnitsMissing", "EngineeringUnitsMissing"),
+            ("Metadata.UnitsUnknown", "EngineeringUnitsUnknown"),
+            ("Metadata.UnitsConflict", "EngineeringUnitsMismatch"),
+            ("Metadata.UnitsMalformed", "EngineeringUnitsMalformed"),
+            ("Metadata.UnitsUnreadable", "EngineeringUnitsUnreadable"),
+            ("South.Point099.VibrationRms", null)
+        })
+        {
+            var validation = await OpcUaMetadataReader.ValidateAsync(session, identifier,
+                new OpcUaMappingInput(NamespaceUri, "String", identifier), "mm/s", "mm/s", 1, 0, metadataTimeout.Token);
+            metadataResults.Add(validation);
+            if (validation.Error != expected || validation.Accepted != (expected is null))
+            {
+                throw new InvalidOperationException($"Metadata fixture {identifier}: expected {expected ?? "Accepted"}, got {validation.Error ?? "Accepted"}.");
+            }
+        }
+        foreach (var (key, mapping, expected) in new[]
+        {
+            ("NamespaceMissing", new OpcUaMappingInput("urn:plant-ops:missing", "String", "North.Utilities.P101.VibrationRms"), "NamespaceMissing"),
+            ("InvalidIdentity", new OpcUaMappingInput(NamespaceUri, "Opaque", "AQID"), "InvalidNodeIdentity")
+        })
+        {
+            var validation = await OpcUaMetadataReader.ValidateAsync(session, key, mapping, "mm/s", "mm/s", 1, 0, metadataTimeout.Token);
+            metadataResults.Add(validation);
+            if (validation.Accepted || validation.Error != expected)
+            {
+                throw new InvalidOperationException($"Metadata identity fixture {key} failed.");
+            }
+        }
         var notifications = new List<DataValue>();
         var subscription = new Subscription(session.DefaultSubscription)
         {
@@ -136,6 +180,7 @@ internal static class Program
             NamespaceUri,
             NamespaceIndex = namespaceIndex,
             BrowseCount = browseCount,
+            MetadataResults = metadataResults,
             FirstQuality = first.StatusCode.ToString(),
             Notifications = values.Length,
             DistinctSourceTimes = values.Select(x => x.SourceTimestamp).Distinct().Count(),
