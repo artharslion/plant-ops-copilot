@@ -18,6 +18,12 @@
 
 ## 2026-10-08：预算工具与执行边界
 
+后续恢复验证：Docker Desktop 启动后，单独启动已有 `plantops-database-1`（原先停止），待 PostgreSQL 恢复就绪。只读快照 `artifacts/p2/capacity-20261008-live.json` 与预测 `artifacts/p2/budget-20261008-live.json` 成功生成，扩展 SQL 已在真实库验证。原 schema 精确 raw 1,609,600 行/1,045,618,688 字节，分钟 27,400 行/4,685,824 字节，Outbox 260,620,288 字节，WAL 时点占用 184,549,376 字节（非峰值）。原历史 row width 外推八天 raw 44,901,319,406 字节、90天分钟 2,216,360,549 字节、24h Outbox 1,793,403,114 字节；不能替代 OPC UA 小规模结构实测。五项峰值仍缺，BudgetComplete/FitsSnapshot/CapacityPassed 均 false。
+
+预算离线检查再次通过。解决方案构建 0 warning/error，后端 114 通过/0失败/0跳过（`artifacts/p2/tests/p2-recheck-20261008-success.trx`）；前端 lint/test/build 通过，既有 SignalR 注释提示保留。首次回归漏建隔离 schema 导致失败，补建后重新完整运行通过，未以失败轮计作验收。新增 schema `p2_recheck_20261008` 与资料根 `artifacts/p2/documents/recheck_20261008` 保留；helper 创建的随机测试 schema 均保留。只读核对业务 plantops 仍仅 InitialAssetDirectory，原 p17_ui_20261005 无 SamplingProfiles。未清理原 Outbox。
+
+本点完成容量工具的真实连接验证与既有 P2.2 回归；G0 的小规模 OPC UA 行宽/WAL/联合备份恢复实测、满量及峰值验收仍开放。后续新聊天继续 P2.2 隔离节点元数据校验，持续接入门槛不变。
+
 用户选择先完成预算与小规模实测，再决定满量运行。本轮没有满量试验授权，未新增满量数据或启动持续采集。
 
 `deploy/Measure-Capacity.ps1` 已扩展为读取 raw/分钟精确行数、所有叶分区总大小、Outbox 总大小、所有数据库总大小，以及关系 table/index/TOAST 分项。table_bytes 已包含 TOAST，不能再把 toast_bytes 相加。关系列表仅显示最大的 30 项；预算所用 rawBytes 独立遍历全部叶分区，不受列表上限影响。
