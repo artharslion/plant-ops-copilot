@@ -3,11 +3,13 @@ using PlantOps.Infrastructure;
 using PlantOps.Infrastructure.Persistence;
 using PlantOps.Infrastructure.Identity;
 using PlantOps.Worker;
+using PlantOps.AI;
 
 var initializeDatabase = args.Contains("--initialize-db");
 var opcUaDemo = args.Contains("--opcua-demo");
 var builder = WebApplication.CreateBuilder(args.Where(arg => arg is not ("--initialize-db" or "--opcua-demo")).ToArray());
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
+builder.Services.AddPlantOpsAi(builder.Configuration);
 if (!initializeDatabase && !opcUaDemo)
 {
     builder.Services.AddHostedService<MeasurementWorker>();
@@ -45,5 +47,5 @@ app.UseHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.UseHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 // Explicit ordering also prevents minimal-host automatic authentication preceding health probes.
 app.UseAuthentication();
-app.Logger.LogInformation("PlantOps Worker started. Simulation and deterministic alarm rules are enabled; OPC UA and AI are not configured.");
+app.Logger.LogInformation("PlantOps Worker started. Simulation and deterministic alarm rules are enabled; general OPC UA and AI investigation jobs are not enabled.");
 await app.RunAsync();

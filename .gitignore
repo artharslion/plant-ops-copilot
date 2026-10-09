@@ -66,5 +66,6 @@ work/
 .vs/
 .idea/
 appsettings.Local.json
+appsettings.Ai.Local.json
 *.pfx
 *.pem

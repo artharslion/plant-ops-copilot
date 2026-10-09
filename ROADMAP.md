@@ -2,7 +2,9 @@
 
 ## 当前执行顺序（2026-10-09 调整）
 
-2026-10-09 已完成 [IndustrialSim 有限OPC UA增量](docs/INDUSTRIALSIM_DEMO_VALIDATION.md)：单点实际订阅→入库→一个告警→自动恢复及授权读取。此增量不代表完整P2通过，不改变AI优先顺序；P3/P4仍未实现。
+2026-10-09 已实现 [P3.1 接入基础](docs/AI_PROVIDER_SETUP.md)：PlantOps.AI、ILlmGateway、Fake、预算/超时/取消、版本化输出和本地密钥入口。70 项适配/输出/健康检查通过。`gpt-6.1-sol` 的四项接口能力分别有成功记录，完整套件仍有超时/上游不可用，真实稳定性未通过；AiRun、授权工具/RAG、调查 UI 与完整 P3 验收未完成。
+
+2026-10-09 已完成 [IndustrialSim 有限OPC UA增量](docs/INDUSTRIALSIM_DEMO_VALIDATION.md)：单点实际订阅→入库→一个告警→自动恢复及授权读取。此增量不代表完整P2通过，不改变AI优先顺序；P3已进入接入基础，P4仍未实现。
 
 用户明确本项目重点是 AI 接入演示，采用 [AI 优先验收计划](docs/plans/2026-10-09-ai-demo-acceptance.md)：**P1 已完成 → P3 AI 只读调查 → P4 人工审批动作 → 可选 P2 OPC UA**。阶段编号保留，实施不再按编号顺序。
 
@@ -66,7 +68,7 @@ Phase 1 用 Simulation Source 完成路径；Phase 2 保留该模式并增加 OP
 
 | 编号 | 实现任务 | 完成证据 |
 |---|---|---|
-| P3.1 | PlantOps.AI、Provider spike、ILlmGateway、预算/超时、Fake Provider、版本化 Prompt/输出 schema | 无密钥可测流程；真实 Provider 支持所需协议；记录数据发送范围；业务模块无 AI 依赖 |
+| P3.1（基础已实现，真实稳定性待验） | PlantOps.AI、Provider spike、ILlmGateway、预算/超时、Fake Provider、版本化 Prompt/输出 schema | 70 项适配/健康检查通过；真实能力分别成功但套件尚未全过，详见 AI_PROVIDER_SETUP；普通业务不依赖模型在线 |
 | P3.2 | 首轮 TXT/Markdown 解析、版本化片段与确定性术语检索、授权过滤及撤回失效；pgvector/embedding/PDF 后续增强 | 引用定位版本/标题/片段；撤回后所有检索与缓存立即不可见；未解析 PDF 明确提示 |
 | P3.3 | 联合测量历史、告警、维护记录与文档的只读工具和调查编排；actor 注入；窗口/工具次数上限 | 同一告警的证据可联合回查；跨工厂、超范围参数被拒绝；无任意 SQL/URL 工具 |
 | P3.4 | 告警调查结构化输出、引用校验、质量/缺口提示、UI 展示 | 事实均有可点开证据；假设与事实区分；缺资料则不猜出处 |

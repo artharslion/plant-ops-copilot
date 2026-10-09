@@ -587,10 +587,17 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "plantops.ai": {
+        "type": "Project",
+        "dependencies": {
+          "PlantOps.Application": "[1.0.0, )"
+        }
+      },
       "plantops.api": {
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[10.0.12, )",
+          "PlantOps.AI": "[1.0.0, )",
           "PlantOps.Infrastructure": "[1.0.0, )"
         }
       },
@@ -623,6 +630,7 @@
       "plantops.worker": {
         "type": "Project",
         "dependencies": {
+          "PlantOps.AI": "[1.0.0, )",
           "PlantOps.Infrastructure": "[1.0.0, )",
           "PlantOps.Integrations.OpcUa": "[1.0.0, )"
         }

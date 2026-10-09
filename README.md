@@ -1,8 +1,10 @@
 # Plant Ops Copilot
 
+2026-10-09 已实现 [P3.1 模型接入基础](docs/AI_PROVIDER_SETUP.md)：独立适配、Fake、预算/取消、版本化输出、本地密钥和能力探针。用户中转站的 `gpt-6.1-sol` 四项能力分别有真实成功记录，但完整套件仍受超时/上游不可用影响，稳定性未通过。70 项适配与健康检查通过；授权检索、AiRun、告警 AI 页面和完整 P3/P4 尚未完成。密钥放根目录 `appsettings.Ai.Local.json` 的 `AI.ApiKey`，启动前加载 `deploy/Use-LocalAi.ps1`。
+
 2026-10-09 新增 [IndustrialSim 单点 OPC UA 演示](docs/INDUSTRIALSIM_DEMO_VALIDATION.md)：外部框架独立运行，50秒48条真实协议读数，实际告警触发/恢复、批次去重和授权HTTP读取通过。复现：`./deploy/Run-IndustrialSimDemo.ps1 -Run <全新后缀>`。这是限时本机入口，常驻OPC UA仍禁用；下一主线继续AI调查。
 
-2026-10-09 当前定位：**AI 接入演示项目**。P1 已完成，P2 部分完成，P3/P4 尚未实现。下一主线为模拟告警上的 AI 证据调查，再做人工审批动作；完整 OPC UA 不再作为 AI 前置。旧 G0 长期容量验收延期、未通过，不阻塞当前演示。以 [AI 优先验收计划](docs/plans/2026-10-09-ai-demo-acceptance.md) 为准；下面旧日期的进度与容量前置描述为历史记录。本次未修改运行配置或开启 OPC UA。
+2026-10-09 当前定位：**AI 接入演示项目**。P1 已完成，P2 部分完成，P3 已进入模型接入基础，完整 P3/P4 尚未完成。下一主线为模拟告警上的 AI 证据调查，再做人工审批动作；完整 OPC UA 不再作为 AI 前置。旧 G0 长期容量验收延期、未通过，不阻塞当前演示。以 [AI 优先验收计划](docs/plans/2026-10-09-ai-demo-acceptance.md) 为准；下面旧日期的进度与容量前置描述为历史记录。
 
 2026-10-06 P2 正在按门槛推进：[固定 SDK 和安全隔离实验](docs/P2_1_SPIKE.md)、[P2.2 配置/标准化增量及剩余门槛](docs/P2_2_VALIDATION.md)。114 项后端测试通过；容量与完整协议 Source/运维/健康验收未通过，OPC UA 仅能保存停用配置。
 
