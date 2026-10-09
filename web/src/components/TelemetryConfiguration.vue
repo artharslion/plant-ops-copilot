@@ -173,7 +173,7 @@ async function saveSource() {
     chooseSource(saved.id)
     notice.value =
       saved.kind === 'OpcUa'
-        ? 'OPC UA 配置已保存为停用状态；容量及安全接入验收完成后可启用。'
+        ? 'OPC UA 配置已保存为停用状态；IndustrialSim 使用限时本地演示入口，常驻接入尚未验收。'
         : '模拟源已保存并记录审计。'
     emit('saved')
   })

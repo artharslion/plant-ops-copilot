@@ -5,19 +5,29 @@ using PlantOps.Infrastructure.Identity;
 using PlantOps.Worker;
 
 var initializeDatabase = args.Contains("--initialize-db");
-var builder = WebApplication.CreateBuilder(args.Where(arg => arg != "--initialize-db").ToArray());
+var opcUaDemo = args.Contains("--opcua-demo");
+var builder = WebApplication.CreateBuilder(args.Where(arg => arg is not ("--initialize-db" or "--opcua-demo")).ToArray());
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
-if (!initializeDatabase)
+if (!initializeDatabase && !opcUaDemo)
 {
     builder.Services.AddHostedService<MeasurementWorker>();
 }
 
-if (!initializeDatabase)
+if (!initializeDatabase && !opcUaDemo)
 {
     builder.Services.AddHostedService<RetentionWorker>();
 }
 
 var app = builder.Build();
+if (opcUaDemo)
+{
+    if (initializeDatabase)
+    {
+        throw new InvalidOperationException("Choose exactly one initialization or demo command.");
+    }
+    await OpcUaDemo.RunAsync(app.Services, builder.Configuration, app.Environment.EnvironmentName, app.Lifetime.ApplicationStopping);
+    return;
+}
 if (initializeDatabase)
 {
     if (!app.Environment.IsDevelopment())

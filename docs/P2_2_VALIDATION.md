@@ -1,5 +1,7 @@
 # P2.2 配置与标准化增量验收
 
+2026-10-09 演示增量：[IndustrialSim 单点接入](INDUSTRIALSIM_DEMO_VALIDATION.md) 在独立有限Worker命令中取得真实SDK修正参数并保存/关闭快照，实际订阅、入库、告警/恢复及授权HTTP已验证。只适用于新测试schema、单进程有限demo；通用配置切换/并发生命周期仍开放。旧G0前置以AI演示计划为准，普通Worker/管理API仍不开放常驻OPC UA启用。
+
 2026-10-09 增量：[跨修正区间入库与规则消费](P2_INGEST_INTERVALS_VALIDATION.md) 在全新schema中验收实际可能空窗范围、原因/IsPossible与同批次规则重置；真实修正参数producer/生命周期与完整P2.2仍开放。
 
 2026-10-09 增量：[离线周期缺口证据范围](P2_GAP_EVIDENCE_VALIDATION.md) 返回触发历史片段与快照身份；这是推断证据，不能直接作为物理损失起止。入库跨区间与规则消费仍须独立验收。

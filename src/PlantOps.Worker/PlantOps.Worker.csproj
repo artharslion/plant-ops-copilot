@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PlantOps.Infrastructure/PlantOps.Infrastructure.csproj" />
+    <ProjectReference Include="../PlantOps.Integrations.OpcUa/PlantOps.Integrations.OpcUa.csproj" />
   </ItemGroup>
 </Project>

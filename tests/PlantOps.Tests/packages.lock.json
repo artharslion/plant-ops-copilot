@@ -623,7 +623,8 @@
       "plantops.worker": {
         "type": "Project",
         "dependencies": {
-          "PlantOps.Infrastructure": "[1.0.0, )"
+          "PlantOps.Infrastructure": "[1.0.0, )",
+          "PlantOps.Integrations.OpcUa": "[1.0.0, )"
         }
       }
     }

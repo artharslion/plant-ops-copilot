@@ -252,7 +252,7 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         }
         if (input.Enabled)
         {
-            throw new DirectoryException(400, "OPC UA activation is gated: capacity and secure Worker lifecycle acceptance are still required. Save disabled configuration.");
+            throw new DirectoryException(400, "General OPC UA activation is not accepted yet. Save disabled configuration; use the finite local demo command for IndustrialSim.");
         }
         if (input.OpcUa == null)
         {
