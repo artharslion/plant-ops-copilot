@@ -6,6 +6,29 @@ public sealed record SamplingCoverageResult(string Mode, double? ExpectedCount, 
 
 public static class SamplingCoverage
 {
+    // Adjacent observations bound an otherwise empty window; revision boundaries reset the tolerance.
+    public static bool HasIntervalGap(DateTimeOffset from, DateTimeOffset to, IReadOnlyList<SamplingProfile> profiles)
+    {
+        if (to <= from)
+        {
+            return false;
+        }
+        var relevant = profiles.Where(x => x.EffectiveFrom < to && (x.EffectiveTo == null || x.EffectiveTo > from)).ToArray();
+        var boundaries = relevant.Select(x => x.EffectiveFrom).Concat(relevant.Where(x => x.EffectiveTo.HasValue)
+            .Select(x => x.EffectiveTo!.Value)).Where(x => x > from && x < to).Append(from).Append(to).Distinct().Order().ToArray();
+        foreach (var (start, end) in boundaries.Zip(boundaries.Skip(1)))
+        {
+            var matching = relevant.Where(x => x.EffectiveFrom <= start && (x.EffectiveTo == null || x.EffectiveTo >= end)).ToArray();
+            if (matching.Length == 1 && matching[0].Mode == "Periodic"
+                && matching[0].RevisedSamplingIntervalMs is { } interval && double.IsFinite(interval) && interval > 0
+                && (end - start).TotalMilliseconds > interval * 1.5)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static bool HasTimingGap(DateTimeOffset from, DateTimeOffset to, IReadOnlyList<SamplingProfile> profiles,
         IReadOnlyList<MeasurementReading> readings)
     {

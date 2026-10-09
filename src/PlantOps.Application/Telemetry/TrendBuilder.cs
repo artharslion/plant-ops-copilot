@@ -11,33 +11,26 @@ public static class TrendBuilder
         var ordered = readings.OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToList();
         var protocol = ordered.Any(x => x.SourceKind == "OpcUa");
         var pointProfiles = profiles?.Where(x => x.PointId == point.Id).ToArray() ?? [];
-        double? IntervalAt(DateTimeOffset at)
+        bool TimingGap(DateTimeOffset start, DateTimeOffset end)
         {
-            if (!protocol)
-            {
-                return point.ExpectedIntervalMs;
-            }
-            var matching = profiles?.Where(x => x.PointId == point.Id && x.EffectiveFrom <= at
-                && (x.EffectiveTo == null || x.EffectiveTo > at)).ToArray() ?? [];
-            return matching.Length == 1 && matching[0].Mode == "Periodic" ? matching[0].RevisedSamplingIntervalMs : null;
+            return protocol ? SamplingCoverage.HasIntervalGap(start, end, pointProfiles)
+                : end - start > TimeSpan.FromMilliseconds(point.ExpectedIntervalMs * 1.5);
         }
+        bool ExplicitGap(DateTimeOffset start, DateTimeOffset end, bool includeEnd = false) =>
+            (end > start || includeEnd) && (gaps?.Any(g => g.PointId == point.Id
+                && (includeEnd ? g.From <= end : g.From < end) && (g.To == null || g.To > start)) ?? false);
         var samples = new List<TrendSample>();
         DateTimeOffset prior = from;
         foreach (var r in ordered)
         {
-            var interval = IntervalAt(prior);
             samples.Add(new(r.Id, r.EffectiveAt, r.ReceivedAt, r.NumericValue, r.Quality, r.TimeAnomaly,
-                SamplePolicy.HasOverflow(r.RawStatusCode) || interval.HasValue && r.EffectiveAt - prior > TimeSpan.FromMilliseconds(interval.Value * 1.5)
-                    || (gaps?.Any(g => g.From <= r.EffectiveAt && (g.To == null || g.To > prior)) ?? false), r.DataSourceId, r.SourceMappingId, r.MappingVersion, r.SourceKind,
+                SamplePolicy.HasOverflow(r.RawStatusCode) || TimingGap(prior, r.EffectiveAt)
+                    || ExplicitGap(prior, r.EffectiveAt, includeEnd: true), r.DataSourceId, r.SourceMappingId, r.MappingVersion, r.SourceKind,
                 r.TimestampOrigin, r.SourceTimestamp, r.ServerTimestamp, r.RawStatusCode, r.StatusSymbol));
             prior = r.EffectiveAt;
         }
-        var leadingInterval = IntervalAt(from);
-        var trailingInterval = IntervalAt(to.AddTicks(-1));
-        var leading = ordered.Count == 0 || leadingInterval.HasValue && ordered[0].EffectiveAt - from > TimeSpan.FromMilliseconds(leadingInterval.Value * 1.5)
-            || (gaps?.Any(g => g.From <= from && (g.To == null || g.To > from)) ?? false);
-        var trailing = ordered.Count == 0 || trailingInterval.HasValue && to - ordered[^1].EffectiveAt > TimeSpan.FromMilliseconds(trailingInterval.Value * 1.5)
-            || (gaps?.Any(g => g.From < to && (g.To == null || g.To >= to)) ?? false);
+        var leading = ordered.Count == 0 || TimingGap(from, ordered[0].EffectiveAt) || ExplicitGap(from, ordered[0].EffectiveAt);
+        var trailing = ordered.Count == 0 || TimingGap(ordered[^1].EffectiveAt, to) || ExplicitGap(ordered[^1].EffectiveAt, to);
         var buckets = new List<TrendBucket>();
         if (bucket == "1m")
         {
