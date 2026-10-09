@@ -1,5 +1,7 @@
 # P2.2 离线周期缺口证据范围契约
 
+后续2026-10-09：[跨修正区间入库与规则消费](P2_INGEST_INTERVALS_VALIDATION.md) 已将整个证据片段登记为明确的可能观察空窗，并实际验收同批次规则重置；以下入库未修复描述是本报告原轮状态，真实producer与完整P2仍开放。
+
 2026-10-09，基线 `1dbccbd`，分支 `codex/p2-opcua`。本独立点完成 Application 纯函数的历史空窗证据范围，计划见 [实施范围](plans/2026-10-09-p2-gap-evidence.md)。MeasurementIngestor 持久化与规则消费仍未修复或新增验收；完整 P2.2、P2 与 G0 保持未通过。
 
 ## 契约与边界

@@ -140,21 +140,47 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
                 }
                 continue;
             }
-            double? interval = c.SourceKind == "Simulation" ? c.ExpectedIntervalMs : null;
-            if (c.SourceKind == "OpcUa")
+            if (!reading.TimeAnomaly && state.LatestObservedEffectiveAt is DateTimeOffset prior
+                && reading.EffectiveAt > prior)
             {
-                var matchingProfiles = profiles.Where(x => x.PointId == c.PointId && x.SourceMappingId == c.MappingId
-                    && x.MappingVersion == c.MappingVersion && x.EffectiveFrom <= reading.EffectiveAt
-                    && (x.EffectiveTo == null || x.EffectiveTo > reading.EffectiveAt)).ToArray();
-                if (matchingProfiles.Length == 1 && matchingProfiles[0].Mode == "Periodic")
+                if (c.SourceKind == "OpcUa")
                 {
-                    interval = matchingProfiles[0].RevisedSamplingIntervalMs;
+                    // Preserve conflicting point history until after segmentation; identity filtering
+                    // must not turn overlapping/unknown history into a known periodic segment.
+                    var history = profiles.Where(x => x.PointId == c.PointId).ToArray();
+                    foreach (var evidence in SamplingCoverage.FindIntervalGapEvidence(prior, reading.EffectiveAt, history)
+                        .Where(x => x.SourceMappingId == c.MappingId && x.MappingVersion == c.MappingVersion))
+                    {
+                        // The whole observed empty segment is possible loss evidence, not a first
+                        // missing sample timestamp or a physical loss count.
+                        var gap = new IngestionGap
+                        {
+                            PointId = c.PointId,
+                            DataSourceId = c.DataSourceId,
+                            From = evidence.From,
+                            To = evidence.To,
+                            DetectedAt = reading.ReceivedAt,
+                            Reason = "PossibleSamplingIntervalGap",
+                            IsPossible = true
+                        };
+                        db.IngestionGaps.Add(gap);
+                        gaps.Add(gap);
+                    }
                 }
-            }
-            if (!reading.TimeAnomaly && interval is { } expected && state.LatestObservedEffectiveAt is DateTimeOffset prior
-                && reading.EffectiveAt - prior > TimeSpan.FromMilliseconds(expected * 1.5))
-            {
-                db.IngestionGaps.Add(new IngestionGap { PointId = c.PointId, DataSourceId = c.DataSourceId, From = prior.AddMilliseconds(expected), To = reading.EffectiveAt, DetectedAt = reading.ReceivedAt });
+                else if (c.SourceKind == "Simulation"
+                    && reading.EffectiveAt - prior > TimeSpan.FromMilliseconds(c.ExpectedIntervalMs * 1.5))
+                {
+                    var gap = new IngestionGap
+                    {
+                        PointId = c.PointId,
+                        DataSourceId = c.DataSourceId,
+                        From = prior.AddMilliseconds(c.ExpectedIntervalMs),
+                        To = reading.EffectiveAt,
+                        DetectedAt = reading.ReceivedAt
+                    };
+                    db.IngestionGaps.Add(gap);
+                    gaps.Add(gap);
+                }
             }
             if (SamplePolicy.HasOverflow(reading.RawStatusCode))
             {
@@ -178,11 +204,11 @@ public sealed class MeasurementIngestor(PlantOpsDbContext db, TimeProvider clock
             SamplePolicy.Apply(state, reading, c.StaleAfterMs);
             state.Version++;
             inserted++;
-            // Explicit loss invalidates continuity even if surviving notifications have short intervals.
+            // Persisted or newly inferred loss invalidates continuity in this transaction.
             if (gaps.Any(x => x.PointId == c.PointId && x.From <= reading.EffectiveAt
                 && (x.To == null || x.To > reading.EffectiveAt || priorTrusted.HasValue && x.To > priorTrusted)))
             {
-                await alarms.ResetPointAsync(c.PointId, cancellationToken);
+                await alarms.ResetPointAsync(c.PointId, reading.EffectiveAt, cancellationToken);
             }
 
             foreach (var gap in gaps.Where(x => x.PointId == c.PointId && x.DataSourceId == c.DataSourceId && x.To == null && x.From <= reading.ReceivedAt))

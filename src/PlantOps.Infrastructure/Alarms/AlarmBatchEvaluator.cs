@@ -127,11 +127,14 @@ internal sealed class AlarmBatchEvaluator(PlantOpsDbContext db, TimeProvider clo
         }
     }
 
-    public Task ResetPointAsync(Guid pointId, CancellationToken ct)
+    public Task ResetPointAsync(Guid pointId, DateTimeOffset inputAt, CancellationToken ct)
     {
         foreach (var rule in rules.Where(x => x.PointId == pointId))
         {
-            if (states.TryGetValue(rule.Id, out var state))
+            // Older observations cannot invalidate a newer pending duration;
+            // explicit loss at the current watermark still invalidates continuity.
+            if (states.TryGetValue(rule.Id, out var state)
+                && (!state.LastEvaluatedAt.HasValue || inputAt >= state.LastEvaluatedAt))
             {
                 ThresholdEvaluator.ResetPending(state);
                 state.Version++;
