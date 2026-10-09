@@ -1,5 +1,7 @@
 # P2.2 配置与标准化增量验收
 
+2026-10-09 增量：[离线采样修正区间契约](P2_SAMPLING_TRANSITIONS_VALIDATION.md) 新增纯函数的显式修正快照激活/关闭、历史副本保护与未知空窗；没有接入持久化服务或真实 SDK/Worker 生命周期，完整 P2.2 仍开放。
+
 2026-10-06。基线 `9dcc65a`，本地分支 `codex/p2-opcua`。P2.1 固定 SDK/许可与最小安全协议实验通过；本轮推进 **P2.2 可离线验证的配置、标准化、历史采样语义**。P2.2 尚未完整验收，P2.3–P2.5 未完成。G0 未通过，应用持续 OPC UA 接入未启用。
 
 ## 已实现
@@ -34,7 +36,7 @@
 2026-10-08 节点元数据独立增量见 [协议节点校验](P2_NODE_METADATA_VALIDATION.md)：Variable/Scalar/访问位与实际 Value 读取/内置数值 DataType/EngineeringUnits 和逐映射错误已实现，在普通/重排隔离会话各 17 个结果验证。后端回归增至 141 项全过。此方法未注入 Worker，不代表授权 Browse 或完整 P2.2 已完成。
 
 1. **G0**：七天 60,480,000 raw、八天滚动、90 天分钟、并发维护/五客户端、WAL/联合备份恢复峰值与 30% 余量仍无证据，见 [容量调查](P2_CAPACITY_VALIDATION.md)。不能启动持续真实接入或称 P2 完成。
-2. **P2.2 协议侧**：Worker 授权有界 Browse 与逐映射业务状态持久化未实现；节点元数据校验已完成独立隔离验证，simulator 已发布 EngineeringUnits，尚未接入业务 Worker。真实修正参数生产者、区间关闭和配置切换屏障仍需随生命周期实现；DB 验证使用显式固定测试快照。
+2. **P2.2 协议侧**：Worker 授权有界 Browse 与逐映射业务状态持久化未实现；节点元数据校验已完成独立隔离验证，simulator 已发布 EngineeringUnits，尚未接入业务 Worker。采样区间激活/关闭纯函数已完成离线验收；真实修正参数生产者、事务/并发持久化、生命周期区间关闭和配置切换屏障仍缺；DB 验证使用显式固定测试快照。
 3. **P2.3**：业务 IMeasurementSource Adapter、SDK 回调与损失桥接、总字节预算、证书/host/URI/discovery 地址校验、Worker-only CredentialRef、服务调用记录器和独立只读用户名账号未验收。没有注册可绕过 G0 的 Source。
 4. **P2.4**：证书批准/撤销 UI/API、完整证书故障矩阵、退避重连、Republish/Transfer 分支、恢复快照、断线即时 gap 等待真实协议验证；通用损失账本不能替代协议事件验收。
 5. **P2.5**：权威连接健康/UI/指标、两来源 Golden Path、100 点 30 分钟/五客户端与完整浏览器验收未执行。
