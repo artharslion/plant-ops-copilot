@@ -1,5 +1,7 @@
 # AI Copilot 设计 v0.1
 
+2026-10-09 当前增量：按 [AI 优先验收计划](plans/2026-10-09-ai-demo-acceptance.md)，直接在 P1 Simulation 告警上推进 P3，再做 P4；不等待完整 OPC UA 或长期 G0。首轮限定已发布授权 TXT/Markdown，使用版本化片段与确定性术语检索。下文 pgvector/embedding、完整 PDF 解析及混合检索为后续增强，不作为首轮前置；未解析资料明确提示。只读工具、actor 授权、引用校验、预算、20 案例评估和模型失败降级仍必验。
+
 日期：2026-10-03。Phase 3 为 Investigation Copilot，针对告警联合查询测量历史、告警、维护记录和文档；Phase 4 为有限业务动作提案。**AI is not the source of truth**：数据库与业务服务决定业务事实和动作，OPC UA 数据源提供质量/时间可追溯的现场观测，发布文档提供知识证据；AI 仅检索、解释和提出建议。
 
 ## 1. 边界与执行流
