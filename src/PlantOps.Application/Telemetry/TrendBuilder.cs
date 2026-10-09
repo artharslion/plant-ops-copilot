@@ -10,6 +10,7 @@ public static class TrendBuilder
     {
         var ordered = readings.OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToList();
         var protocol = ordered.Any(x => x.SourceKind == "OpcUa");
+        var pointProfiles = profiles?.Where(x => x.PointId == point.Id).ToArray() ?? [];
         double? IntervalAt(DateTimeOffset at)
         {
             if (!protocol)
@@ -50,12 +51,14 @@ public static class TrendBuilder
                 var expected = Math.Max(1, Math.Ceiling((coveredTo - coveredFrom).TotalMilliseconds / point.ExpectedIntervalMs));
                 var hasGap = rows.Count < expected || rows.Any(x => x.Quality != "Good" || x.TimeAnomaly || x.NumericValue == null)
                     || samples.Any(x => x.EffectiveAt >= start && x.EffectiveAt < start.AddMinutes(1) && x.GapBefore);
-                var coverage = protocol ? SamplingCoverage.Calculate(coveredFrom, coveredTo, values.Length, profiles ?? [])
+                var coverage = protocol ? SamplingCoverage.Calculate(coveredFrom, coveredTo, values.Length, pointProfiles)
                     : new SamplingCoverageResult("Periodic", expected, Math.Min(1, values.Length / expected));
                 if (protocol)
                 {
                     hasGap = coverage.Mode == "Unknown" || coverage.CoverageRatio < 1 || rows.Any(x => !SamplePolicy.IsGood(x))
-                        || samples.Any(x => x.EffectiveAt >= start && x.EffectiveAt < start.AddMinutes(1) && x.GapBefore);
+                        || SamplingCoverage.HasTimingGap(coveredFrom, coveredTo, pointProfiles, rows)
+                        || (gaps?.Any(g => g.PointId == point.Id && g.From < coveredTo
+                            && (g.To == null || g.To > coveredFrom)) ?? false);
                 }
                 buckets.Add(new(start, values.Length == 0 ? null : values.Min(), values.Length == 0 ? null : values.Max(),
                     values.Length == 0 ? null : values.Average(), values.Length, rows.Count(x => x.Quality == "Uncertain"),
