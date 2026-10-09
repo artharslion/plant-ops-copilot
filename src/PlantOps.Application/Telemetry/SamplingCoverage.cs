@@ -4,15 +4,25 @@ namespace PlantOps.Application.Telemetry;
 
 public sealed record SamplingCoverageResult(string Mode, double? ExpectedCount, double? CoverageRatio);
 
+// An empty historical segment that exceeds its tolerance, not a physical loss range or count.
+public sealed record SamplingIntervalGapEvidence(DateTimeOffset From, DateTimeOffset To, Guid SamplingProfileId,
+    Guid PointId, Guid SourceMappingId, long MappingVersion, double RevisedSamplingIntervalMs);
+
 public static class SamplingCoverage
 {
     // Adjacent observations bound an otherwise empty window; revision boundaries reset the tolerance.
-    public static bool HasIntervalGap(DateTimeOffset from, DateTimeOffset to, IReadOnlyList<SamplingProfile> profiles)
+    public static bool HasIntervalGap(DateTimeOffset from, DateTimeOffset to, IReadOnlyList<SamplingProfile> profiles) =>
+        FindIntervalGapEvidence(from, to, profiles).Count > 0;
+
+    // Callers supply history for one point. No evidence does not prove continuity in unknown segments.
+    public static IReadOnlyList<SamplingIntervalGapEvidence> FindIntervalGapEvidence(DateTimeOffset from,
+        DateTimeOffset to, IReadOnlyList<SamplingProfile> profiles)
     {
         if (to <= from)
         {
-            return false;
+            return [];
         }
+        var evidence = new List<SamplingIntervalGapEvidence>();
         var relevant = profiles.Where(x => x.EffectiveFrom < to && (x.EffectiveTo == null || x.EffectiveTo > from)).ToArray();
         var boundaries = relevant.Select(x => x.EffectiveFrom).Concat(relevant.Where(x => x.EffectiveTo.HasValue)
             .Select(x => x.EffectiveTo!.Value)).Where(x => x > from && x < to).Append(from).Append(to).Distinct().Order().ToArray();
@@ -23,10 +33,12 @@ public static class SamplingCoverage
                 && matching[0].RevisedSamplingIntervalMs is { } interval && double.IsFinite(interval) && interval > 0
                 && (end - start).TotalMilliseconds > interval * 1.5)
             {
-                return true;
+                var profile = matching[0];
+                evidence.Add(new(start, end, profile.Id, profile.PointId, profile.SourceMappingId,
+                    profile.MappingVersion, interval));
             }
         }
-        return false;
+        return evidence;
     }
 
     public static bool HasTimingGap(DateTimeOffset from, DateTimeOffset to, IReadOnlyList<SamplingProfile> profiles,

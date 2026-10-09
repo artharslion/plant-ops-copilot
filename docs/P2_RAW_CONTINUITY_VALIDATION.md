@@ -1,5 +1,7 @@
 # P2.2 离线 raw 趋势区间连续性
 
+后续2026-10-09：[证据范围契约](P2_GAP_EVIDENCE_VALIDATION.md) 新增FindIntervalGapEvidence并由HasIntervalGap复用；返回触发片段而非物理损失范围，入库仍需独立验收。
+
 2026-10-09，基线 `ac713af`，分支 `codex/p2-opcua`。本独立点完成 Application `TrendBuilder` 的历史区间空窗判定与显式损失边界修复。计划：[实施边界](plans/2026-10-09-p2-raw-continuity.md)。真实采样生命周期、入库跨区间行为及完整 P2.2 仍开放。
 
 ## 行为与算法
