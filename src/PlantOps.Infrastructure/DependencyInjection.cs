@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<PlantOps.Application.Maintenance.IWorkOrderService, PlantOps.Infrastructure.Maintenance.WorkOrderService>();
         services.AddScoped<PlantOps.Application.Knowledge.IDocumentService, PlantOps.Infrastructure.Knowledge.DocumentService>();
         services.AddScoped<PlantOps.Application.Knowledge.IDocumentEvidenceService, PlantOps.Infrastructure.Knowledge.DocumentService>();
+        services.AddScoped<PlantOps.Application.AI.IInvestigationService, PlantOps.Infrastructure.AI.InvestigationService>();
         services.AddSingleton<PlantOps.Application.Knowledge.IDocumentFileStore, PlantOps.Infrastructure.Knowledge.LocalDocumentFileStore>();
         services.AddIdentity<PlantOpsUser, IdentityRole>(options =>
         {

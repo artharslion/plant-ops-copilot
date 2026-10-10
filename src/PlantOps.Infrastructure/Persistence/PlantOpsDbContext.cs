@@ -60,6 +60,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
 
     public DbSet<PlantOps.Domain.Knowledge.DocumentChunk> DocumentChunks => Set<PlantOps.Domain.Knowledge.DocumentChunk>();
 
+    public DbSet<PlantOps.Domain.AI.AiRun> AiRuns => Set<PlantOps.Domain.AI.AiRun>();
+
     public DbSet<PlantOps.Domain.Operations.OutboxEvent> OutboxEvents => Set<PlantOps.Domain.Operations.OutboxEvent>();
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -98,6 +100,7 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
         AlarmModel.Configure(modelBuilder);
         MaintenanceModel.Configure(modelBuilder);
         KnowledgeModel.Configure(modelBuilder);
+        AiModel.Configure(modelBuilder);
         modelBuilder.Entity<PlantOps.Domain.Operations.DevelopmentSeedState>().HasKey(x => x.Name);
         modelBuilder.Entity<PlantOps.Domain.Operations.DevelopmentSeedState>().Property(x => x.Name).HasMaxLength(64);
         modelBuilder.Entity<PlantOpsUser>().Property(x => x.DisplayName).HasMaxLength(200);

@@ -18,19 +18,19 @@ public sealed class AlarmTests
     private static readonly Guid South = Guid.Parse("10000000-0000-0000-0000-000000000002");
     private static readonly Guid Fan = Guid.Parse("30000000-0000-0000-0000-000000000002");
 
-    private sealed class Clock : TimeProvider
+    internal sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = new(2026, 10, 5, 0, 0, 0, TimeSpan.Zero);
 
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
-    private sealed record Fixture(DirectoryRecord Asset, PointOverview Point, RuleDto Rule, SourceConfiguration Config)
+    internal sealed record Fixture(DirectoryRecord Asset, PointOverview Point, RuleDto Rule, SourceConfiguration Config)
     {
         public string RulePath => $"/api/v1/assets/{Asset.Id}/measurement-points/{Point.Id}/alarm-rules";
     }
 
-    private static async Task<Fixture> Configure(AssetManagementTests.Session s, RuleInput? rule = null)
+    internal static async Task<Fixture> Configure(AssetManagementTests.Session s, RuleInput? rule = null)
     {
         var asset = await s.Create("assets", North);
         var p = await s.Client.PostAsJsonAsync($"/api/v1/assets/{asset.Id}/measurement-points", new PointInput("VIB", "Vibration"));
@@ -61,7 +61,7 @@ public sealed class AlarmTests
     private static async Task<AlarmDto[]> Alarms(AssetManagementTests.Session s, Fixture f, bool? active = null) =>
         (await s.Client.GetFromJsonAsync<AlarmPage>($"/api/v1/alarms?plantId={North}&assetId={f.Asset.Id}{(active.HasValue ? "&active=" + active.Value.ToString().ToLowerInvariant() : "")}"))!.Items.ToArray();
 
-    private static async Task<AlarmDto> Raise(AssetManagementTests.Session s, Fixture f, Clock clock)
+    internal static async Task<AlarmDto> Raise(AssetManagementTests.Session s, Fixture f, Clock clock)
     {
         for (var t = 0; t <= 3; t++)
         {

@@ -103,6 +103,7 @@ app.MapTelemetry();
 app.MapAlarms();
 app.MapWorkOrders();
 app.MapDocuments();
+app.MapInvestigations();
 app.MapHub<PlantEventsHub>("/hubs/plant-events");
 if (app.Environment.IsDevelopment())
 {
