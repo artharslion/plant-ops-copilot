@@ -37,3 +37,7 @@ Test: `tests/PlantOps.Tests/DocumentEvidenceTests.cs`。
 运行解决方案构建、解析器测试，以及新隔离 schema/资料目录中的 DocumentTests + DocumentEvidenceTests。记录真实通过/跳过数量和保留位置；补充 `docs/AI_EVIDENCE_VALIDATION.md` 与 ROADMAP/AI_DESIGN 进度并立即提交。
 
 本增量完成后仍继续 P3.3–P3.5：AiRun、联合工具、事实语义校验、告警 UI 和 20 案例；不把检索交付等同完整 AI 调查。
+
+## 实施结果
+
+2026-10-10 Task 1–3 完成。91 项测试全部通过，构建零警告，前端构建/lint/改动文案格式通过。新增 `deploy/Test-DocumentEvidence.ps1` 支持每轮独立 schema 和资料目录，文件读取层增加取消与实际字节上限。仅变更文档页解析状态提示，没有加入调查按钮。细节和保留记录见 [验收](../AI_EVIDENCE_VALIDATION.md)。

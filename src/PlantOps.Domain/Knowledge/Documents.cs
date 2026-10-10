@@ -83,3 +83,41 @@ public sealed class DocumentVersion
         get; set;
     }
 }
+
+public sealed class DocumentChunk
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid DocumentId
+    {
+        get; set;
+    }
+
+    public Guid VersionId
+    {
+        get; set;
+    }
+
+    public int Ordinal
+    {
+        get; set;
+    }
+
+    public string Section { get; set; } = "";
+
+    public int StartLine
+    {
+        get; set;
+    }
+
+    public int EndLine
+    {
+        get; set;
+    }
+
+    public string Text { get; set; } = "";
+
+    public string Sha256 { get; set; } = "";
+
+    public string ParserVersion { get; set; } = "";
+}

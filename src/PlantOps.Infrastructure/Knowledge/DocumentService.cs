@@ -12,11 +12,11 @@ using PlantOps.Infrastructure.Persistence;
 
 namespace PlantOps.Infrastructure.Knowledge;
 
-public sealed class DocumentService(PlantOpsDbContext db, IAssetDirectory directory, UserManager<PlantOpsUser> users, IDocumentFileStore files, TimeProvider clock) : IDocumentService
+public sealed partial class DocumentService(PlantOpsDbContext db, IAssetDirectory directory, UserManager<PlantOpsUser> users, IDocumentFileStore files, TimeProvider clock) : IDocumentService, IDocumentEvidenceService
 {
-    private async Task<IList<string>> Roles(Actor actor, bool write = false)
+    private async Task<IList<string>> Roles(Actor actor, bool write = false, CancellationToken cancellationToken = default)
     {
-        var user = await users.FindByIdAsync(actor.UserId);
+        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == actor.UserId, cancellationToken);
         if (user is not { IsEnabled: true })
         {
             throw new DirectoryException(401, "Session unavailable.");
@@ -228,6 +228,7 @@ public sealed class DocumentService(PlantOpsDbContext db, IAssetDirectory direct
                 IndexStatus = index
             };
             db.DocumentVersions.Add(v);
+            SaveParsedChunks(v, TextDocumentParser.Parse(file.FileName, file.MediaType, file.Content));
             Audit(actor, d, "Upload", before, new
             {
                 v.Id,

@@ -648,6 +648,60 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("EndLine")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ParserVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Section")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("StartLine")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId", "VersionId");
+
+                    b.HasIndex("VersionId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("DocumentChunks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentChunk", "\"Ordinal\" >= 0 AND \"Ordinal\" < 256 AND \"StartLine\" > 0 AND \"EndLine\" >= \"StartLine\"");
+                        });
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentVersion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -708,8 +762,6 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasAlternateKey("DocumentId", "Id");
 
                     b.HasIndex("StorageKey")
                         .IsUnique();
@@ -1592,6 +1644,16 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PlantId", "AssetId")
                         .HasPrincipalKey("PlantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentChunk", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Knowledge.DocumentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId", "VersionId")
+                        .HasPrincipalKey("DocumentId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentVersion", b =>

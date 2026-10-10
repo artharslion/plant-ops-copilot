@@ -1,6 +1,6 @@
 # AI 模型接入与本地密钥
 
-当前增量：P3.1 模型接入基础。独立 `PlantOps.AI` 已提供 Chat Completions 适配、Fake、调用预算、版本化 Prompt/InvestigationResult.v1 和有限能力探针。Api/Worker 注册适配，但尚无调查作业或告警 AI 按钮。AiRun、授权检索、事实语义校验与完整 P3 验收仍待完成。
+当前增量：P3.1 模型接入基础。独立 `PlantOps.AI` 已提供 Chat Completions 适配、Fake、调用预算、版本化 Prompt/InvestigationResult.v1 和有限能力探针。Api/Worker 注册适配；[P3.2 授权资料检索](AI_EVIDENCE_VALIDATION.md) 已于 2026-10-10 完成。尚无调查作业或告警 AI 按钮，AiRun、联合工具/证据账本、事实语义校验与完整 P3 验收仍待完成。
 
 ## 密钥放哪里
 

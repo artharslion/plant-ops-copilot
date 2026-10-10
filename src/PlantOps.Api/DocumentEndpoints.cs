@@ -37,6 +37,17 @@ public static class DocumentEndpoints
             return Results.Created($"/api/v1/documents/{d.Id}", d);
         }
         api.MapGet("/documents", (HttpContext c, IDocumentService s, Guid plantId, Guid? assetId, int? limit, string? cursor) => s.ListAsync(Actor(c), plantId, assetId, limit ?? 50, cursor));
+        api.MapGet("/assets/{assetId:guid}/document-evidence", (HttpContext c, IDocumentEvidenceService s, Guid assetId, string query, int? limit) =>
+        {
+            c.Response.Headers.CacheControl = "no-store";
+            return s.SearchAsync(Actor(c), assetId, query, limit ?? 6, c.RequestAborted);
+        });
+        api.MapGet("/assets/{assetId:guid}/document-evidence/{documentId:guid}/{versionId:guid}/{chunkId:guid}",
+            (HttpContext c, IDocumentEvidenceService s, Guid assetId, Guid documentId, Guid versionId, Guid chunkId) =>
+            {
+                c.Response.Headers.CacheControl = "no-store";
+                return s.ExpandAsync(Actor(c), assetId, documentId, versionId, chunkId, c.RequestAborted);
+            });
         api.MapGet("/documents/{id:guid}", (HttpContext c, IDocumentService s, Guid id) => s.GetAsync(Actor(c), id));
         api.MapGet("/documents/{id:guid}/versions", (HttpContext c, IDocumentService s, Guid id) => s.VersionsAsync(Actor(c), id));
         api.MapPost("/documents", (HttpContext c, IDocumentService s) => Upload(c, s, null));

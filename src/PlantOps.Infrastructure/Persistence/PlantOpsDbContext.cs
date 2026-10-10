@@ -58,6 +58,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
 
     public DbSet<PlantOps.Domain.Knowledge.DocumentVersion> DocumentVersions => Set<PlantOps.Domain.Knowledge.DocumentVersion>();
 
+    public DbSet<PlantOps.Domain.Knowledge.DocumentChunk> DocumentChunks => Set<PlantOps.Domain.Knowledge.DocumentChunk>();
+
     public DbSet<PlantOps.Domain.Operations.OutboxEvent> OutboxEvents => Set<PlantOps.Domain.Operations.OutboxEvent>();
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

@@ -310,8 +310,12 @@ onUnmounted(() => {
         <p class="path-note">
           {{
             v.indexStatus === 'NeedsText'
-              ? 'PDF 尚无提取文本；可下载，未建立索引。'
-              : '文件内容已保存，尚未请求索引。'
+              ? 'PDF 尚无提取文本；可下载，尚不能用于证据查询。'
+              : v.indexStatus === 'Ready'
+                ? '文本片段已就绪；当前发布版本可供授权证据查询。'
+                : v.indexStatus === 'NotRequested'
+                  ? '旧资料将在授权查询时生成文本片段。'
+                  : '资料为空、超出解析上限或暂不可解析，未纳入证据查询。'
           }}<br />SHA-256 {{ v.sha256 }}
         </p>
         <div class="actions">

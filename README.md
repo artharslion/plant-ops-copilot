@@ -73,6 +73,7 @@ ASP.NET Core / .NET 10 LTS、EF Core、PostgreSQL；Vue 3 + TypeScript + Vite；
 - [docs/DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md)：实体、字段、关系与状态机。
 - [docs/OPCUA_INTEGRATION.md](docs/OPCUA_INTEGRATION.md)：采集、映射、质量、重连与模拟器实验。
 - [docs/AI_DESIGN.md](docs/AI_DESIGN.md)：RAG、工具、输出、权限、审批与安全评估。
+- [docs/AI_EVIDENCE_VALIDATION.md](docs/AI_EVIDENCE_VALIDATION.md)：P3.2 授权资料查询/引用接口、91 项验证和独立测试复现；告警调查仍待接入。
 
 ## Golden Path：贯穿所有阶段
 
