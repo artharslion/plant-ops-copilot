@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InvestigationPanel from '../components/InvestigationPanel.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { listAll, request, type DirectoryRecord } from '../api'
@@ -333,6 +334,7 @@ onUnmounted(() => {
         canMaintain ? '查看设备并创建关联工单 →' : '查看设备与维护历史 →'
       }}</RouterLink>
     </p>
+    <InvestigationPanel :key="alarm.id" :alarm-id="alarm.id" />
     <h3>事件记录</h3>
     <ol class="alarm-timeline">
       <li v-for="event in events" :key="event.id">

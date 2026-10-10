@@ -1,6 +1,6 @@
 # AI 模型接入与本地密钥
 
-当前增量：P3.1 模型接入基础。独立 `PlantOps.AI` 已提供 Chat Completions 适配、Fake、调用预算、版本化 Prompt/InvestigationResult.v1 和有限能力探针。Api/Worker 注册适配；[P3.2 授权资料检索](AI_EVIDENCE_VALIDATION.md) 已于 2026-10-10 完成。尚无调查作业或告警 AI 按钮，AiRun、联合工具/证据账本、事实语义校验与完整 P3 验收仍待完成。
+当前增量：独立 `PlantOps.AI` 已提供 Chat Completions 适配、Fake、调用预算和版本化输出；[P3.2 授权资料检索](AI_EVIDENCE_VALIDATION.md) 与 [告警业务调查接入](AI_INVESTIGATION_VALIDATION.md) 已实现。现在告警页经 API/AiRun/Worker 实际调用 Gateway，保存并展示授权证据及校验结果。128 项专项/回归与 Chrome Fake 业务交互通过；一次真实业务调查超时，真实质量及完整 P3 验收尚未通过。
 
 ## 密钥放哪里
 
@@ -48,14 +48,14 @@ Fake 报告始终 `Simulated=true`、`RealProviderVerified=false`。只有真实
 
 ## 预算、兼容性与失败
 
-- 每次业务调查预算仍为 60 秒、4 轮、8 工具、16,000 输入、2,000 输出，单次请求 30 秒、瞬态重试最多一次。这里只提供预算对象，后续调查编排必须每次新建并贯穿整次运行。
+- 每次业务调查预算为 60 秒、4 轮、8 工具、16,000 输入、2,000 输出，单次请求 30 秒、瞬态重试最多一次。已实现的调查编排每次新建并贯穿整次运行；默认五个取证工具也计入工具预算。
 - 输入先按请求 UTF-8 字节和协议开销保守预留，再按供应商报告向上补足；中转可能附加上游提示，不能仅用本地消息估算实际用量。报告用量超限即停止，不再发请求；超时/错误尝试的预留不返还。
 - 发送 `max_completion_tokens`，默认 `reasoning_effort=low`，不发 temperature/top_p。可在本地 JSON 加 `ReasoningEffort` 调整；空字符串表示不发送这个可选字段。低推理强度是官方支持的 Sol 设置，有助于减少延迟，但不保证中转站响应时间。
 - 不假设中转名称、模型实现、数据保留和计费与官方一致。OpenAI 官方要求 GPT-6.1 Sol 的工具调用使用 Responses；本适配按用户提供的 Chat Completions 协议验证中转站自身兼容行为，不能据此声称官方 Chat Completions 支持 Sol 工具调用。[官方模型说明](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[推理设置](https://developers.openai.com/api/docs/guides/reasoning)。
-- HTTPS，HTTP 仅允许本机；禁重定向和 Cookie，防止凭据跟随重定向。响应流最多 128 KiB（可设 1–256 KiB），JSON 深度和工具数量有界。模型工具名必须属于当前请求提供的定义；具体工具参数/actor/设备范围留给后续业务工具层再次校验。
+- HTTPS，HTTP 仅允许本机；禁重定向和 Cookie，防止凭据跟随重定向。响应流最多 128 KiB（可设 1–256 KiB），JSON 深度和工具数量有界。模型工具名必须属于当前请求提供的定义；业务调查引擎另行校验参数，服务端固定 actor/设备范围并实时重授权。
 - 限流、鉴权、协议不支持、格式错误、拒绝、截断、取消和超时分别处理。不会自动换模型、去掉 schema 或重试授权错误。错误不含供应商正文或原始异常。
 - 使用量缺失或尝试结果未知时，汇总 usage/cost 保留未知。未配置并验证中转单价，`EstimatedCost=null`，不标记为免费。取消/超时只能停止本地等待，不能保证上游停止计算或不计费。
-- 当前输出检查仅验证字段、长度与传入引用集合。它不能证明事实正确、数字单位匹配或当前 actor 有权限；这些将在 P3.2–P3.4 中通过授权证据账本和语义校验实现。
+- 业务调查另行验证实时 actor/资料权限，observations 必须逐字选用证据事实句，将数字、单位、时间一起校验。它是保守摘录契约，不证明通用自然语言推理正确；详见调查验收记录。供应商协议层自身仍只负责结构与引用集合检查。
 
 ## 验证记录
 

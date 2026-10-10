@@ -72,3 +72,12 @@ Create: `tests/PlantOps.Tests/InvestigationServiceTests.cs`、`deploy/Test-Inves
 - 2026-10-10：`artifacts/ai-investigation/accepted_20261010_1000/results.trx` 128/128 通过，零跳过。包括此前 91 项资料/AI/健康检查、29 项调查引擎检查、8 项数据库业务链路检查。完整解决方案构建零警告/错误。
 - 首轮 127/128 的失败为所有者隔离测试的两个用户误连不同 schema，已修正并在全新 schema 重跑；首轮报告保留。
 - 页面已实现，浏览器验证和一次真实业务联调待进行。上述 29 项包含 20 个输出拒绝用例，不能替代原定完整 20 个现场场景验收。业务库未迁移。
+
+### 最新进度
+
+- Task 1 / Task 3 后端已提交 `bf596b3`。Task 3 页面已实现，构建、ESLint、Prettier 和现有 Node 检查通过；浏览器交互待验。
+- Task 4 已提供可重复的 Fake/数据库与显式真实联调脚本及 opt-in 测试。真实 `live_business_20261010_1004` 在 30.67 秒超时；普通告警可读、无工单写入，RealProviderVerified=false，不自动重试。
+- Chrome 连接已恢复，但本地页面明确被 Chrome `ERR_BLOCKED_BY_CLIENT` 拦截，用户已收到具体阻塞说明；不记浏览器验收通过。
+- 默认取证后的质量/陈旧/缺口/范围警告补为模型可见的 DataQuality 证据，避免仅在页面提示而模型看不到；针对该行为补断言后在全新 schema 重跑专项。
+- 交付范围、真实失败证据、部署要求与剩余 P3.5/P4 见 `docs/AI_INVESTIGATION_VALIDATION.md`。此计划的代码接入已完成，完整真实演示/质量验收仍开放。
+- 最终重跑 `final_20261010_1010` 128/128 全过。Chrome 阻塞已解除，修正前端启动重复参数导致的 404 后完成真实浏览器 Fake 交互：发起/等待/取消、Worker 完成、模拟与质量提示、历史切换、告警和资料版本/行号引用展开。截图 `browser_20261010_1000/investigation.jpg`；只读调查仍未改告警确认状态。
