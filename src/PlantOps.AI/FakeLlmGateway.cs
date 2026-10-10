@@ -30,8 +30,19 @@ public sealed class FakeLlmGateway : ILlmGateway
         }
         else
         {
-            var content = request.OutputSchema is null ? "Fake provider: no live model was called."
-                : InvestigationContract.Serialize(new("1", "模拟响应：尚未连接真实模型。", [], [], [], ["尚无调查证据。"], [], []));
+            var business = request.Messages.FirstOrDefault(x => x.Role == LlmRole.User && x.Content?.Contains(InvestigationEngine.PromptVersion, StringComparison.Ordinal) == true);
+            string? businessContent = null;
+            if (business != null)
+            {
+                using var input = System.Text.Json.JsonDocument.Parse(business.Content!);
+                var item = input.RootElement.GetProperty("evidence").EnumerateArray().First();
+                var id = item.GetProperty("id").GetString()!;
+                var fact = item.GetProperty("facts")[0].GetString()!;
+                businessContent = InvestigationContract.Serialize(new("1", InvestigationEngine.SafeSummary,
+                    [new(fact, [id])], [], [new("请维护人员结合已授权规程核实现场情况。", [id])], ["模拟结果，尚无真实模型诊断或现场检查。"], [], [id]));
+            }
+            var content = businessContent ?? (request.OutputSchema is null ? "Fake provider: no live model was called."
+                : InvestigationContract.Serialize(new("1", "模拟响应：尚未连接真实模型。", [], [], [], ["尚无调查证据。"], [], [])));
             result = new(content, [], "fake", null);
         }
         budget.ReconcileUsage(result.Usage, bytes.Length + 256, request.MaxOutputTokens);
