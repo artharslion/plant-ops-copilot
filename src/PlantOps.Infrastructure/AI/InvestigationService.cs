@@ -276,7 +276,22 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             {
                 warnings.Add("原始触发样本已不可查询，告警证据来自保留快照。");
             }
-            if (point.SourceKind != null)
+            var triggerDate = DateOnly.FromDateTime(selectedAlarm.StartedAt.UtcDateTime);
+            var trigger = await db.MeasurementReadings.AsNoTracking().SingleOrDefaultAsync(x => x.EffectiveDate == triggerDate &&
+                x.Id == selectedAlarm.TriggerReadingId && x.PlantId == run.PlantId && x.AssetId == run.AssetId
+                && x.PointId == selectedAlarm.PointId && x.EffectiveAt == selectedAlarm.StartedAt, active.Token);
+            if (trigger != null)
+            {
+                var sourceName = await db.DataSources.AsNoTracking().Where(x => x.Id == trigger.DataSourceId && x.PlantId == run.PlantId)
+                    .Select(x => x.Name).SingleOrDefaultAsync(active.Token);
+                Add("TriggerReading", "告警原始触发样本与来源", trigger.Id,
+                    [$"触发样本标识为 {trigger.Id}，来源标识为 {trigger.DataSourceId}，映射标识为 {trigger.SourceMappingId}。",
+                     $"原始触发样本值为 {Number(trigger.NumericValue!.Value)} {trigger.CanonicalUnit}，有效时间为 {Time(trigger.EffectiveAt)}，质量为 {trigger.Quality}，通信来源为 {trigger.SourceKind}。",
+                     $"来源登记名称：{Excerpt(sourceName ?? "不可查询", 100)}；登记名称不证明现场真实性。",
+                     $"协议源时间为 {(trigger.SourceTimestamp.HasValue ? Time(trigger.SourceTimestamp.Value) : "未提供")}，原始状态码为 {trigger.RawStatusCode?.ToString(CultureInfo.InvariantCulture) ?? "未提供"}。"]);
+                warnings.Add("历史触发观测来源：" + trigger.SourceKind + "；来源登记名称：" + Excerpt(sourceName ?? "不可查询", 100) + "。");
+            }
+            else if (point.SourceKind != null)
             {
                 warnings.Add("观测来源：" + point.SourceKind + "；请区分模拟与现场观测。");
             }

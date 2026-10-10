@@ -40,7 +40,7 @@ public sealed class AiOptions
             || uri.AbsolutePath.TrimEnd('/').EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(Model) || Model.Length > 200 || Model.Any(char.IsControl)
             || (!string.IsNullOrEmpty(ReasoningEffort) && ReasoningEffort is not ("none" or "minimal" or "low" or "medium" or "high" or "xhigh" or "max"))
-            || RequestTimeoutSeconds is < 1 or > 30 || MaxRetries is < 0 or > 1
+            || RequestTimeoutSeconds is < 1 or > 60 || MaxRetries is < 0 or > 1
             || MaxResponseBytes is < 1024 or > 262144)
         {
             throw new LlmException(LlmFailure.InvalidConfiguration);

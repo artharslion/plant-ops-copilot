@@ -81,6 +81,27 @@ public sealed class InvestigationServiceTests
     }
 
     [DatabaseFact]
+    public async Task StoppedMappingRetainsAuthorizedTriggerReadingProvenance()
+    {
+        var clock = new AlarmTests.Clock();
+        await using var s = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection());
+        await s.Initialize();
+        await s.Login();
+        var (_, alarm) = await Alarm(s, clock);
+        await using var scope = s.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        await db.SourceMappings.Where(x => x.PointId == alarm.PointId).ExecuteUpdateAsync(x => x.SetProperty(m => m.Enabled, false));
+        var run = await Create(s, alarm.Id);
+        await Process(s);
+        run = (await Get(s, run.Id))!;
+        Assert.Equal("Succeeded", run.Status);
+        var evidence = Assert.Single(run.Evidence, x => x.Kind == "TriggerReading");
+        Assert.Equal(alarm.TriggerReadingId, evidence.ResourceId);
+        Assert.Contains(evidence.Facts, x => x.Contains("Simulation", StringComparison.Ordinal));
+        Assert.Equal(evidence.Sha256, (await s.Client.GetFromJsonAsync<InvestigationEvidence>($"/api/v1/investigations/{run.Id}/evidence/{evidence.Id}"))!.Sha256);
+    }
+
+    [DatabaseFact]
     public async Task OwnerCrossPlantAndCsrfBoundariesAreEnforced()
     {
         var clock = new AlarmTests.Clock();
