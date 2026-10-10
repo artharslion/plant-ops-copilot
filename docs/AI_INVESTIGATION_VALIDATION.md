@@ -21,6 +21,8 @@
 
 ## 代码定位
 
+同日[有限分钟证据增量](FINITE_MINUTE_AI_VALIDATION.md)：采集后一次性聚合已结束分钟，E4提供有值分钟极值与最近最多三个分钟的统计/缺口范围，221项专项回归通过。新轮真实模型Unavailable，不宣称已生成包含新趋势的真实回答；此前一次真实成功记录保留。
+
 - `src/PlantOps.Application/AI/InvestigationContracts.cs`：业务接口、证据/结果 DTO。
 - `src/PlantOps.AI/InvestigationEngine.cs`：实际 Gateway 调用、工具参数和事实校验。
 - `src/PlantOps.Infrastructure/AI/InvestigationService.cs`：实时授权、数据汇集、队列、取消与持久化。

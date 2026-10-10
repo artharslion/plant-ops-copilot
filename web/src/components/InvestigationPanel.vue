@@ -306,6 +306,9 @@ onUnmounted(() => {
   border: 1px solid #d4d9cc;
   border-top: 3px solid #53623c;
 }
+.investigation-panel details .actions {
+  flex-wrap: wrap;
+}
 .investigation-status {
   display: flex;
   flex-wrap: wrap;

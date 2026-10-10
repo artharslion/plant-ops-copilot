@@ -16,3 +16,9 @@
 
 ## 实现阶段完成
 221/221、零跳过：artifacts/ai-investigation/minute_stage1b_20261010/results.trx。首轮格式检查失败报告保留。Fake minute_fake_b_20261010通过：50条协议读数，50秒采集后等待最后UTC分钟结束，聚合调用一次，产生两个分钟桶（35/15样本），raw数量仍50；minute-check逐样本核对/API一致，调查E4可展开且包含极值及逐分钟计数。两个桶均HasGap=true、SamplingMode=Unknown、CoverageRatio=null，未把部分分钟变成完整覆盖。
+
+## 验收阶段完成
+
+真实轮minute_real_20261010：49条协议样本，聚合一次，36/13条两个桶，minute-check通过且原始数量不变；E4包含4–12.6 mm/s窗口极值及每桶统计/缺口。唯一一次真实模型调用约8.76秒Failed/Unavailable，完整失败证据保留，无自动重试，不标为真实回答成功。
+
+Chrome实际展开失败调查的E4成功，显示新趋势、Unknown/缺口及陈旧提示，不再显示“没有可用分钟测量值”。证据按钮折行修复后无横向溢出；前端类型/构建/格式/lint通过，最终截图与browser-check.json保留。完整验收见docs/FINITE_MINUTE_AI_VALIDATION.md。来源/映射停用、仿真/单次Worker退出，只留独立API/UI审阅，旧服务与全部旧数据保留。
