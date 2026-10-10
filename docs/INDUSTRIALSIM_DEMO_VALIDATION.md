@@ -2,6 +2,8 @@
 
 2026-10-09。两个仓库独立进程运行，经本机 OPC UA 通信。该点完成有限订阅、标准化、实际 PostgreSQL 入库、告警触发/恢复与授权 HTTP 读取；不是完整 P2、长期运行或 AI 调查验收。
 
+2026-10-10增量：同一协议产生的告警已接入一次真实模型调查并成功，来源样本及授权引用可回查，见 [联合验收记录](INDUSTRIALSIM_AI_VALIDATION.md)。以下保留原单点验收历史。
+
 ## 实际结果
 
 接受轮：`plantops_tests.opcua_demo_accepted_20261009`，证据 `artifacts/opcua-demo/accepted_20261009/result.json` 与 `api-check.json`。北京时间14:25:49至14:26:39，采集窗口50秒。

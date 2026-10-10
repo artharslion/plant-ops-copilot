@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-告警业务现在实际调用 `ILlmGateway`，已实现 `告警页 → API → AiRun → Worker → 授权业务证据 → InvestigationEngine → Gateway → 校验/持久化 → 结果与证据展开`。`OpenAiCompatibleGateway` 不再只用于 Spike。Fake 数据库与 Chrome 业务路径通过；一次真实 `gpt-6.1-sol` 调查超时，不能宣称真实演示或完整 P3 验收通过。
+告警业务现在实际调用 `ILlmGateway`，已实现 `告警页 → API → AiRun → Worker → 授权业务证据 → InvestigationEngine → Gateway → 校验/持久化 → 结果与证据展开`。`OpenAiCompatibleGateway` 不再只用于 Spike。Fake 数据库与 Chrome 业务路径通过；早先一次真实调查超时，后续 [IndustrialSim有限链路](INDUSTRIALSIM_AI_VALIDATION.md) 的唯一一次真实 `gpt-6.1-sol` 调查成功并通过事实/引用校验。完整 P3 质量验收与响应稳定性仍未通过。
 
 | 范围 | 已实现行为 |
 |---|---|
@@ -65,7 +65,7 @@ Chrome 最初显示 `ERR_BLOCKED_BY_CLIENT`，用户浏览时另发现 404。排
 
 ## 仍未完成
 
-- 真实模型成功演示、响应稳定性与固定二十场景质量/安全验收；完整两个浏览器会话的有限演示验收。
+- 响应稳定性与固定二十场景质量/安全验收；完整两个浏览器会话的有限演示验收。一次真实模型业务成功见 IndustrialSim 联合验收，不能代表完整质量通过。
 - P3.5 完整运行指标、供应商实际成本对账与调查保留策略。当前持久化轮次/工具数/保守 token 预留、错误码和证据；不宣称完整成本监控。
 - P4 工单/备注提案、人工审批与幂等执行；模型没有写操作。
 - 持续 OPC UA、长期容量 G0、向量/PDF/OCR 为此前独立未验收/后续范围。

@@ -43,3 +43,9 @@ Files: deploy/Run-IndustrialSimInvestigation.ps1、Test-IndustrialSimDemo.ps1（
 
 ## 阶段 2 完成
 Fake chain_fake_20261010 与唯一真实 chain_real_20261010 均通过：48条OPC UA样本、一个Recovered告警、10项授权证据展开。真实报告 RealProviderVerified=true、AiSimulated=false、ObservationSimulated=true；跨用户调查/证据404，普通业务可读。脚本禁同run重试、模型重试为0；模拟器及有限API/Worker均已退出，来源/映射停用。宿主新增观测D盘471040字节/C盘28684288字节，数据库卷初始988311715840字节余量。独立构建零警告/错误。
+
+## 阶段 3 完成
+
+Chrome实际登录admin → 已恢复协议告警 → 已完成真实模型快照 → E2触发样本 → E8资料版本1/行5–8展开。截图及browser-check.json保存在真实轮证据目录，零新增模型调用。完整记录见docs/INDUSTRIALSIM_AI_VALIDATION.md，既有AI/Provider/IndustrialSim/ROADMAP状态已更新。
+
+明确限制：分钟聚合未运行，AI正确显示分钟趋势缺失；费用未知，一次成功不代表稳定性或20场景完整质量通过。只留独立审阅API/UI，端口与PID见review-session.json；旧服务仍在，采集/模型Worker不常驻。未push/建PR，业务plantops及旧历史均保留。
