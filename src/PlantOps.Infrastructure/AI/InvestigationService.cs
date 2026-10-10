@@ -313,6 +313,10 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                         if (valid.Length > 0)
                         {
                             facts.Add($"窗口内有值分钟的最小值为 {Number(valid.Min(x => x.Min!.Value))} {trend.Unit}，最大值为 {Number(valid.Max(x => x.Max!.Value))} {trend.Unit}；这不代表当前实时值。");
+                            foreach (var bucket in valid.TakeLast(3))
+                            {
+                                facts.Add($"已结束分钟 {Time(bucket.Start)} 至 {Time(bucket.Start.AddMinutes(1))} 的最小值为 {Number(bucket.Min!.Value)} {trend.Unit}，最大值为 {Number(bucket.Max!.Value)} {trend.Unit}，可信样本数为 {bucket.GoodCount}，采样模式为 {bucket.SamplingMode}，缺口标记为 {(bucket.HasGap ? "有" : "无")}；仅代表已入库观测。");
+                            }
                         }
                         else
                         {

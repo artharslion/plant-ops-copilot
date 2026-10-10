@@ -15,7 +15,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot verify database volume reserve.' }
 $volumeFreeBytes = [long](($volumeReport[-1].Trim() -split '\s+')[3]) * 1024
 if ($volumeFreeBytes -lt 2GB) { throw 'Database volume needs at least 2 GiB reserve.' }
 # No fixture alarms: the only alarm is produced by the finite OPC UA ingestion run.
-& "$PSScriptRoot/Run-IndustrialSimDemo.ps1" -Run $Run -SimulatorRoot $SimulatorRoot
+& "$PSScriptRoot/Run-IndustrialSimDemo.ps1" -Run $Run -SimulatorRoot $SimulatorRoot -AggregateMinutes
 @{ InitialDatabaseVolumeFreeBytes = $volumeFreeBytes; MinimumFreeBytes = 2GB; Note = 'Host disks are monitored during collection; container volume checked before collection.' } | ConvertTo-Json | Set-Content "$PSScriptRoot/../artifacts/opcua-demo/$Run/database-disk.json"
 dotnet build "$PSScriptRoot/../src/PlantOps.Api" --nologo --artifacts-path "$PSScriptRoot/../artifacts/opcua-demo-launch/$Run/build"
 if ($LASTEXITCODE -ne 0) { throw 'API build failed; protocol evidence retained.' }

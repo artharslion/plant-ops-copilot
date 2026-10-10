@@ -1,6 +1,7 @@
 param(
     [string]$SimulatorRoot = 'D:/Repos/industrial-device-simulation-framework',
-    [string]$Run = ('run_' + (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    [string]$Run = ('run_' + (Get-Date -Format 'yyyyMMdd_HHmmss')),
+    [switch]$AggregateMinutes
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
@@ -52,7 +53,7 @@ try {
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $readyDeadline)
     if (-not (Test-DemoListener)) { throw 'Simulator readiness timed out.' }
-    & dotnet "$launchRoot/build/bin/PlantOps.Worker/debug/PlantOps.Worker.dll" --opcua-demo "--OpcUaDemo:Run=$Run" '--Logging:LogLevel:Default=Warning'
+    & dotnet "$launchRoot/build/bin/PlantOps.Worker/debug/PlantOps.Worker.dll" --opcua-demo "--OpcUaDemo:Run=$Run" "--OpcUaDemo:AggregateMinutes=$([bool]$AggregateMinutes)" '--Logging:LogLevel:Default=Warning'
     if ($LASTEXITCODE -ne 0) { throw "Demo failed. Evidence is retained under $outputRoot." }
     Write-Output "Accepted finite demo: $outputRoot/result.json"
     Write-Output "To inspect in the existing UI, use Database=plantops_tests and Search Path=opcua_demo_$Run for an API instance. Do not start a normal Worker for this retained run."

@@ -17,6 +17,7 @@ public static class OpcUaDemo
     {
         var run = settings["OpcUaDemo:Run"] ?? "";
         var seconds = settings.GetValue("OpcUaDemo:Seconds", 50);
+        var aggregateMinutes = settings.GetValue("OpcUaDemo:AggregateMinutes", false);
         var endpoint = settings["OpcUaDemo:Endpoint"] ?? "opc.tcp://127.0.0.1:48481";
         var connection = new NpgsqlConnectionStringBuilder(settings.GetConnectionString("PlantOps"));
         if (environment != "Development" || connection.Database != "plantops_tests"
@@ -162,23 +163,63 @@ public static class OpcUaDemo
             await db.DataSources.Where(x => x.Id == configuration.DataSourceId).ExecuteUpdateAsync(x => x.SetProperty(s => s.Enabled, false));
         }
         await using var finalScope = services.CreateAsyncScope();
+        var collectionEnd = DateTimeOffset.UtcNow;
         var finalDb = finalScope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         var raw = await finalDb.MeasurementReadings.AsNoTracking().Where(x => x.PointId == configuration.PointId)
             .OrderBy(x => x.EffectiveAt).ToListAsync(CancellationToken.None);
         var alarms = await finalDb.Alarms.AsNoTracking().Where(x => x.PointId == configuration.PointId).ToListAsync(CancellationToken.None);
         var profiles = await finalDb.SamplingProfiles.AsNoTracking().Where(x => x.PointId == configuration.PointId).ToListAsync(CancellationToken.None);
         var gaps = await finalDb.IngestionGaps.AsNoTracking().Where(x => x.PointId == configuration.PointId).ToListAsync(CancellationToken.None);
+        var aggregationCalls = 0;
+        if (aggregateMinutes && raw.Count > 0)
+        {
+            try
+            {
+                // Stop collection first. Never move the clock or aggregate the current partial minute.
+                var last = raw.Max(x => x.EffectiveAt).ToUniversalTime();
+                var readyAt = last.AddTicks(-(last.UtcTicks % TimeSpan.TicksPerMinute)).AddMinutes(1);
+                using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                wait.CancelAfter(TimeSpan.FromSeconds(65));
+                while (DateTimeOffset.UtcNow < readyAt)
+                {
+                    if (!WithinDiskBudget())
+                    {
+                        throw new InvalidOperationException("Demo disk budget reached.");
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(1), wait.Token);
+                }
+                if (!WithinDiskBudget())
+                {
+                    throw new InvalidOperationException("Demo disk budget reached.");
+                }
+                using var aggregate = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                aggregate.CancelAfter(TimeSpan.FromSeconds(30));
+                aggregationCalls++;
+                await finalScope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>().AggregateAsync(aggregate.Token);
+            }
+            catch (Exception exception)
+            {
+                // Preserve a bounded, sanitized failure report; do not start retention or retry.
+                failures.Enqueue("MinuteAggregation: " + exception.GetType().Name);
+            }
+        }
+        var minutes = await finalDb.MeasurementMinutes.AsNoTracking().Where(x => x.PointId == configuration.PointId)
+            .OrderBy(x => x.BucketStart).ToListAsync(CancellationToken.None);
+        var rawCountAfterAggregation = await finalDb.MeasurementReadings.CountAsync(x => x.PointId == configuration.PointId, CancellationToken.None);
         var passed = raw.Any(x => x.NumericValue == 4) && raw.Any(x => x.NumericValue == 12.6) && raw.Any(x => x.NumericValue == 6)
             && alarms.Count == 1 && alarms[0].State == "Recovered" && profiles.Count > 0 && profiles.All(x => x.EffectiveTo.HasValue)
             && failures.IsEmpty && raw.Count is > 20 and < 100 && WithinDiskBudget() && retryDuplicates >= raw.Count
             && raw.Select(x => x.SourceEventKey).Distinct().Count() == raw.Count
-            && raw.All(x => x.SourceKind == "OpcUa" && x.RawStatusCode.HasValue && x.SourceTimestamp.HasValue);
+            && raw.All(x => x.SourceKind == "OpcUa" && x.RawStatusCode.HasValue && x.SourceTimestamp.HasValue)
+            && rawCountAfterAggregation == raw.Count
+            && (!aggregateMinutes || aggregationCalls == 1 && minutes.Count > 0 && minutes.Sum(x => x.SampleCount) == raw.Count);
         await File.WriteAllTextAsync(Path.Combine(root, "result.json"), JsonSerializer.Serialize(new
         {
             Passed = passed,
             Schema = schema,
             Start = start,
-            End = DateTimeOffset.UtcNow,
+            End = collectionEnd,
+            CompletedAt = DateTimeOffset.UtcNow,
             Source = "IndustrialSim OPC UA, None, loopback-only finite demo",
             RetryDuplicates = retryDuplicates,
             Configuration = configuration,
@@ -186,6 +227,10 @@ public static class OpcUaDemo
             Alarms = alarms,
             SamplingProfiles = profiles,
             Gaps = gaps,
+            AggregateMinutes = aggregateMinutes,
+            AggregationCalls = aggregationCalls,
+            MeasurementMinutes = minutes,
+            RawCountAfterAggregation = rawCountAfterAggregation,
             Failures = failures.ToArray(),
             DiskObservations = disks.Select(disk => new
             {

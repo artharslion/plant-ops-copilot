@@ -91,6 +91,25 @@ try {
         }
         $checks += @{ User = $user; TrendStatus = [int]$trendResponse.StatusCode; AlarmStatus = [int]$alarmResponse.StatusCode }
         if ($Investigate -and $user -eq 'admin') {
+            if ($result.AggregateMinutes) {
+                $minuteFrom = ([DateTimeOffset]$result.MeasurementMinutes[0].BucketStart).ToUniversalTime()
+                $minuteTo = ([DateTimeOffset]$result.MeasurementMinutes[-1].BucketStart).ToUniversalTime().AddMinutes(1)
+                $minutePath = "$base/api/v1/assets/$asset/measurements?pointId=$point&from=$([Uri]::EscapeDataString($minuteFrom.ToString('O')))&to=$([Uri]::EscapeDataString($minuteTo.ToString('O')))&bucket=1m"
+                $minuteTrend = Invoke-RestMethod $minutePath -WebSession $session
+                $minuteChecks = @()
+                foreach ($bucket in $minuteTrend.buckets) {
+                    $startAt = ([DateTimeOffset]$bucket.start).ToUniversalTime()
+                    $samples = @($result.Readings | Where-Object { ([DateTimeOffset]$_.EffectiveAt) -ge $startAt -and ([DateTimeOffset]$_.EffectiveAt) -lt $startAt.AddMinutes(1) })
+                    $trusted = @($samples | Where-Object { $_.Quality -eq 'Good' -and -not $_.TimeAnomaly -and $null -ne $_.NumericValue -and ($_.RawStatusCode -band 3200) -ne 1152 })
+                    $stats = $trusted | Measure-Object -Property NumericValue -Minimum -Maximum -Average
+                    $savedMinute = @($result.MeasurementMinutes | Where-Object { ([DateTimeOffset]$_.BucketStart) -eq $startAt })
+                    $matches = $savedMinute.Count -eq 1 -and $savedMinute[0].SampleCount -eq $samples.Count -and $bucket.goodCount -eq $trusted.Count -and $trusted.Count -gt 0 -and [Math]::Abs($bucket.min - $stats.Minimum) -lt 1e-9 -and [Math]::Abs($bucket.max - $stats.Maximum) -lt 1e-9 -and [Math]::Abs($bucket.average - $stats.Average) -lt 1e-9 -and $bucket.hasGap -eq $savedMinute[0].HasGap -and $bucket.samplingMode -eq $savedMinute[0].SamplingMode -and $bucket.coverageRatio -eq $savedMinute[0].CoverageRatio
+                    $minuteChecks += @{ Start = $startAt; Passed = $matches; ReadingIds = @($samples.Id); Min = $bucket.min; Max = $bucket.max; Average = $bucket.average; GoodCount = $bucket.goodCount; HasGap = $bucket.hasGap; CoverageRatio = $bucket.coverageRatio; SamplingMode = $bucket.samplingMode }
+                }
+                $minutesPassed = $result.AggregationCalls -eq 1 -and $result.RawCountAfterAggregation -eq $result.Readings.Count -and $minuteChecks.Count -gt 0 -and @($minuteChecks | Where-Object { -not $_.Passed }).Count -eq 0 -and ($minuteChecks | Measure-Object GoodCount -Sum).Sum -eq $result.Readings.Count
+                @{ Passed = $minutesPassed; AggregationCalls = $result.AggregationCalls; RawCount = $result.Readings.Count; Checks = $minuteChecks } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $root 'minute-check.json')
+                if (-not $minutesPassed) { throw 'Minute statistics do not reconcile with retained protocol readings. No model request sent.' }
+            }
             $csrf = Invoke-RestMethod "$base/api/v1/auth/csrf" -WebSession $session
             $before = Invoke-RestMethod "$base/api/v1/alarms/$($result.Alarms[0].Id)" -WebSession $session
             $queued = Invoke-RestMethod "$base/api/v1/alarms/$($before.id)/investigations" -Method Post -WebSession $session -Headers @{ 'X-CSRF-TOKEN' = $csrf.token }
@@ -119,14 +138,16 @@ try {
             $expanded | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $root 'expanded-evidence.json')
             $trigger = @($result.Readings | Where-Object Id -eq $before.triggerReadingId)
             $linked = @($expanded | Where-Object { $_.kind -eq 'TriggerReading' -and $_.resourceId -eq $before.triggerReadingId })
+            $trendEvidence = @($expanded | Where-Object { $_.kind -eq 'Trend' -and @($_.facts | Where-Object { $_ -like '窗口内有值分钟*' }).Count -gt 0 })
             $after = Invoke-RestMethod "$base/api/v1/alarms/$($before.id)" -WebSession $session
             $investigationCheck = @{
-                Passed = $finished -and $workerProcess.ExitCode -eq 0 -and $investigation.status -eq 'Succeeded' -and $trigger.Count -eq 1 -and $linked.Count -eq 1 -and $before.version -eq $after.version -and $investigation.simulated -eq (-not [bool]$RealAi)
+                Passed = $finished -and $workerProcess.ExitCode -eq 0 -and $investigation.status -eq 'Succeeded' -and $trigger.Count -eq 1 -and $linked.Count -eq 1 -and $before.version -eq $after.version -and $investigation.simulated -eq (-not [bool]$RealAi) -and (-not $result.AggregateMinutes -or $minutesPassed -and $trendEvidence.Count -eq 1)
                 Status = $investigation.status; FailureCode = $investigation.failureCode; AiRunId = $queued.id; AlarmId = $before.id
                 TriggerReadingId = $before.triggerReadingId; DataSourceId = $trigger[0].DataSourceId; SourceMappingId = $trigger[0].SourceMappingId
                 Protocol = 'OpcUa'; ObservationSimulated = $true; AiSimulated = $investigation.simulated
                 RealProviderVerified = $RealAi -and $investigation.status -eq 'Succeeded' -and -not $investigation.simulated
                 AlarmUnchanged = $before.version -eq $after.version; EvidenceExpanded = $expanded.Count; QualityAcceptance = $false; EstimatedCost = $null
+                MinuteEvidenceVerified = [bool]$result.AggregateMinutes -and $minutesPassed -and $trendEvidence.Count -eq 1
             }
             $investigationCheck | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'investigation-check.json')
         }

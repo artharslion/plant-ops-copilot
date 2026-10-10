@@ -69,6 +69,46 @@ public sealed class MeasurementMaintenanceTests
     }
 
     [DatabaseFact]
+    public async Task FiniteStoppedOpcUaRunAggregatesOnlyClosedMinutesWithoutAddingReadings()
+    {
+        await using var f = await Fixture.Create();
+        await f.UseOpcUa();
+        var start = f.Clock.Now.AddSeconds(10);
+        f.Db.SamplingProfiles.Add(new()
+        {
+            PointId = f.Source.PointId,
+            SourceMappingId = f.Source.MappingId,
+            MappingVersion = f.Source.MappingVersion,
+            EffectiveFrom = start,
+            EffectiveTo = start.AddSeconds(50),
+            Mode = "Periodic",
+            RevisedSamplingIntervalMs = 1000
+        });
+        await f.Db.SaveChangesAsync();
+        for (var i = 0; i < 50; i++)
+        {
+            f.Clock.Now = start.AddSeconds(i);
+            await f.Send(f.Clock.Now, i < 15 ? 4 : i < 30 ? 12.6 : 6);
+        }
+        await f.Db.SourceMappings.ExecuteUpdateAsync(x => x.SetProperty(m => m.Enabled, false));
+        await f.Db.DataSources.ExecuteUpdateAsync(x => x.SetProperty(s => s.Enabled, false));
+        // Current minute must not be published, even after collection has stopped.
+        Assert.Equal(0, await f.Maintenance.AggregateAsync());
+        Assert.Empty(await f.Db.MeasurementMinutes.ToListAsync());
+        f.Clock.Now = start.AddSeconds(51);
+        Assert.Equal(1, await f.Maintenance.AggregateAsync());
+        var minute = Assert.Single(await f.Db.MeasurementMinutes.AsNoTracking().ToListAsync());
+        Assert.Equal(50, minute.SampleCount);
+        Assert.Equal(50, minute.GoodCount);
+        Assert.Equal(4, minute.Min);
+        Assert.Equal(12.6, minute.Max);
+        Assert.Equal((15 * 4 + 15 * 12.6 + 20 * 6) / 50, minute.Average!.Value, 9);
+        Assert.True(minute.HasGap);
+        Assert.Equal(50, await f.Db.MeasurementReadings.CountAsync());
+        Assert.Empty(await f.Db.DirtyMeasurementMinutes.ToListAsync());
+    }
+
+    [DatabaseFact]
     public async Task OverflowIsPersistedOnceResetsPendingAndCannotAdvanceLastGoodOrMinuteStatistics()
     {
         await using var f = await Fixture.Create();
