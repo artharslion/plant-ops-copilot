@@ -68,6 +68,7 @@ public sealed class InvestigationServiceTests
         Assert.Contains(run.Evidence, x => x.Kind == "Trend");
         Assert.Contains(run.Evidence, x => x.Kind == "Maintenance");
         Assert.Contains(run.Evidence, x => x.Kind == "Document");
+        Assert.Contains(run.Evidence, x => x.Kind == "DataQuality" && x.Facts.Any(fact => fact.Contains("Simulation", StringComparison.Ordinal)));
         Assert.NotEmpty(run.Warnings);
         Assert.InRange(run.InputTokens, 1, 16000);
         Assert.InRange(run.OutputTokens, 1, 2000);

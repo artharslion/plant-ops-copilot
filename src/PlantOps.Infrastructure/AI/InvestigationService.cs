@@ -369,6 +369,10 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 });
                 await ReadTool(tool, args, timeout.Token);
             }
+            if (warnings.Count > 0)
+            {
+                Add("DataQuality", "服务端数据质量与范围提示", run.AlarmId, warnings.Order().ToArray());
+            }
             await CheckpointAsync(run, ledger, warnings, budget, active.Token);
             var output = await engine.ExecuteAsync(ledger, ReadTool, Authorize, budget, active.Token);
             await Authorize(active.Token);
