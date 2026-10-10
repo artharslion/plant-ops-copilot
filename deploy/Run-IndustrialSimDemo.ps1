@@ -29,9 +29,9 @@ try {
     $env:DOTNET_ENVIRONMENT = 'Development'
     & dotnet build "$simRoot/src/IndustrialSim.Cli" --nologo
     if ($LASTEXITCODE -ne 0) { throw 'Simulator build failed.' }
-    & dotnet build "$repoRoot/src/PlantOps.Worker" --nologo
+    & dotnet build "$repoRoot/src/PlantOps.Worker" --nologo --artifacts-path "$launchRoot/build"
     if ($LASTEXITCODE -ne 0) { throw 'Worker build failed.' }
-    New-Item -ItemType Directory -Path $launchRoot | Out-Null
+    New-Item -ItemType Directory -Path $launchRoot -Force | Out-Null
     $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
     $start.WorkingDirectory = $simRoot
     $start.UseShellExecute = $false
@@ -52,7 +52,7 @@ try {
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $readyDeadline)
     if (-not (Test-DemoListener)) { throw 'Simulator readiness timed out.' }
-    & dotnet "$repoRoot/src/PlantOps.Worker/bin/Debug/net10.0/PlantOps.Worker.dll" --opcua-demo "--OpcUaDemo:Run=$Run" '--Logging:LogLevel:Default=Warning'
+    & dotnet "$launchRoot/build/bin/PlantOps.Worker/debug/PlantOps.Worker.dll" --opcua-demo "--OpcUaDemo:Run=$Run" '--Logging:LogLevel:Default=Warning'
     if ($LASTEXITCODE -ne 0) { throw "Demo failed. Evidence is retained under $outputRoot." }
     Write-Output "Accepted finite demo: $outputRoot/result.json"
     Write-Output "To inspect in the existing UI, use Database=plantops_tests and Search Path=opcua_demo_$Run for an API instance. Do not start a normal Worker for this retained run."

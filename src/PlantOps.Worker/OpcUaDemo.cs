@@ -64,7 +64,7 @@ public static class OpcUaDemo
             {
                 Id = Guid.NewGuid(),
                 PlantId = point.PlantId,
-                Name = "IndustrialSim finite local demo",
+                Name = "IndustrialSim 仿真观测；真实 OPC UA 通信；有限回环演示",
                 Kind = "OpcUa",
                 Enabled = true,
                 ConnectionParameters = JsonSerializer.Serialize(new OpcUaConnectionInput("industrial-sim-demo"))
@@ -187,6 +187,15 @@ public static class OpcUaDemo
             SamplingProfiles = profiles,
             Gaps = gaps,
             Failures = failures.ToArray(),
+            DiskObservations = disks.Select(disk => new
+            {
+                disk.Name,
+                InitialFreeBytes = initialFree[disk.Name],
+                FinalFreeBytes = disk.AvailableFreeSpace,
+                ObservedGrowthBytes = initialFree[disk.Name] - disk.AvailableFreeSpace,
+                MinimumFreeBytes = 2L * 1024 * 1024 * 1024,
+                MaximumGrowthBytes = 256L * 1024 * 1024
+            }),
             LongRunningCapacityAccepted = false
         }, new JsonSerializerOptions { WriteIndented = true }), CancellationToken.None);
         if (!passed)

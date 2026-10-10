@@ -40,3 +40,6 @@ Files: deploy/Run-IndustrialSimInvestigation.ps1、Test-IndustrialSimDemo.ps1（
 
 ## 阶段 1 完成
 135/135、零跳过：artifacts/ai-investigation/chain_stage1final_20261010/results.trx。首轮旧API锁文件与次轮分析器失败均保留；使用独立构建目录解决，旧进程未停止。来源按原始触发样本查询，不依赖当前启用映射。
+
+## 阶段 2 完成
+Fake chain_fake_20261010 与唯一真实 chain_real_20261010 均通过：48条OPC UA样本、一个Recovered告警、10项授权证据展开。真实报告 RealProviderVerified=true、AiSimulated=false、ObservationSimulated=true；跨用户调查/证据404，普通业务可读。脚本禁同run重试、模型重试为0；模拟器及有限API/Worker均已退出，来源/映射停用。宿主新增观测D盘471040字节/C盘28684288字节，数据库卷初始988311715840字节余量。独立构建零警告/错误。
