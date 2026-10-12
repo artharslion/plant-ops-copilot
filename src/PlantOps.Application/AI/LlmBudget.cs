@@ -9,6 +9,7 @@ public sealed class LlmBudget : IDisposable
     private readonly LlmLimits limits;
     private readonly CancellationTokenSource deadline;
     private bool exceeded;
+    private (int Input, int Output)? pendingReservation;
 
     public LlmBudget(LlmLimits? limits = null, TimeProvider? clock = null)
     {
@@ -72,6 +73,7 @@ public sealed class LlmBudget : IDisposable
         }
         ReservedInputTokens += inputReservation;
         ReservedOutputTokens += outputTokens;
+        pendingReservation = (inputReservation, outputTokens);
         Attempts++;
     }
 
@@ -80,16 +82,22 @@ public sealed class LlmBudget : IDisposable
     public void ReconcileUsage(LlmUsage? usage, int inputReservation, int outputReservation)
     {
         CheckDeadline();
+        if (pendingReservation != (inputReservation, outputReservation))
+        {
+            throw new LlmException(LlmFailure.InvalidResponse);
+        }
         if (usage is null)
         {
+            pendingReservation = null;
             return;
         }
         if (usage.InputTokens < 0 || usage.OutputTokens < 0)
         {
             throw new LlmException(LlmFailure.InvalidResponse);
         }
-        ReservedInputTokens = (int)Math.Min(int.MaxValue, (long)ReservedInputTokens + Math.Max(0L, (long)usage.InputTokens - inputReservation));
-        ReservedOutputTokens = (int)Math.Min(int.MaxValue, (long)ReservedOutputTokens + Math.Max(0L, (long)usage.OutputTokens - outputReservation));
+        pendingReservation = null;
+        ReservedInputTokens = (int)Math.Min(int.MaxValue, (long)ReservedInputTokens - inputReservation + usage.InputTokens);
+        ReservedOutputTokens = (int)Math.Min(int.MaxValue, (long)ReservedOutputTokens - outputReservation + usage.OutputTokens);
         if (ReservedInputTokens > limits.MaxInputTokens || ReservedOutputTokens > limits.MaxOutputTokens
             || usage.OutputTokens > outputReservation)
         {

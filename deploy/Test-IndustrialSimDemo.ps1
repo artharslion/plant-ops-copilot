@@ -24,7 +24,7 @@ $savedAi = @{}
 foreach ($entry in Get-ChildItem Env: | Where-Object Name -like 'AI__*') { $savedAi[$entry.Name] = $entry.Value }
 try {
     . "$PSScriptRoot/Use-LocalDatabase.ps1"
-    $env:ConnectionStrings__PlantOps = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', "Database=plantops_tests;Search Path=opcua_demo_$Run;")
+    $env:ConnectionStrings__PlantOps = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', "Database=plantops_tests;Search Path=opcua_demo_$Run;") + ';Options=-c max_parallel_workers_per_gather=0'
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     $env:DOTNET_ENVIRONMENT = 'Development'
     $env:Realtime__Enabled = 'false'

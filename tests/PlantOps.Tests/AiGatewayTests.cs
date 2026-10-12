@@ -19,6 +19,72 @@ public sealed class AiGatewayTests
     private static readonly LlmRequest Request = new([new(LlmRole.System, "Read only."), new(LlmRole.User, "Say hello.")]);
 
     [Fact]
+    public async Task ChineseMachineJsonIsCompactAndRoundTripsUntrustedText()
+    {
+        const string text = "振动证据 <script>不执行</script> \"引用\" \\ 路径";
+        using var handler = new Handler(async (request, ct) =>
+        {
+            var raw = await request.Content!.ReadAsStringAsync(ct);
+            Assert.Contains("振动证据", raw, StringComparison.Ordinal);
+            Assert.DoesNotContain("\\u632F", raw, StringComparison.OrdinalIgnoreCase);
+            using var body = JsonDocument.Parse(raw);
+            Assert.Equal(text, body.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+            return Response(Hello);
+        });
+        using var client = new HttpClient(handler);
+        using var budget = new LlmBudget();
+        await Gateway(client).CompleteAsync(new([new(LlmRole.User, text)]), budget);
+        Assert.Equal(20, budget.ReservedInputTokens);
+        Assert.Equal(3, budget.ReservedOutputTokens);
+    }
+
+    [Fact]
+    public async Task InvestigationToolThenAnswerFitsOriginalBudgetWithReportedUsage()
+    {
+        const string fact = "已结束分钟的最小值为 4 mm/s，最大值为 12.6 mm/s，可信样本数为 36；仅代表已入库观测。";
+        var evidence = Enumerable.Range(1, 5).Select(i => new InvestigationEvidence("E" + i, i == 1 ? "Trend" : "Document",
+            "授权证据", [i == 1 ? fact : string.Concat(Enumerable.Repeat("振动检查必须由维护人员结合授权规程核实。", 6))],
+            new string('a', 64), new DateTimeOffset(2026, 10, 12, 0, 0, 0, TimeSpan.Zero), Guid.NewGuid())).ToArray();
+        var answer = InvestigationContract.Serialize(new("1", InvestigationEngine.SafeSummary, [new(fact, ["E1"])], [], [], [], [], ["E1"]));
+        var calls = 0;
+        using var handler = new Handler(async (request, ct) =>
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            if (++calls == 1)
+            {
+                return Response("""{"model":"gpt-6.1-sol","choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"trend","type":"function","function":{"name":"get_recent_measurements","arguments":"{}"}}]}}],"usage":{"prompt_tokens":8036,"completion_tokens":15}}""");
+            }
+            Assert.Equal(2, calls);
+            var reply = body.RootElement.GetProperty("messages").EnumerateArray().Single(x => x.GetProperty("role").GetString() == "tool");
+            using var content = JsonDocument.Parse(reply.GetProperty("content").GetString()!);
+            Assert.Empty(content.RootElement.GetProperty("evidence").EnumerateArray());
+            Assert.Equal("E1", content.RootElement.GetProperty("existingEvidenceIds")[0].GetString());
+            return Response(JsonSerializer.Serialize(new
+            {
+                model = "gpt-6.1-sol",
+                choices = new[] { new { finish_reason = "stop", message = new { role = "assistant", content = answer } } },
+                usage = new
+                {
+                    prompt_tokens = 5200,
+                    completion_tokens = 80
+                }
+            }));
+        });
+        using var client = new HttpClient(handler);
+        using var budget = new LlmBudget();
+        budget.RecordToolCalls(5);
+        var result = await new InvestigationEngine(Gateway(client), Options.Create(new AiOptions { Provider = "OpenAiCompatible" }))
+            .ExecuteAsync(evidence, (_, _, _) => Task.FromResult(new InvestigationToolResult([evidence[0]], [])),
+                _ => Task.CompletedTask, budget, CancellationToken.None);
+        Assert.Equal(2, handler.Calls);
+        Assert.Equal(13236, budget.ReservedInputTokens);
+        Assert.Equal(95, budget.ReservedOutputTokens);
+        Assert.Equal(6, budget.ToolCalls);
+        Assert.False(result.Simulated);
+        Assert.Equal(fact, Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, evidence).Observations).Text);
+    }
+
+    [Fact]
     public async Task SendsCorrectEndpointAuthorizationAndBoundedNonStreamingRequest()
     {
         using var handler = new Handler(async (request, ct) =>
@@ -82,7 +148,7 @@ public sealed class AiGatewayTests
         Assert.Equal(2, handler.Calls);
         Assert.Equal(2, budget.Attempts);
         Assert.Equal(1, budget.ModelRounds);
-        Assert.Equal(1000, budget.ReservedOutputTokens);
+        Assert.Equal(503, budget.ReservedOutputTokens);
     }
 
     [Fact]

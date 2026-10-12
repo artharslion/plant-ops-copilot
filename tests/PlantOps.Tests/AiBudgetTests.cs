@@ -72,9 +72,48 @@ public sealed class AiBudgetTests
         budget.ReserveAttempt(10, 10);
         budget.ReconcileUsage(new(70, 3), 10, 10);
         Assert.Equal(70, budget.ReservedInputTokens);
-        Assert.Equal(10, budget.ReservedOutputTokens);
+        Assert.Equal(3, budget.ReservedOutputTokens);
         budget.ReserveAttempt(30, 10);
         Assert.Equal(100, budget.ReservedInputTokens);
+    }
+
+    [Fact]
+    public void ReportedUsageReleasesOnlyTheSuccessfulAttemptReservation()
+    {
+        using var budget = new LlmBudget();
+        budget.ReserveAttempt(1000, 100); // Failed attempt: usage unknown.
+        budget.ReserveAttempt(12274, 900);
+        budget.ReconcileUsage(new(8036, 15), 12274, 900);
+        Assert.Equal(9036, budget.ReservedInputTokens);
+        Assert.Equal(115, budget.ReservedOutputTokens);
+        budget.ReserveAttempt(6964, 900);
+        Assert.Equal(16000, budget.ReservedInputTokens);
+        Assert.Equal(3, budget.Attempts);
+    }
+
+    [Fact]
+    public void UnknownUsageKeepsReservationAndCannotBeReconciledTwice()
+    {
+        using var budget = new LlmBudget();
+        budget.ReserveAttempt(100, 50);
+        budget.ReconcileUsage(null, 100, 50);
+        Assert.Equal(100, budget.ReservedInputTokens);
+        Assert.Equal(50, budget.ReservedOutputTokens);
+        Assert.Equal(LlmFailure.InvalidResponse, Assert.Throws<LlmException>(() => budget.ReconcileUsage(new(1, 1), 100, 50)).Failure);
+        Assert.Equal(100, budget.ReservedInputTokens);
+    }
+
+    [Fact]
+    public void DuplicateOrMismatchedReconciliationCannotReleaseBudget()
+    {
+        using var budget = new LlmBudget();
+        budget.ReserveAttempt(100, 50);
+        Assert.Equal(LlmFailure.InvalidResponse, Assert.Throws<LlmException>(() => budget.ReconcileUsage(new(1, 1), 99, 50)).Failure);
+        Assert.Equal(100, budget.ReservedInputTokens);
+        budget.ReconcileUsage(new(20, 5), 100, 50);
+        Assert.Equal(LlmFailure.InvalidResponse, Assert.Throws<LlmException>(() => budget.ReconcileUsage(new(1, 1), 100, 50)).Failure);
+        Assert.Equal(20, budget.ReservedInputTokens);
+        Assert.Equal(5, budget.ReservedOutputTokens);
     }
 
     [Theory]

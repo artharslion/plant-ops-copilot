@@ -49,7 +49,7 @@ Fake 报告始终 `Simulated=true`、`RealProviderVerified=false`。只有真实
 ## 预算、兼容性与失败
 
 - 每次业务调查预算为 60 秒、4 轮、8 工具、16,000 输入、2,000 输出，单次请求默认 30 秒、可显式配置 1–60 秒且仍受总期限约束，瞬态重试最多一次。有限 IndustrialSim 联调显式使用 55 秒/零重试。已实现的调查编排每次新建并贯穿整次运行；默认五个取证工具也计入工具预算。
-- 输入先按请求 UTF-8 字节和协议开销保守预留，再按供应商报告向上补足；中转可能附加上游提示，不能仅用本地消息估算实际用量。报告用量超限即停止，不再发请求；超时/错误尝试的预留不返还。
+- 输入先按请求 UTF-8 字节和协议开销保守预留。2026-10-12起，有效供应商usage替换本次预留（可上调或释放余量）；缺失usage、超时/错误尝试仍保留完整预留。重试分别计入，禁止重复/不匹配结算。中转可能附加上游提示，报告实际用量超限即停止，不再发请求。持久化InputTokens/OutputTokens因此是已知实际用量与未知尝试预留之和，不能全部当成实际账单。
 - 发送 `max_completion_tokens`，默认 `reasoning_effort=low`，不发 temperature/top_p。可在本地 JSON 加 `ReasoningEffort` 调整；空字符串表示不发送这个可选字段。低推理强度是官方支持的 Sol 设置，有助于减少延迟，但不保证中转站响应时间。
 - 不假设中转名称、模型实现、数据保留和计费与官方一致。OpenAI 官方要求 GPT-6.1 Sol 的工具调用使用 Responses；本适配按用户提供的 Chat Completions 协议验证中转站自身兼容行为，不能据此声称官方 Chat Completions 支持 Sol 工具调用。[官方模型说明](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[推理设置](https://developers.openai.com/api/docs/guides/reasoning)。
 - HTTPS，HTTP 仅允许本机；禁重定向和 Cookie，防止凭据跟随重定向。响应流最多 128 KiB（可设 1–256 KiB），JSON 深度和工具数量有界。模型工具名必须属于当前请求提供的定义；业务调查引擎另行校验参数，服务端固定 actor/设备范围并实时重授权。

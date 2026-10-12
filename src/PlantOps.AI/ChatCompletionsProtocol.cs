@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using PlantOps.Application.AI;
 
@@ -6,6 +7,9 @@ namespace PlantOps.AI;
 
 internal static partial class ChatCompletionsProtocol
 {
+    // Machine-to-machine JSON only; these bytes are never embedded in HTML.
+    private static readonly JsonSerializerOptions Json = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     [GeneratedRegex("^[A-Za-z0-9_-]{1,100}$", RegexOptions.CultureInvariant)]
     private static partial Regex Identifier();
 
@@ -121,7 +125,7 @@ internal static partial class ChatCompletionsProtocol
                 }
             };
         }
-        return JsonSerializer.SerializeToUtf8Bytes(payload);
+        return JsonSerializer.SerializeToUtf8Bytes(payload, Json);
     }
 
     public static LlmCompletion Parse(byte[] bytes, LlmRequest request)

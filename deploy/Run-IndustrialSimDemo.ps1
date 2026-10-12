@@ -25,7 +25,7 @@ try {
     Set-Location -LiteralPath $repoRoot
     . "$PSScriptRoot/Use-LocalDatabase.ps1"
     if (-not $env:Demo__Password) { throw 'Configure a local Demo.Password before running the demo.' }
-    $env:ConnectionStrings__PlantOps = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', "Database=plantops_tests;Search Path=opcua_demo_$Run;")
+    $env:ConnectionStrings__PlantOps = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', "Database=plantops_tests;Search Path=opcua_demo_$Run;") + ';Options=-c max_parallel_workers_per_gather=0'
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     $env:DOTNET_ENVIRONMENT = 'Development'
     & dotnet build "$simRoot/src/IndustrialSim.Cli" --nologo

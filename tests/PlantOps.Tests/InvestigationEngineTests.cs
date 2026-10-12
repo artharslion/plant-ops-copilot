@@ -113,6 +113,52 @@ public sealed class InvestigationEngineTests
         Assert.NotNull(result.ResultJson);
     }
 
+    [Fact]
+    public async Task RepeatedEvidenceUsesReferencesWhileNewFactsRemainAvailable()
+    {
+        var added = Evidence with
+        {
+            Id = "E2",
+            Facts = ["新授权资料事实。"],
+            Kind = "Document"
+        };
+        var valid = Valid() with
+        {
+            Observations = [new(added.Facts[0], ["E2"])],
+            EvidenceIds = ["E2"]
+        };
+        var gateway = new InspectingGateway(new FakeLlmGateway([
+            new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", null),
+            new(InvestigationContract.Serialize(valid), [], "fake", null)
+        ]));
+        using var budget = new LlmBudget();
+        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
+            (_, _, _) => Task.FromResult(new InvestigationToolResult([Evidence, added], ["新的范围提示。"])),
+            _ => Task.CompletedTask, budget, CancellationToken.None);
+        var second = Assert.IsType<LlmRequest>(gateway.LastRequest);
+        var initial = second.Messages.Single(x => x.Role == LlmRole.User).Content!;
+        Assert.Contains("触发值", initial, StringComparison.Ordinal);
+        using var tool = JsonDocument.Parse(second.Messages.Single(x => x.Role == LlmRole.Tool).Content!);
+        Assert.Equal("E1", tool.RootElement.GetProperty("existingEvidenceIds")[0].GetString());
+        Assert.Equal("E2", Assert.Single(tool.RootElement.GetProperty("evidence").EnumerateArray()).GetProperty("id").GetString());
+        Assert.DoesNotContain(Fact, second.Messages.Single(x => x.Role == LlmRole.Tool).Content!, StringComparison.Ordinal);
+        Assert.Equal(added.Facts[0], Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence, added]).Observations).Text);
+    }
+
+    private sealed class InspectingGateway(ILlmGateway inner) : ILlmGateway
+    {
+        public LlmRequest? LastRequest
+        {
+            get; private set;
+        }
+
+        public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return inner.CompleteAsync(request, budget, cancellationToken);
+        }
+    }
+
     [Theory]
     [InlineData("execute_sql", "{}")]
     [InlineData("create_work_order", "{}")]

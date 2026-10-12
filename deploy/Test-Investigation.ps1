@@ -14,7 +14,9 @@ try {
     # CREATE only in the dedicated test database; never reset or remove an existing schema.
     docker compose -f "$PSScriptRoot/compose.yaml" exec -T database psql -U plantops -d plantops_tests -v ON_ERROR_STOP=1 -c "CREATE SCHEMA $evidenceSchema"
     if ($LASTEXITCODE -ne 0) { throw 'Could not create a fresh isolated test schema.' }
-    $env:PLANTOPS_TEST_CONNECTION = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', 'Database=plantops_tests;').Replace('Command Timeout=5', 'Command Timeout=60') + ";Search Path=$evidenceSchema"
+    # The retained test schemas enlarge catalog reads; avoid parallel-query shared memory
+    # pressure in the 64 MiB container /dev/shm, only for these dedicated test sessions.
+    $env:PLANTOPS_TEST_CONNECTION = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', 'Database=plantops_tests;').Replace('Command Timeout=5', 'Command Timeout=60') + ";Search Path=$evidenceSchema;Options=-c max_parallel_workers_per_gather=0"
     $env:PLANTOPS_TEST_DOCUMENT_ROOT = Join-Path $evidenceRoot 'documents'
     @{ Schema = $evidenceSchema; Documents = $env:PLANTOPS_TEST_DOCUMENT_ROOT; RealProviderVerified = $false } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidenceRoot 'scope.json')
     dotnet test "$PSScriptRoot/../tests/PlantOps.Tests" --artifacts-path "$evidenceRoot/build" --filter 'FullyQualifiedName~PlantOps.Tests.InvestigationScenarioTests|FullyQualifiedName~PlantOps.Tests.InvestigationServiceTests|FullyQualifiedName~PlantOps.Tests.InvestigationEngineTests|FullyQualifiedName~PlantOps.Tests.DocumentEvidenceTests|FullyQualifiedName~PlantOps.Tests.DocumentTests|FullyQualifiedName~PlantOps.Tests.DocumentParserTests|FullyQualifiedName~PlantOps.Tests.Ai|FullyQualifiedName~PlantOps.Tests.HealthEndpointTests|FullyQualifiedName~PlantOps.Tests.MeasurementMaintenanceTests|FullyQualifiedName~PlantOps.Tests.Sampling|FullyQualifiedName~PlantOps.Tests.TrendSamplingTests|FullyQualifiedName~PlantOps.Tests.OpcUaDemoPolicyTests' --logger "trx;LogFileName=$evidenceRoot/results.trx" --logger 'console;verbosity=minimal'
