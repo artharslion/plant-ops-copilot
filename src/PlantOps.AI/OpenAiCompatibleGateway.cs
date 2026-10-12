@@ -1,11 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
 
 namespace PlantOps.AI;
 
-public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOptions> settings) : ILlmGateway
+public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOptions> settings,
+    ILogger<OpenAiCompatibleGateway>? logger = null) : ILlmGateway
 {
     public async Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
     {
@@ -34,7 +36,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                     throw new LlmException(Classify(response.StatusCode));
                 }
                 var result = options.StreamResponses
-                    ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token)
+                    ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token, logger)
                     : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
                 cancellationToken.ThrowIfCancellationRequested();
                 budget.CheckDeadline();

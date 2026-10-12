@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using PlantOps.AI;
 using PlantOps.Application.AI;
 using Xunit;
@@ -94,6 +95,40 @@ public sealed class AiStreamingTests
         using var budget = new LlmBudget();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Gateway(client).CompleteAsync(new([new(LlmRole.User, "测试")]), budget, cancellation.Token));
+    }
+
+    [Fact]
+    public async Task InvalidStreamDiagnosticsContainStageAndCountersWithoutProviderText()
+    {
+        const string privateText = "provider-private-content";
+        using var client = new HttpClient(new Handler("data: {" + privateText + "}\n\n"));
+        using var budget = new LlmBudget();
+        var logger = new CapturedLogger();
+        var gateway = new OpenAiCompatibleGateway(client, Options.Create(new AiOptions
+        {
+            Provider = "OpenAiCompatible",
+            ApiKey = "private-test-key",
+            StreamResponses = true,
+            MaxRetries = 0
+        }), logger);
+        await Assert.ThrowsAsync<LlmException>(() => gateway.CompleteAsync(new([new(LlmRole.User, "测试")]), budget));
+        var entry = Assert.Single(logger.Entries);
+        Assert.Contains("stage=event-json", entry);
+        Assert.Contains("events=1", entry);
+        Assert.DoesNotContain(privateText, entry);
+        Assert.DoesNotContain("private-test-key", entry);
+    }
+
+    private sealed class CapturedLogger : ILogger<OpenAiCompatibleGateway>
+    {
+        public List<string> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add(formatter(state, exception));
     }
 
     private static OpenAiCompatibleGateway Gateway(HttpClient client, int maximumBytes = 131072) => new(client, Options.Create(new AiOptions

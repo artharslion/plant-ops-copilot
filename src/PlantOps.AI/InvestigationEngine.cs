@@ -2,11 +2,13 @@ using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
 
 namespace PlantOps.AI;
 
-public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions> options) : IInvestigationEngine
+public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions> options,
+    ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
     public const string SafeSummary = "调查已完成；结论仍需现场验证。";
     public const string PromptVersion = "investigation-extractive-v2";
@@ -101,7 +103,17 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 {
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
-                var result = ValidateFacts(completion.Content, ledger);
+                InvestigationResult result;
+                try
+                {
+                    result = ValidateFacts(completion.Content, ledger);
+                }
+                catch (LlmException exception)
+                {
+                    logger?.LogWarning("AI investigation failed: {Failure}; stage=structured-facts-validation; evidence={EvidenceCount}",
+                        exception.Failure, ledger.Count);
+                    throw;
+                }
                 return new(InvestigationContract.Serialize(result), completion.Model, options.Value.Provider == "Fake");
             }
             messages.Add(new(LlmRole.Assistant, completion.Content, completion.ToolCalls));

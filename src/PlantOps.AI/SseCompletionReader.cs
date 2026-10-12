@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
 
 namespace PlantOps.AI;
@@ -13,13 +14,12 @@ internal sealed class SseCompletionReader
     private string? finish;
     private JsonElement? usage;
     private bool done;
+    private string phase = "event-json";
+    private int events;
 
-    public static async Task<LlmCompletion> ReadAsync(HttpContent http, int maximumBytes, LlmRequest request, CancellationToken ct)
+    public static async Task<LlmCompletion> ReadAsync(HttpContent http, int maximumBytes, LlmRequest request, CancellationToken ct,
+        ILogger? logger = null)
     {
-        if (http.Headers.ContentType?.MediaType != "text/event-stream" || http.Headers.ContentLength > maximumBytes)
-        {
-            throw new LlmException(LlmFailure.InvalidResponse);
-        }
         var reader = new SseCompletionReader();
         await using var stream = await http.ReadAsStreamAsync(ct);
         using var line = new MemoryStream();
@@ -28,15 +28,28 @@ internal sealed class SseCompletionReader
         var total = 0;
         try
         {
+            reader.phase = "content-type";
+            if (http.Headers.ContentType?.MediaType != "text/event-stream")
+            {
+                throw new LlmException(LlmFailure.InvalidResponse);
+            }
+            reader.phase = "size-limit";
+            if (http.Headers.ContentLength > maximumBytes)
+            {
+                throw new LlmException(LlmFailure.InvalidResponse);
+            }
             while (!reader.done)
             {
+                reader.phase = "read";
                 var read = await stream.ReadAsync(buffer, ct);
                 if (read == 0)
                 {
+                    reader.phase = "missing-done";
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
                 if (read > maximumBytes - total)
                 {
+                    reader.phase = "size-limit";
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
                 total += read;
@@ -47,6 +60,7 @@ internal sealed class SseCompletionReader
                         line.WriteByte(buffer[i]);
                         continue;
                     }
+                    reader.phase = "utf8";
                     var text = new UTF8Encoding(false, true).GetString(line.ToArray()).TrimEnd('\r');
                     line.SetLength(0);
                     if (text.Length == 0)
@@ -67,6 +81,7 @@ internal sealed class SseCompletionReader
                     }
                 }
             }
+            reader.phase = "missing-finish-or-model";
             if (reader.finish == null || reader.model == null)
             {
                 throw new LlmException(LlmFailure.InvalidResponse);
@@ -94,17 +109,29 @@ internal sealed class SseCompletionReader
                 },
                 usage = reader.usage
             });
+            reader.phase = "completion-validation";
             return ChatCompletionsProtocol.Parse(bytes, request);
+        }
+        catch (LlmException exception)
+        {
+            // Only fixed stage names and counters; never log upstream content, identifiers or exception bodies.
+            logger?.LogWarning("AI stream failed: {Failure}; stage={Stage}; bytes={Bytes}; events={Events}; finish={HasFinish}; usage={HasUsage}",
+                exception.Failure, reader.phase, total, reader.events, reader.finish != null, reader.usage.HasValue);
+            throw;
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException
             or FormatException or OverflowException or ArgumentException)
         {
+            logger?.LogWarning("AI stream invalid: stage={Stage}; bytes={Bytes}; events={Events}; finish={HasFinish}; usage={HasUsage}",
+                reader.phase, total, reader.events, reader.finish != null, reader.usage.HasValue);
             throw new LlmException(LlmFailure.InvalidResponse);
         }
     }
 
     private void Accept(string data)
     {
+        events++;
+        phase = "event-json";
         if (data == "[DONE]")
         {
             done = true;
@@ -112,12 +139,14 @@ internal sealed class SseCompletionReader
         }
         using var document = JsonDocument.Parse(data, new JsonDocumentOptions { MaxDepth = 32 });
         var root = document.RootElement;
+        phase = "model";
         var nextModel = root.GetProperty("model").GetString();
         if (string.IsNullOrWhiteSpace(nextModel) || model != null && model != nextModel)
         {
             throw new LlmException(LlmFailure.InvalidResponse);
         }
         model = nextModel;
+        phase = "usage";
         if (root.TryGetProperty("usage", out var reported) && reported.ValueKind != JsonValueKind.Null)
         {
             if (usage.HasValue)
@@ -126,6 +155,7 @@ internal sealed class SseCompletionReader
             }
             usage = reported.Clone();
         }
+        phase = "choices";
         var choices = root.GetProperty("choices");
         if (choices.GetArrayLength() > 1)
         {
@@ -133,10 +163,12 @@ internal sealed class SseCompletionReader
         }
         foreach (var choice in choices.EnumerateArray())
         {
+            phase = "choice-index-or-after-finish";
             if (choice.GetProperty("index").GetInt32() != 0 || finish != null)
             {
                 throw new LlmException(LlmFailure.InvalidResponse);
             }
+            phase = "delta";
             var delta = choice.GetProperty("delta");
             if (delta.TryGetProperty("role", out var role) && role.GetString() != "assistant")
             {
@@ -146,6 +178,7 @@ internal sealed class SseCompletionReader
             Append(delta, "refusal", refusal);
             if (delta.TryGetProperty("tool_calls", out var tools))
             {
+                phase = "tool-delta";
                 foreach (var tool in tools.EnumerateArray())
                 {
                     var index = tool.GetProperty("index").GetInt32();
