@@ -95,7 +95,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             budget.CheckDeadline();
             await authorize(deadline.Token);
             var completion = await gateway.CompleteAsync(new(messages, Tools, InvestigationContract.OutputSchema,
-                MaxOutputTokens: Math.Min(900, budget.RemainingOutputTokens)), budget, deadline.Token);
+                MaxOutputTokens: Math.Min(1200, budget.RemainingOutputTokens)), budget, deadline.Token);
             await authorize(deadline.Token);
             if (completion.ToolCalls.Count == 0)
             {
