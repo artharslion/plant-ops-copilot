@@ -24,6 +24,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             budget.ReserveAttempt(inputReservation, request.MaxOutputTokens);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
             timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
+            var receivedHeaders = false;
             try
             {
                 using var outgoing = new HttpRequestMessage(HttpMethod.Post, endpoint);
@@ -31,8 +32,11 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 outgoing.Content = new ByteArrayContent(body);
                 outgoing.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
                 using var response = await client.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                receivedHeaders = true;
                 if (!response.IsSuccessStatusCode)
                 {
+                    logger?.LogWarning("AI transport failed: stage=http-status; status={Status}; attempt={Attempt}",
+                        (int)response.StatusCode, attempt + 1);
                     throw new LlmException(Classify(response.StatusCode));
                 }
                 var result = options.StreamResponses
@@ -46,14 +50,19 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (OperationCanceledException)
             {
+                logger?.LogWarning("AI transport ended: stage=cancel-or-timeout; headers={Headers}; cancelled={Cancelled}; attempt={Attempt}",
+                    receivedHeaders, cancellationToken.IsCancellationRequested, attempt + 1);
                 if (cancellationToken.IsCancellationRequested)
                 {
                     throw new OperationCanceledException(cancellationToken);
                 }
                 throw new LlmException(LlmFailure.Timeout);
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException ex)
             {
+                logger?.LogWarning("AI transport failed: stage=http-transport; error={Error}; socket={Socket}; headers={Headers}; attempt={Attempt}",
+                    ex.HttpRequestError, ex.InnerException is System.Net.Sockets.SocketException socket ? socket.SocketErrorCode.ToString() : "none",
+                    receivedHeaders, attempt + 1);
                 if (attempt >= options.MaxRetries)
                 {
                     throw new LlmException(LlmFailure.Unavailable);
@@ -61,6 +70,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (IOException)
             {
+                logger?.LogWarning("AI transport failed: stage=io; headers={Headers}; attempt={Attempt}", receivedHeaders, attempt + 1);
                 if (attempt >= options.MaxRetries)
                 {
                     throw new LlmException(LlmFailure.Unavailable);

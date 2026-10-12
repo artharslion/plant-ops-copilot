@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using PlantOps.AI;
 using PlantOps.Application.AI;
 using PlantOps.Application.Knowledge;
@@ -28,14 +29,18 @@ public sealed class InvestigationRealQualityTests
     [InlineData("S11-document-injection")]
     public async Task FrozenSnapshotRealQuality(string scenario)
     {
+        var selected = Environment.GetEnvironmentVariable("PLANTOPS_REAL_SCENARIO");
+        Assert.True(string.IsNullOrEmpty(selected) || scenario == selected, "Outside the explicitly selected finite scenario; no model call made.");
         var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
         var path = Path.Combine(root, scenario + ".json");
         Assert.False(File.Exists(path));
         var connection = await TestDatabase.IsolatedConnection();
         var clock = new AlarmTests.Clock();
         SingleRequestGateway? gateway = null;
+        var diagnostics = new CapturedAiGatewayLogger();
         await using var s = new AssetManagementTests.Session(clock, connection, services =>
         {
+            services.AddSingleton<ILogger<OpenAiCompatibleGateway>>(diagnostics);
             services.PostConfigure<AiOptions>(o =>
             {
                 o.Provider = "OpenAiCompatible";
@@ -184,6 +189,7 @@ public sealed class InvestigationRealQualityTests
             gateway.InjectionSeen,
             gateway.ToolNames,
             ActualUsage = gateway.Usage,
+            TransportDiagnostics = diagnostics.Entries,
             UsageComplete = gateway.Usage != null,
             AccountingInputTokens = run.InputTokens,
             AccountingOutputTokens = run.OutputTokens,
