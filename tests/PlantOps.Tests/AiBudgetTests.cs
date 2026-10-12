@@ -45,7 +45,7 @@ public sealed class AiBudgetTests
     }
 
     [Theory]
-    [InlineData(61, 4, 8, 16000, 2000)]
+    [InlineData(181, 4, 8, 16000, 2000)]
     [InlineData(60, 5, 8, 16000, 2000)]
     [InlineData(60, 4, 9, 16000, 2000)]
     [InlineData(60, 4, 8, 16001, 2000)]

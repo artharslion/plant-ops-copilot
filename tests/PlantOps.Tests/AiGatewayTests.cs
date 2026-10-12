@@ -215,7 +215,9 @@ public sealed class AiGatewayTests
     [InlineData(55, true)]
     [InlineData(60, true)]
     [InlineData(0, false)]
-    [InlineData(61, false)]
+    [InlineData(120, true)]
+    [InlineData(180, true)]
+    [InlineData(181, false)]
     public void RequestDeadlineCannotExceedRunMaximum(int seconds, bool valid)
     {
         var options = new AiOptions { Provider = "OpenAiCompatible", ApiKey = Secret, RequestTimeoutSeconds = seconds };

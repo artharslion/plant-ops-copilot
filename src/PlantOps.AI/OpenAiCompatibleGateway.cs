@@ -12,7 +12,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
         cancellationToken.ThrowIfCancellationRequested();
         var options = settings.Value;
         var endpoint = options.ValidateEndpoint();
-        var body = ChatCompletionsProtocol.Serialize(request, options.Model, options.ReasoningEffort);
+        var body = ChatCompletionsProtocol.Serialize(request, options.Model, options.ReasoningEffort, options.StreamResponses);
         // UTF-8 bytes plus framing estimates visible input. Reported relay overhead is reconciled below.
         var inputReservation = checked(body.Length + 256);
         budget.BeginRound();
@@ -33,8 +33,9 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 {
                     throw new LlmException(Classify(response.StatusCode));
                 }
-                var bytes = await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token);
-                var result = ChatCompletionsProtocol.Parse(bytes, request);
+                var result = options.StreamResponses
+                    ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token)
+                    : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
                 cancellationToken.ThrowIfCancellationRequested();
                 budget.CheckDeadline();
                 budget.ReconcileUsage(result.Usage, inputReservation, request.MaxOutputTokens);

@@ -38,8 +38,9 @@ try {
             $env:AI__Provider = 'Fake'
         }
         # Explicit finite demo settings; never edit the user's private configuration.
-        $env:AI__RequestTimeoutSeconds = '55'
-        $env:AI__RunTimeoutSeconds = '60'
+        $env:AI__RequestTimeoutSeconds = '120'
+        $env:AI__RunTimeoutSeconds = '180'
+        $env:AI__StreamResponses = 'true'
         $env:AI__MaxRetries = '0'
         $env:AI__MaxModelRounds = '4'
         $env:AI__MaxToolCalls = '8'
@@ -113,7 +114,7 @@ try {
             $csrf = Invoke-RestMethod "$base/api/v1/auth/csrf" -WebSession $session
             $before = Invoke-RestMethod "$base/api/v1/alarms/$($result.Alarms[0].Id)" -WebSession $session
             $queued = Invoke-RestMethod "$base/api/v1/alarms/$($before.id)/investigations" -Method Post -WebSession $session -Headers @{ 'X-CSRF-TOKEN' = $csrf.token }
-            @{ Id = $queued.id; AlarmId = $before.id; Schema = $result.Schema; RealAi = [bool]$RealAi; MaxInvestigations = 1; RequestTimeoutSeconds = 55; RunTimeoutSeconds = 60; MaxRetries = 0 } | ConvertTo-Json | Set-Content (Join-Path $root 'investigation-scope.json')
+            @{ Id = $queued.id; AlarmId = $before.id; Schema = $result.Schema; RealAi = [bool]$RealAi; MaxInvestigations = 1; RequestTimeoutSeconds = 120; RunTimeoutSeconds = 180; Streaming = $true; MaxRetries = 0 } | ConvertTo-Json | Set-Content (Join-Path $root 'investigation-scope.json')
             $workerStart = [Diagnostics.ProcessStartInfo]::new('dotnet')
             $workerStart.WorkingDirectory = $repoRoot
             $workerStart.UseShellExecute = $false
@@ -124,7 +125,7 @@ try {
             $workerProcess = [Diagnostics.Process]::Start($workerStart)
             $workerOutput = $workerProcess.StandardOutput.ReadToEndAsync()
             $workerError = $workerProcess.StandardError.ReadToEndAsync()
-            $workerDeadline = [DateTime]::UtcNow.AddSeconds(75)
+            $workerDeadline = [DateTime]::UtcNow.AddSeconds(195)
             do { $finished = $workerProcess.WaitForExit(1000) } while (-not $finished -and [DateTime]::UtcNow -lt $workerDeadline)
             if (-not $finished) { $workerProcess.Kill(); $workerProcess.WaitForExit(5000) | Out-Null }
             $workerOutput.GetAwaiter().GetResult() | Set-Content (Join-Path $root 'investigation-worker.log')

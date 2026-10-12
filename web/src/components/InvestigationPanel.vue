@@ -32,6 +32,12 @@ const runs = ref<Run[]>([]),
 const capabilities = ref<{ model: string; externalData: boolean } | null>(null)
 const expanded = ref<Evidence | null>(null),
   evidenceError = ref('')
+const now = ref(Date.now())
+const elapsed = computed(() =>
+  selected.value
+    ? Math.max(0, Math.floor((now.value - Date.parse(selected.value.createdAt)) / 1000))
+    : 0,
+)
 const selected = computed(() => runs.value.find((run) => run.id === selectedId.value) ?? null)
 const active = computed(
   () => selected.value && ['Pending', 'Running'].includes(selected.value.status),
@@ -137,10 +143,14 @@ onMounted(async () => {
   await refresh()
 })
 const timer = setInterval(() => void refresh(), 3000)
+const clockTimer = setInterval(() => {
+  now.value = Date.now()
+}, 1000)
 onUnmounted(() => {
   disposed = true
   generation++
   clearInterval(timer)
+  clearInterval(clockTimer)
 })
 </script>
 
@@ -185,6 +195,17 @@ onUnmounted(() => {
           >{{ selected.simulated ? '模拟结果 · 不代表真实模型诊断' : `模型 ${selected.model}` }} ·
           {{ at(selected.createdAt) }} 的调查快照</span
         >
+      </p>
+      <p v-if="active" class="path-note">
+        已等待 {{ elapsed }} 秒 · 已获取 {{ selected.evidence.length }} 项证据。
+        {{
+          selected.status === 'Pending'
+            ? '任务正在排队。'
+            : selected.evidence.length
+              ? '正在等待模型完成分析与结果校验，完成后显示答案。'
+              : '正在收集授权证据。'
+        }}
+        等待期间可查看已获取的证据，也可取消调查。
       </p>
       <p
         v-if="selected.failureCode && selected.status === 'Failed'"

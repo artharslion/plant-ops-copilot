@@ -1,6 +1,6 @@
 namespace PlantOps.Application.AI;
 
-public sealed record LlmLimits(int RunTimeoutSeconds = 60, int MaxModelRounds = 4, int MaxToolCalls = 8,
+public sealed record LlmLimits(int RunTimeoutSeconds = 180, int MaxModelRounds = 4, int MaxToolCalls = 8,
     int MaxInputTokens = 16000, int MaxOutputTokens = 2000);
 
 // One instance per investigation/probe. Calls within a run are sequential, never shared across actors.
@@ -14,7 +14,7 @@ public sealed class LlmBudget : IDisposable
     public LlmBudget(LlmLimits? limits = null, TimeProvider? clock = null)
     {
         this.limits = limits ?? new();
-        if (this.limits.RunTimeoutSeconds is < 1 or > 60 || this.limits.MaxModelRounds is < 1 or > 4
+        if (this.limits.RunTimeoutSeconds is < 1 or > 180 || this.limits.MaxModelRounds is < 1 or > 4
             || this.limits.MaxToolCalls is < 1 or > 8 || this.limits.MaxInputTokens is < 1 or > 16000
             || this.limits.MaxOutputTokens is < 1 or > 2000)
         {

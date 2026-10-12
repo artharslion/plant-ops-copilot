@@ -6,7 +6,7 @@ try {
     $aiLocalSettings = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
     if (-not $aiLocalSettings.AI) { throw 'Missing AI section.' }
     $aiLocalNames = @('Provider', 'BaseUrl', 'Model', 'ApiKey', 'ReasoningEffort', 'RequestTimeoutSeconds', 'RunTimeoutSeconds',
-        'MaxModelRounds', 'MaxToolCalls', 'MaxInputTokens', 'MaxOutputTokens', 'MaxRetries', 'MaxResponseBytes')
+        'MaxModelRounds', 'MaxToolCalls', 'MaxInputTokens', 'MaxOutputTokens', 'MaxRetries', 'MaxResponseBytes', 'StreamResponses')
     foreach ($aiLocalName in $aiLocalNames) {
         $aiLocalProperty = $aiLocalSettings.AI.PSObject.Properties[$aiLocalName]
         # Missing and empty settings clear stale values in this terminal.

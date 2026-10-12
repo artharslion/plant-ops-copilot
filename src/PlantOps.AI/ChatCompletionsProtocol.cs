@@ -13,7 +13,7 @@ internal static partial class ChatCompletionsProtocol
     [GeneratedRegex("^[A-Za-z0-9_-]{1,100}$", RegexOptions.CultureInvariant)]
     private static partial Regex Identifier();
 
-    public static byte[] Serialize(LlmRequest request, string model, string? reasoningEffort = null)
+    public static byte[] Serialize(LlmRequest request, string model, string? reasoningEffort = null, bool stream = false)
     {
         var tools = request.Tools ?? [];
         if (request.Messages.Count is < 1 or > 32 || request.MaxOutputTokens is < 1 or > 2000
@@ -81,9 +81,16 @@ internal static partial class ChatCompletionsProtocol
         {
             ["model"] = model,
             ["messages"] = messages,
-            ["stream"] = false,
+            ["stream"] = stream,
             ["max_completion_tokens"] = request.MaxOutputTokens
         };
+        if (stream)
+        {
+            payload["stream_options"] = new
+            {
+                include_usage = true
+            };
+        }
         if (!string.IsNullOrEmpty(reasoningEffort))
         {
             payload["reasoning_effort"] = reasoningEffort;

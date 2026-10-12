@@ -195,7 +195,7 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             run.Status = "Running";
             run.StartedAt = now;
             run.LeaseId = Guid.NewGuid();
-            run.LeaseUntil = now.AddSeconds(90);
+            run.LeaseUntil = now.AddSeconds(210); // Longer than the maximum bounded investigation.
             run.Attempts++;
             run.ResultJson = null;
             run.EvidenceJson = "[]";
@@ -220,7 +220,12 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
         }
         var ledger = new List<InvestigationEvidence>();
         var warnings = new HashSet<string>(StringComparer.Ordinal);
-        using var budget = new LlmBudget();
+        using var budget = new LlmBudget(new(
+            RunTimeoutSeconds: configuration.GetValue("AI:RunTimeoutSeconds", 180),
+            MaxModelRounds: configuration.GetValue("AI:MaxModelRounds", 4),
+            MaxToolCalls: configuration.GetValue("AI:MaxToolCalls", 8),
+            MaxInputTokens: configuration.GetValue("AI:MaxInputTokens", 16000),
+            MaxOutputTokens: configuration.GetValue("AI:MaxOutputTokens", 2000)));
         using var active = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
         using var monitorStop = new CancellationTokenSource();
         var monitor = MonitorCancellationAsync(run.Id, run.LeaseId!.Value, active, monitorStop.Token);
