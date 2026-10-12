@@ -21,3 +21,15 @@
 首轮完整回归`artifacts/ai-investigation/budget_compact_20261012/results.trx`为241通过/6失败：失败均为Npgsql读取PostgreSQL类型目录时53100共享内存不足。容器`/dev/shm`仅64MiB，数据卷约921GiB余量；测试库保留数百独立schema。随后只为隔离测试与有限协议演示的连接追加`Options=-c max_parallel_workers_per_gather=0`，避免并行目录查询的共享内存压力。没有重启数据库、修改全局参数、删除旧schema或迁移业务库。三个修改脚本语法检查通过，失败证据保留。
 
 最终完整隔离回归`artifacts/ai-investigation/budget_compact_b_20261012/results.trx`：247/247通过、零跳过，约2分36秒；二十个业务场景S01–S20全部通过。构建无警告/错误，diff空白检查通过。本轮唯一真实调查结果见后续记录。P4、完整真实质量与长期稳定性不在本次通过范围内。
+
+## 本轮唯一真实调查：首请求超时
+
+`artifacts/opcua-demo/budget_real_20261012/`，新schema`plantops_tests.opcua_demo_budget_real_20261012`。北京时间10:10:11–10:11:02采集50秒，10:12:00一次聚合完成；50条协议样本，一个触发后恢复告警，raw仍50。两个UTC已结束分钟对应北京时间10:10/10:11，48/2个可信样本；极值4/12.6及6/6 mm/s。均HasGap=true、SamplingMode=Unknown、CoverageRatio=null，保留部分分钟不连续提示。`minute-check.json Passed=true`，逐原始样本与分钟API核对通过。
+
+调查`165e453b-7ee5-4eda-94b9-e32a6dc46afd`，告警`d84b5673-0b5e-4ec1-8ff2-f66bc43d5102`，触发样本`d0acd5a8-675f-49f6-8c7e-87a56605f6b0`。真实OpenAiCompatible/gpt-6.1-sol，单次请求期限55秒/总期限60秒/零重试。约56.872秒（含取证）后`Failed/Timeout`，1轮、5次默认工具、1个AiRun/1次租约尝试；没有进入第二轮，也没有触发BudgetExceeded。尚未收到可用于结算的有效响应，输入9195/输出900保持保守预留，费用未知。首请求预留较上一轮12274低约25%，两次业务快照略有差异，不作为严格性能基准。
+
+本轮没有证实外部模型的多轮成功；只在模拟HTTP中证实两轮预算流程成功。Timeout不能进一步证明是供应商处理、网络还是响应传输问题，未保存原始供应商错误/私密请求。没有自动重试或Fake替代，旧失败结果保留。
+
+`investigation-check.json`及`quality-check.json Passed=false`；没有模型答案，事实覆盖率null、实际引用分钟数0。`MinuteEvidenceVerified=true`、十项授权证据可展开、服务端质量警告完整；普通API检查通过：admin/viewer趋势告警200，engineer跨厂404，匿名401，他人调查/证据404。`business-read-check.json`核对工单0/备注0、来源/映射全部停用，告警版本不变。有限模拟器/API/Worker均退出，无新增常驻服务，无新浏览器验收；外部IndustrialSim工作区干净。
+
+结论：预算核算、上下文压缩与确定性两轮路径已修复并通过247项回归；真实模型成功引用分钟趋势仍待验证。后续真实抽查需作为新的显式有限运行，不能把本轮超时重标为成功。
