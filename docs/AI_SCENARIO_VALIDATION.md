@@ -47,4 +47,20 @@
 
 ## 验收范围
 
-本表不覆盖P4批准/拒绝/过期/幂等事务，也不把Fake的正确文本当作真实模型质量。完整P3质量仍需真实供应商的多场景评估、稳定性与成本记录。真实调用记录将在本次有限演示后补充；既有Timeout/Unavailable与成功记录均保留。
+本表不覆盖P4批准/拒绝/过期/幂等事务，也不把Fake的正确文本当作真实模型质量。完整P3质量仍需真实供应商的多场景评估、稳定性与成本记录。既有Timeout/Unavailable与成功记录均保留。
+
+## 本轮唯一真实调查：预算限制，未产生答案
+
+`artifacts/opcua-demo/scenarios_real_20261012/`，新schema`plantops_tests.opcua_demo_scenarios_real_20261012`。北京时间09:34:23–09:35:13采集50秒，09:36:00完成一次分钟聚合。48条真实OPC UA协议样本，来源设备状态由IndustrialSim仿真；一个触发后恢复的告警，原始样本数量仍48。两个已结束分钟分别36/12个可信样本，极值4/12.6及6/6 mm/s，均HasGap=true、SamplingMode=Unknown、CoverageRatio=null，不能证明完整分钟连续性。`minute-check.json Passed=true`：每桶原始ReadingIds/计数/极值/均值和授权API核对通过。
+
+真实OpenAiCompatible/gpt-6.1-sol调查`48faabb6-6b01-4956-9f3e-1280320f6f39`，告警`847398a8-3bf2-41f9-8d26-7edb2238bd8b`，触发样本`8c60097a-72d0-418f-b288-55364a537174`。约7.755秒后`Failed/BudgetExceeded`，不是本次供应商Unavailable/Timeout。1个AiRun、1次租约尝试，零重试/无Fake替代；记录ModelRounds=2、ToolCalls=6，输入预留12274、输出预留900，实际费用未知。
+
+根据计数与Gateway实现可定位：第一轮真实响应请求了一次允许工具，默认5次取证后工具数变为6；第二轮在发送HTTP前进行预算预留。第一轮已用12274输入预留，16k总预算仅余3726；原始上下文和新增工具结果需要再次发送，不能完成第二次预留。ModelRounds在预留前递增，因此2轮不代表已发出2次外部请求；900输出预留只对应一次请求。该预留按UTF-8请求字节加256保守估计，不是供应商实际token消费。预算控制正确拒绝了继续调用，但当前上下文大小使多轮路径无法完成，是后续需要解决的可用性问题；本轮未放宽预算或重试。
+
+`investigation-check.json Passed=false/RealProviderVerified=false/MinuteEvidenceVerified=true`。十项证据均授权展开，E4包含两个分钟及窗口极值。`quality-check.json Passed=false`，没有模型答案/观测，事实覆盖率为null；不能把账本内有趋势解释为模型成功引用趋势。保留的DataQuality警告完整。
+
+`api-check.json Passed=true`：admin/viewer趋势/告警200，engineer跨厂404，匿名401，viewer/engineer读取admin调查及证据404。`business-read-check.json`核对1个AiRun/1次尝试、工单0/备注0、启用来源0/映射0；告警版本不变。有限模拟器/API/Worker均退出，未新增审阅服务或常驻采集。宿主磁盘最终余量约D盘58.999GB、C盘122.734GB，脚本磁盘预算检查通过。未做新的浏览器验收，不能将HTTP检查记为浏览器完成。
+
+离线质量核对辅助脚本保留于`artifacts/opcua-demo-launch/check-scenario-quality.ps1`，只读取保留JSON、核对每条事实/引用hash与模型是否实际引用分钟统计，不发送请求；输出为上述quality-check。完整复现仍使用`Run-IndustrialSimInvestigation.ps1 -Run <fresh_name> -RealAi`，不得复用本轮名称或自动重试。
+
+下一项应优先减少模型上下文/重复取证成本，在现有16k预算内验证多轮路径，再做有限真实质量抽查。当前可认定二十个确定性业务场景通过；真实新增趋势回答、完整P3质量及P4仍未通过。
