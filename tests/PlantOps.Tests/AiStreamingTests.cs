@@ -22,6 +22,38 @@ public sealed class AiStreamingTests
     private const string Done = "data: [DONE]\n\n";
 
     [Fact]
+    public async Task RepeatedSseMetadataDoesNotConsumeAssembledAnswerLimit()
+    {
+        var payload = string.Concat(Enumerable.Repeat(Chunk(new
+        {
+            content = "振"
+        }), 200))
+            + Chunk(new
+            {
+            }, "stop") + Usage + Done;
+        Assert.True(Encoding.UTF8.GetByteCount(payload) > 4096);
+        using var client = new HttpClient(new Handler(payload));
+        using var budget = new LlmBudget();
+        var result = await Gateway(client, maximumBytes: 4096).CompleteAsync(new([new(LlmRole.User, "测试")]), budget);
+        Assert.Equal(new string('振', 200), result.Content);
+    }
+
+    [Fact]
+    public async Task ExcessiveSseFramingIsStillBounded()
+    {
+        var payload = string.Concat(Enumerable.Repeat(": " + new string('x', 200) + "\n\n", 50))
+            + Chunk(new
+            {
+                content = "ok"
+            }, "stop") + Done;
+        using var client = new HttpClient(new Handler(payload));
+        using var budget = new LlmBudget();
+        var error = await Assert.ThrowsAsync<LlmException>(() => Gateway(client, maximumBytes: 1024)
+            .CompleteAsync(new([new(LlmRole.User, "测试")]), budget));
+        Assert.Equal(LlmFailure.InvalidResponse, error.Failure);
+    }
+
+    [Fact]
     public async Task FragmentedUtf8TextAndUsageFinishBeforeConnectionCloses()
     {
         using var client = new HttpClient(new Handler(Chunk(new

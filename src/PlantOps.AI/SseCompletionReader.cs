@@ -16,11 +16,15 @@ internal sealed class SseCompletionReader
     private bool done;
     private string phase = "event-json";
     private int events;
+    private int payloadBytes;
+    private int maximumPayloadBytes;
 
     public static async Task<LlmCompletion> ReadAsync(HttpContent http, int maximumBytes, LlmRequest request, CancellationToken ct,
         ILogger? logger = null)
     {
-        var reader = new SseCompletionReader();
+        var reader = new SseCompletionReader { maximumPayloadBytes = maximumBytes };
+        // SSE repeats metadata for every token. Bound that framing separately from the assembled response.
+        var maximumWireBytes = checked(maximumBytes * 8);
         await using var stream = await http.ReadAsStreamAsync(ct);
         using var line = new MemoryStream();
         var data = new StringBuilder();
@@ -33,8 +37,8 @@ internal sealed class SseCompletionReader
             {
                 throw new LlmException(LlmFailure.InvalidResponse);
             }
-            reader.phase = "size-limit";
-            if (http.Headers.ContentLength > maximumBytes)
+            reader.phase = "wire-size-limit";
+            if (http.Headers.ContentLength > maximumWireBytes)
             {
                 throw new LlmException(LlmFailure.InvalidResponse);
             }
@@ -47,9 +51,9 @@ internal sealed class SseCompletionReader
                     reader.phase = "missing-done";
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
-                if (read > maximumBytes - total)
+                if (read > maximumWireBytes - total)
                 {
-                    reader.phase = "size-limit";
+                    reader.phase = "wire-size-limit";
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
                 total += read;
@@ -109,6 +113,11 @@ internal sealed class SseCompletionReader
                 },
                 usage = reader.usage
             });
+            reader.phase = "assembled-size-limit";
+            if (bytes.Length > maximumBytes)
+            {
+                throw new LlmException(LlmFailure.InvalidResponse);
+            }
             reader.phase = "completion-validation";
             return ChatCompletionsProtocol.Parse(bytes, request);
         }
@@ -206,11 +215,19 @@ internal sealed class SseCompletionReader
         }
     }
 
-    private static void Append(JsonElement element, string property, StringBuilder target)
+    private void Append(JsonElement element, string property, StringBuilder target)
     {
         if (element.TryGetProperty(property, out var text) && text.ValueKind != JsonValueKind.Null)
         {
-            target.Append(text.GetString());
+            var value = text.GetString();
+            var size = Encoding.UTF8.GetByteCount(value ?? string.Empty);
+            if (size > maximumPayloadBytes - payloadBytes)
+            {
+                phase = "payload-size-limit";
+                throw new LlmException(LlmFailure.InvalidResponse);
+            }
+            payloadBytes += size;
+            target.Append(value);
         }
     }
 }
