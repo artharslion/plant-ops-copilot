@@ -12,7 +12,7 @@ public sealed record InvestigationHypothesis(string Text, string Support, string
 
 public sealed record InvestigationResult(string SchemaVersion, string Summary, InvestigationObservation[] Observations,
     InvestigationHypothesis[] Hypotheses, InvestigationObservation[] NextChecks, string[] MissingInformation,
-    string[] DataWarnings, string[] EvidenceIds);
+    string[] DataWarnings, string[] EvidenceIds = null!);
 
 public static class InvestigationContract
 {
@@ -22,7 +22,7 @@ public static class InvestigationContract
         + "Do not invent facts, evidence IDs, numbers, units, timestamps, or maintenance events. State missing information. "
         + "You cannot confirm a root cause or equipment safety. No business writes, network requests, SQL or shell commands. "
         + "Return InvestigationResult.v1 JSON. dataWarnings must be empty; the server adds mandatory data warnings. "
-        + "Every observation and hypothesis needs authorized evidence IDs; evidenceIds must list exactly all referenced IDs.";
+        + "Every observation and hypothesis needs authorized evidence IDs. The server derives the top-level reference list from validated items.";
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -36,7 +36,7 @@ public static class InvestigationContract
 
     // This validates shape and reference membership only. P3.3 adds ledger/actor and fact semantics.
     public static InvestigationResult ParseAndValidateReferences(string content, IReadOnlySet<string> authorizedEvidenceIds,
-        ILogger? logger = null)
+        ILogger? logger = null, bool deriveMissingReferences = false)
     {
         LlmException Invalid(string rule)
         {
@@ -56,7 +56,7 @@ public static class InvestigationContract
                 || result.NextChecks is null || result.NextChecks.Length > 20
                 || result.MissingInformation is null || result.MissingInformation.Length > 20 || result.MissingInformation.Any(x => !ValidText(x))
                 || result.DataWarnings is null || result.DataWarnings.Length != 0
-                || result.EvidenceIds is null || result.EvidenceIds.Length > 40)
+                || result.EvidenceIds is null && !deriveMissingReferences || result.EvidenceIds?.Length > 40)
             {
                 throw Invalid("required-fields-or-limits");
             }
@@ -100,7 +100,16 @@ public static class InvestigationContract
                 }
                 CheckReferences(item.EvidenceIds, false);
             }
-            if (result.EvidenceIds.Distinct(StringComparer.Ordinal).Count() != result.EvidenceIds.Length
+            // Every item has already passed membership/shape checks. Derive only an omitted aggregate;
+            // explicitly supplied legacy aggregates must still match exactly.
+            if (result.EvidenceIds is null)
+            {
+                result = result with
+                {
+                    EvidenceIds = referenced.Order(StringComparer.Ordinal).ToArray()
+                };
+            }
+            if (referenced.Count > 40 || result.EvidenceIds.Distinct(StringComparer.Ordinal).Count() != result.EvidenceIds.Length
                 || !referenced.SetEquals(result.EvidenceIds))
             {
                 throw Invalid("root-reference-set");
@@ -119,7 +128,7 @@ public static class InvestigationContract
         const string schema = """
             {
               "type":"object","additionalProperties":false,
-              "required":["schemaVersion","summary","observations","hypotheses","nextChecks","missingInformation","dataWarnings","evidenceIds"],
+              "required":["schemaVersion","summary","observations","hypotheses","nextChecks","missingInformation","dataWarnings"],
               "properties":{
                 "schemaVersion":{"type":"string","enum":["1"]},
                 "summary":{"type":"string","minLength":1,"maxLength":2000},
@@ -136,8 +145,7 @@ public static class InvestigationContract
                   "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"evidenceIds":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}}}
                 }},
                 "missingInformation":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":2000}},
-                "dataWarnings":{"type":"array","maxItems":0,"items":{"type":"string"}},
-                "evidenceIds":{"type":"array","maxItems":40,"items":{"type":"string","minLength":1,"maxLength":100}}
+                "dataWarnings":{"type":"array","maxItems":0,"items":{"type":"string"}}
               }
             }
             """;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
 using PlantOps.AI;
 using PlantOps.Application.AI;
@@ -12,6 +13,39 @@ public sealed class InvestigationEngineTests
     private static readonly InvestigationEvidence Evidence = new("E1", "Alarm", "历史告警", [Fact], new string('a', 64), DateTimeOffset.UtcNow, Guid.NewGuid());
 
     private static InvestigationResult Valid() => new("1", InvestigationEngine.SafeSummary, [new(Fact, ["E1"])], [], [], [], [], ["E1"]);
+
+    [Fact]
+    public void OmittedAggregateIsDerivedFromValidatedItemsAndPersistedInPublicContract()
+    {
+        var json = JsonNode.Parse(InvestigationContract.Serialize(Valid()))!.AsObject();
+        json.Remove("evidenceIds");
+        var content = json.ToJsonString();
+        var result = InvestigationEngine.ValidateFacts(content, [Evidence]);
+        Assert.Equal(["E1"], result.EvidenceIds);
+        Assert.False(InvestigationContract.OutputSchema.Schema.GetProperty("properties").TryGetProperty("evidenceIds", out _));
+        var persisted = InvestigationContract.Serialize(result);
+        Assert.Equal(["E1"], InvestigationContract.ParseAndValidateReferences(persisted, new HashSet<string> { "E1" }).EvidenceIds);
+        Assert.Throws<LlmException>(() => InvestigationContract.ParseAndValidateReferences(content, new HashSet<string> { "E1" }));
+    }
+
+    [Theory]
+    [InlineData("forged-reference")]
+    [InlineData("changed-fact")]
+    public void DerivingAggregateNeverBypassesItemAuthorizationOrVerbatimFacts(string scenario)
+    {
+        var invalid = scenario == "forged-reference"
+            ? Valid() with
+            {
+                Observations = [new(Fact, ["SECRET"])]
+            }
+            : Valid() with
+            {
+                Observations = [new("已确认设备故障。", ["E1"])]
+            };
+        var json = JsonNode.Parse(InvestigationContract.Serialize(invalid))!.AsObject();
+        json.Remove("evidenceIds");
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(json.ToJsonString(), [Evidence]));
+    }
 
     public static TheoryData<string, string> RejectedFacts => new()
     {
