@@ -65,7 +65,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         InvestigationResult result;
         try
         {
-            result = InvestigationContract.ParseAndValidateReferences(content, ledger.Keys.ToHashSet(StringComparer.Ordinal));
+            result = InvestigationContract.ParseAndValidateReferences(content, ledger.Keys.ToHashSet(StringComparer.Ordinal), logger);
         }
         catch (LlmException)
         {

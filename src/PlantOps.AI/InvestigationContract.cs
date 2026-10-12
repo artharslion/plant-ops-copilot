@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
 
 namespace PlantOps.AI;
@@ -34,13 +35,19 @@ public static class InvestigationContract
     public static LlmOutputSchema OutputSchema { get; } = new("investigation_v1", CreateSchema());
 
     // This validates shape and reference membership only. P3.3 adds ledger/actor and fact semantics.
-    public static InvestigationResult ParseAndValidateReferences(string content, IReadOnlySet<string> authorizedEvidenceIds)
+    public static InvestigationResult ParseAndValidateReferences(string content, IReadOnlySet<string> authorizedEvidenceIds,
+        ILogger? logger = null)
     {
+        LlmException Invalid(string rule)
+        {
+            logger?.LogWarning("AI contract invalid: rule={Rule}", rule);
+            return new LlmException(LlmFailure.InvalidResponse);
+        }
         try
         {
             if (Encoding.UTF8.GetByteCount(content) > 65536)
             {
-                throw new LlmException(LlmFailure.InvalidResponse);
+                throw Invalid("body-size");
             }
             var result = JsonSerializer.Deserialize<InvestigationResult>(content, Json);
             if (result is null || result.SchemaVersion != "1" || !ValidText(result.Summary)
@@ -51,20 +58,20 @@ public static class InvestigationContract
                 || result.DataWarnings is null || result.DataWarnings.Length != 0
                 || result.EvidenceIds is null || result.EvidenceIds.Length > 40)
             {
-                throw new LlmException(LlmFailure.InvalidResponse);
+                throw Invalid("required-fields-or-limits");
             }
             var referenced = new HashSet<string>(StringComparer.Ordinal);
             void CheckReferences(string[]? ids, bool required)
             {
                 if (ids is null || ids.Length > 8 || (required && ids.Length == 0) || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length)
                 {
-                    throw new LlmException(LlmFailure.InvalidResponse);
+                    throw Invalid("missing-or-duplicate-item-references");
                 }
                 foreach (var id in ids)
                 {
                     if (string.IsNullOrEmpty(id) || id.Length > 100 || !authorizedEvidenceIds.Contains(id))
                     {
-                        throw new LlmException(LlmFailure.InvalidResponse);
+                        throw Invalid("unauthorized-reference");
                     }
                     referenced.Add(id);
                 }
@@ -73,7 +80,7 @@ public static class InvestigationContract
             {
                 if (item is null || !ValidText(item.Text))
                 {
-                    throw new LlmException(LlmFailure.InvalidResponse);
+                    throw Invalid("observation-text");
                 }
                 CheckReferences(item.EvidenceIds, true);
             }
@@ -81,7 +88,7 @@ public static class InvestigationContract
             {
                 if (item is null || !ValidText(item.Text) || !ValidText(item.Verification) || item.Support is not ("weak" or "moderate" or "strong"))
                 {
-                    throw new LlmException(LlmFailure.InvalidResponse);
+                    throw Invalid("hypothesis-fields");
                 }
                 CheckReferences(item.EvidenceIds, true);
             }
@@ -89,18 +96,18 @@ public static class InvestigationContract
             {
                 if (item is null || !ValidText(item.Text))
                 {
-                    throw new LlmException(LlmFailure.InvalidResponse);
+                    throw Invalid("next-check-text");
                 }
                 CheckReferences(item.EvidenceIds, false);
             }
             if (result.EvidenceIds.Distinct(StringComparer.Ordinal).Count() != result.EvidenceIds.Length
                 || !referenced.SetEquals(result.EvidenceIds))
             {
-                throw new LlmException(LlmFailure.InvalidResponse);
+                throw Invalid("root-reference-set");
             }
             return result;
         }
-        catch (JsonException) { throw new LlmException(LlmFailure.InvalidResponse); }
+        catch (JsonException) { throw Invalid("json-deserialization"); }
     }
 
     public static string Serialize(InvestigationResult result) => JsonSerializer.Serialize(result, Json);
