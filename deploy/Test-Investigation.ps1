@@ -17,8 +17,19 @@ try {
     $env:PLANTOPS_TEST_CONNECTION = $env:ConnectionStrings__PlantOps.Replace('Database=plantops;', 'Database=plantops_tests;').Replace('Command Timeout=5', 'Command Timeout=60') + ";Search Path=$evidenceSchema"
     $env:PLANTOPS_TEST_DOCUMENT_ROOT = Join-Path $evidenceRoot 'documents'
     @{ Schema = $evidenceSchema; Documents = $env:PLANTOPS_TEST_DOCUMENT_ROOT; RealProviderVerified = $false } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidenceRoot 'scope.json')
-    dotnet test "$PSScriptRoot/../tests/PlantOps.Tests" --artifacts-path "$evidenceRoot/build" --filter 'FullyQualifiedName~PlantOps.Tests.InvestigationServiceTests|FullyQualifiedName~PlantOps.Tests.InvestigationEngineTests|FullyQualifiedName~PlantOps.Tests.DocumentEvidenceTests|FullyQualifiedName~PlantOps.Tests.DocumentTests|FullyQualifiedName~PlantOps.Tests.DocumentParserTests|FullyQualifiedName~PlantOps.Tests.Ai|FullyQualifiedName~PlantOps.Tests.HealthEndpointTests|FullyQualifiedName~PlantOps.Tests.MeasurementMaintenanceTests|FullyQualifiedName~PlantOps.Tests.Sampling|FullyQualifiedName~PlantOps.Tests.TrendSamplingTests|FullyQualifiedName~PlantOps.Tests.OpcUaDemoPolicyTests' --logger "trx;LogFileName=$evidenceRoot/results.trx" --logger 'console;verbosity=minimal'
-    if ($LASTEXITCODE -ne 0) { throw "Investigation tests failed. Results retained in $evidenceRoot." }
+    dotnet test "$PSScriptRoot/../tests/PlantOps.Tests" --artifacts-path "$evidenceRoot/build" --filter 'FullyQualifiedName~PlantOps.Tests.InvestigationScenarioTests|FullyQualifiedName~PlantOps.Tests.InvestigationServiceTests|FullyQualifiedName~PlantOps.Tests.InvestigationEngineTests|FullyQualifiedName~PlantOps.Tests.DocumentEvidenceTests|FullyQualifiedName~PlantOps.Tests.DocumentTests|FullyQualifiedName~PlantOps.Tests.DocumentParserTests|FullyQualifiedName~PlantOps.Tests.Ai|FullyQualifiedName~PlantOps.Tests.HealthEndpointTests|FullyQualifiedName~PlantOps.Tests.MeasurementMaintenanceTests|FullyQualifiedName~PlantOps.Tests.Sampling|FullyQualifiedName~PlantOps.Tests.TrendSamplingTests|FullyQualifiedName~PlantOps.Tests.OpcUaDemoPolicyTests' --logger "trx;LogFileName=$evidenceRoot/results.trx" --logger 'console;verbosity=minimal'
+    $testExitCode = $LASTEXITCODE
+    if (Test-Path -LiteralPath "$evidenceRoot/results.trx") {
+        [xml]$trx = Get-Content -LiteralPath "$evidenceRoot/results.trx" -Raw
+        $cases = @($trx.TestRun.Results.UnitTestResult | Where-Object testName -like '*InvestigationScenarioTests.FrozenBusinessScenario*' | ForEach-Object {
+            if ($_.testName -notmatch 'S(?<id>\d{2})-[a-z-]+') { throw 'Scenario ID missing from test result.' }
+            @{ Id = $Matches[0]; Number = [int]$Matches.id; Outcome = $_.outcome; Name = $_.testName }
+        } | Sort-Object Number)
+        $complete = $cases.Count -eq 20 -and @($cases.Number | Select-Object -Unique).Count -eq 20 -and @($cases | Where-Object Outcome -ne 'Passed').Count -eq 0
+        @{ Passed = $complete; Cases = $cases; DeterministicOnly = $true; RealProviderVerified = $false; RealQualityAcceptance = $false; P4Acceptance = $false } |
+            ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$evidenceRoot/scenario-check.json"
+    } else { $complete = $false }
+    if ($testExitCode -ne 0 -or -not $complete) { throw "Investigation tests or twenty-scenario checks failed. Results retained in $evidenceRoot." }
     Write-Output "Investigation tests passed. Results retained in $evidenceRoot."
 } finally {
     foreach ($name in $evidenceVariables) { [Environment]::SetEnvironmentVariable($name, $evidencePrevious[$name], 'Process') }
