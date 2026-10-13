@@ -35,8 +35,8 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 receivedHeaders = true;
                 if (!response.IsSuccessStatusCode)
                 {
-                    logger?.LogWarning("AI transport failed: stage=http-status; status={Status}; attempt={Attempt}",
-                        (int)response.StatusCode, attempt + 1);
+                    logger?.LogWarning("AI transport failed: stage=http-status; status={Status}; attempt={Attempt}; cloudflare={Cloudflare}; via={Via}",
+                        (int)response.StatusCode, attempt + 1, response.Headers.Contains("cf-ray"), response.Headers.Contains("Via"));
                     throw new LlmException(Classify(response.StatusCode));
                 }
                 var result = options.StreamResponses

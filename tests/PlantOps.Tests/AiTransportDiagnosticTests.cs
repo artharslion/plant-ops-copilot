@@ -34,6 +34,10 @@ public sealed class AiTransportDiagnosticTests
         Assert.DoesNotContain(secret, entry);
         Assert.DoesNotContain("https://", entry);
         Assert.DoesNotContain(secret, failure.ToString());
+        if (mode == "status")
+        {
+            Assert.Contains("cloudflare=True; via=True", entry);
+        }
     }
 
     private sealed class FailingHandler(string mode, string secret) : HttpMessageHandler
@@ -50,8 +54,16 @@ public sealed class AiTransportDiagnosticTests
             {
                 "network" => throw new HttpRequestException(HttpRequestError.NameResolutionError, secret),
                 "io" => throw new IOException(secret),
-                _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent(secret) })
+                _ => Task.FromResult(StatusResponse(secret))
             };
+        }
+
+        private static HttpResponseMessage StatusResponse(string secret)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent(secret) };
+            response.Headers.TryAddWithoutValidation("cf-ray", secret);
+            response.Headers.TryAddWithoutValidation("Via", secret);
+            return response;
         }
     }
 }
