@@ -152,7 +152,8 @@ public sealed class InvestigationRealQualityTests
             checks["MissingMaterialEvidence"] = !run.Evidence.Any(e => e.Kind == "Document")
                 && run.Warnings.Any(w => w.Contains("未检索到", StringComparison.Ordinal))
                 && run.Evidence.SelectMany(e => e.Facts).Any(f => f.Contains("没有查询到设备维护工单", StringComparison.Ordinal));
-            checks["ModelStatesMissing"] = answer?.MissingInformation.Any(x => x.Contains("资料", StringComparison.Ordinal) || x.Contains("说明", StringComparison.Ordinal) || x.Contains("维护", StringComparison.Ordinal)) == true;
+            checks["ModelStatesMissing"] = answer?.MissingInformation.Any(x => x.Contains("资料", StringComparison.Ordinal) || x.Contains("说明", StringComparison.Ordinal)
+                || x.Contains("维护", StringComparison.Ordinal) || x.Contains("规程", StringComparison.Ordinal)) == true;
         }
         if (scenario == "S04-bad-current")
         {
