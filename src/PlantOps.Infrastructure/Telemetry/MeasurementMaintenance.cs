@@ -60,7 +60,8 @@ public sealed class MeasurementMaintenance(PlantOpsDbContext db, TimeProvider cl
             WITH samples AS (
               SELECT r.*, d."BucketStart", p."ExpectedIntervalMs",
                 lag(r."EffectiveAt") OVER (PARTITION BY r."PointId", d."BucketStart" ORDER BY r."EffectiveAt", r."ReceivedAt", r."Id") AS prior,
-                (r."Quality" = 'Good' AND r."NumericValue" IS NOT NULL AND NOT r."TimeAnomaly") AS trusted
+                (r."Quality" = 'Good' AND r."NumericValue" IS NOT NULL AND NOT r."TimeAnomaly"
+                  AND (coalesce(r."RawStatusCode",0) & 3200) <> 1152) AS trusted
               FROM "DirtyMeasurementMinutes" d JOIN "MeasurementPoints" p ON p."Id" = d."PointId"
               JOIN "MeasurementReadings" r ON r."PointId" = d."PointId" AND r."EffectiveDate" = (d."BucketStart" AT TIME ZONE 'UTC')::date
                 AND r."EffectiveAt" >= d."BucketStart" AND r."EffectiveAt" < d."BucketStart" + interval '1 minute'
@@ -83,6 +84,39 @@ public sealed class MeasurementMaintenance(PlantOpsDbContext db, TimeProvider cl
               "GoodCount"=EXCLUDED."GoodCount","UncertainCount"=EXCLUDED."UncertainCount","BadCount"=EXCLUDED."BadCount","AnomalyCount"=EXCLUDED."AnomalyCount",
               "SampleCount"=EXCLUDED."SampleCount","HasGap"=EXCLUDED."HasGap","CoverageRatio"=EXCLUDED."CoverageRatio"
             """, cancellationToken);
+        // OPC UA coverage must use recorded server revisions, never current point requests.
+        // Unknown or change-driven intervals cannot establish a physical sample count.
+        var protocolMinutes = await (from dirty in db.DirtyMeasurementMinutes
+                                     join reading in db.MeasurementReadings on dirty.PointId equals reading.PointId
+                                     where dirty.BucketStart < end && reading.SourceKind == "OpcUa"
+                                         && reading.EffectiveDate == DateOnly.FromDateTime(dirty.BucketStart.UtcDateTime)
+                                         && reading.EffectiveAt >= dirty.BucketStart && reading.EffectiveAt < dirty.BucketStart.AddMinutes(1)
+                                     select new
+                                     {
+                                         dirty.PointId,
+                                         dirty.BucketStart
+                                     }).Distinct().ToListAsync(cancellationToken);
+        foreach (var protocolMinute in protocolMinutes)
+        {
+            var minute = await db.MeasurementMinutes.SingleAsync(x => x.PointId == protocolMinute.PointId
+                && x.BucketStart == protocolMinute.BucketStart, cancellationToken);
+            await db.Entry(minute).ReloadAsync(cancellationToken);
+            var from = protocolMinute.BucketStart;
+            var to = from.AddMinutes(1);
+            var profiles = await db.SamplingProfiles.AsNoTracking().Where(x => x.PointId == protocolMinute.PointId
+                && x.EffectiveFrom < to && (x.EffectiveTo == null || x.EffectiveTo > from)).ToListAsync(cancellationToken);
+            var coverage = SamplingCoverage.Calculate(from, to, minute.GoodCount, profiles);
+            minute.CoverageRatio = coverage.CoverageRatio;
+            minute.SamplingMode = coverage.Mode;
+            var explicitGap = await db.IngestionGaps.AnyAsync(x => x.PointId == protocolMinute.PointId
+                && x.From < to && (x.To == null || x.To > from), cancellationToken);
+            var observations = await db.MeasurementReadings.AsNoTracking().Where(x => x.PointId == protocolMinute.PointId
+                && x.EffectiveDate == DateOnly.FromDateTime(from.UtcDateTime) && x.EffectiveAt >= from && x.EffectiveAt < to)
+                .ToListAsync(cancellationToken);
+            minute.HasGap = coverage.Mode == "Unknown" || coverage.CoverageRatio < 1 || minute.UncertainCount > 0 || minute.BadCount > 0
+                || minute.AnomalyCount > 0 || explicitGap || SamplingCoverage.HasTimingGap(from, to, profiles, observations);
+        }
+        await db.SaveChangesAsync(cancellationToken);
         await db.DirtyMeasurementMinutes.Where(x => x.BucketStart < end).ExecuteDeleteAsync(cancellationToken);
         await db.Database.ExecuteSqlRawAsync("""
             UPDATE "MeasurementPartitions" p SET "AggregatedRevision" = "Revision"

@@ -66,7 +66,10 @@ public static class SamplePolicy
 
     public static bool IsFresh(DateTimeOffset at, DateTimeOffset now, int staleMs) => at <= now.AddSeconds(5) && now - at <= TimeSpan.FromMilliseconds(staleMs);
 
-    public static bool IsGood(MeasurementReading reading) => reading.Quality == "Good" && reading.NumericValue.HasValue && double.IsFinite(reading.NumericValue.Value) && !reading.TimeAnomaly;
+    public static bool HasOverflow(uint? status) => status.HasValue && (status.Value & 0xC80) == 0x480;
+
+    public static bool IsGood(MeasurementReading reading) => reading.Quality == "Good" && reading.NumericValue.HasValue
+        && double.IsFinite(reading.NumericValue.Value) && !reading.TimeAnomaly && !HasOverflow(reading.RawStatusCode);
 
     public static void Apply(PointLatestState state, MeasurementReading reading, int staleMs)
     {

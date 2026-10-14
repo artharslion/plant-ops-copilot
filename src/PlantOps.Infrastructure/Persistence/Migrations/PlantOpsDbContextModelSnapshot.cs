@@ -154,6 +154,115 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.AI.AiRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid>("AlarmId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("InputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("ModelRounds")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Simulated")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("ToolCalls")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WarningsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlarmId");
+
+                    b.HasIndex("PlantId", "AssetId");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.HasIndex("ActorUserId", "AlarmId", "CreatedAt");
+
+                    b.ToTable("AiRuns", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiRun_Status", "\"Status\" IN ('Pending','Running','Succeeded','Failed','Cancelled') AND \"Attempts\" BETWEEN 0 AND 2");
+                        });
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Alarms.Alarm", b =>
                 {
                     b.Property<Guid>("Id")
@@ -648,6 +757,60 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("EndLine")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ParserVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Section")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("StartLine")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId", "VersionId");
+
+                    b.HasIndex("VersionId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("DocumentChunks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentChunk", "\"Ordinal\" >= 0 AND \"Ordinal\" < 256 AND \"StartLine\" > 0 AND \"EndLine\" >= \"StartLine\"");
+                        });
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentVersion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -708,8 +871,6 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasAlternateKey("DocumentId", "Id");
 
                     b.HasIndex("StorageKey")
                         .IsUnique();
@@ -1013,7 +1174,7 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.Property<int>("BadCount")
                         .HasColumnType("integer");
 
-                    b.Property<double>("CoverageRatio")
+                    b.Property<double?>("CoverageRatio")
                         .HasColumnType("double precision");
 
                     b.Property<int>("GoodCount")
@@ -1030,6 +1191,13 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("SampleCount")
                         .HasColumnType("integer");
+
+                    b.Property<string>("SamplingMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Periodic");
 
                     b.Property<int>("UncertainCount")
                         .HasColumnType("integer");
@@ -1265,6 +1433,52 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("PointLatestStates");
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.SamplingProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("MappingVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("PointId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double?>("RevisedPublishingIntervalMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<long?>("RevisedQueueSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<double?>("RevisedSamplingIntervalMs")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("SourceMappingId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PointId", "EffectiveFrom")
+                        .IsUnique();
+
+                    b.ToTable("SamplingProfiles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SamplingProfile_Values", "\"Mode\" IN ('Periodic','Changes','Unknown') AND (\"EffectiveTo\" IS NULL OR \"EffectiveTo\" > \"EffectiveFrom\") AND (\"Mode\" <> 'Periodic' OR (\"RevisedSamplingIntervalMs\" IS NOT NULL AND \"RevisedSamplingIntervalMs\" > 0 AND \"RevisedSamplingIntervalMs\" < 'Infinity'::double precision)) AND (\"RevisedPublishingIntervalMs\" IS NULL OR (\"RevisedPublishingIntervalMs\" > 0 AND \"RevisedPublishingIntervalMs\" < 'Infinity'::double precision)) AND (\"RevisedQueueSize\" IS NULL OR \"RevisedQueueSize\" BETWEEN 1 AND 10000)");
+                        });
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Telemetry.SourceMapping", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1441,6 +1655,22 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.AI.AiRun", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Alarms.Alarm", null)
+                        .WithMany()
+                        .HasForeignKey("AlarmId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Assets.Asset", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId")
+                        .HasPrincipalKey("PlantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Alarms.Alarm", b =>
                 {
                     b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
@@ -1539,6 +1769,16 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PlantId", "AssetId")
                         .HasPrincipalKey("PlantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentChunk", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Knowledge.DocumentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId", "VersionId")
+                        .HasPrincipalKey("DocumentId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PlantOps.Domain.Knowledge.DocumentVersion", b =>
@@ -1641,6 +1881,15 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
                         .WithOne()
                         .HasForeignKey("PlantOps.Domain.Telemetry.PointLatestState", "PointId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.SamplingProfile", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.MeasurementPoint", null)
+                        .WithMany()
+                        .HasForeignKey("PointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

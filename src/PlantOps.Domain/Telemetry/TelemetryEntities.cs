@@ -250,10 +250,12 @@ public sealed class MeasurementMinute
         get; set;
     }
 
-    public double CoverageRatio
+    public double? CoverageRatio
     {
         get; set;
     }
+
+    public string SamplingMode { get; set; } = "Periodic";
 }
 
 public sealed class DirtyMeasurementMinute

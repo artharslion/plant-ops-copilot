@@ -37,5 +37,7 @@ public interface IDocumentFileStore
 
     Task<byte[]> ReadAsync(string key);
 
+    Task<byte[]> ReadBoundedAsync(string key, int maximumBytes, CancellationToken cancellationToken = default);
+
     Task RemoveAsync(string key);
 }

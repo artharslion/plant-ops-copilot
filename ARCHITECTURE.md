@@ -1,5 +1,9 @@
 # 架构 v0.1
 
+2026-10-09 实施顺序调整：按 [AI 演示计划](docs/plans/2026-10-09-ai-demo-acceptance.md)，下一主线直接在 P1 Simulation 上增加 P3 AI job、授权资料检索和调查，再做 P4 人工审批。完整 P2/G0 不作为 AI 前置；保留原业务服务、数据源接口与权限边界。首轮不要求 pgvector，向量/PDF/完整 OPC UA 为后续增强。本文旧阶段顺序与容量依赖以该计划为准。
+
+2026-10-06 P2 增量：Integrations.OpcUa 固定 Client 1.5.378.182，新增节点身份/数值状态时间标准化；Application 的配置 DTO 仅含批准引用和节点参数；SamplingProfiles 保存历史修正区间，分钟支持未知覆盖率。集成库尚未注入 Worker，API 拒绝 OPC UA 启用。完整协议生命周期与容量仍待验收，详见 [P2.2 记录](docs/P2_2_VALIDATION.md)。
+
 日期：2026-10-03。所有 ADR 状态为 Proposed，作为第一版实现默认值；变更须同步规格、实体和路线图。
 
 ## 设计原则

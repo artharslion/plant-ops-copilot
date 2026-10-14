@@ -11,6 +11,11 @@
           "StyleCop.Analyzers.Unstable": "1.2.0.556"
         }
       },
+      "BitFaster.Caching": {
+        "type": "Transitive",
+        "resolved": "2.6.0",
+        "contentHash": "iF2dMiGpaya8Umwi0OfsGKtq3aMVgHVsBChwQL+NhShEsRorcoTinGf9FFNBnBMwJW2Vm0FqhtOaEBY0+74p6g=="
+      },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
         "type": "Transitive",
         "resolved": "10.0.12",
@@ -46,6 +51,11 @@
           "Microsoft.EntityFrameworkCore": "10.0.12"
         }
       },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.4",
+        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
       "Npgsql": {
         "type": "Transitive",
         "resolved": "10.0.3",
@@ -61,10 +71,57 @@
           "Npgsql": "10.0.3"
         }
       },
+      "OPCFoundation.NetStandard.Opc.Ua.Client": {
+        "type": "Transitive",
+        "resolved": "1.5.378.182",
+        "contentHash": "sVj7WU2eF7JlMSUAP99zDOhB6ksiHBm79WgpdUbYcH90MwnHck15H1YJmTMZVU+r1h3F3Qg/9/h4tO7dEWAGjQ==",
+        "dependencies": {
+          "BitFaster.Caching": "2.6.0",
+          "OPCFoundation.NetStandard.Opc.Ua.Configuration": "1.5.378.182",
+          "OPCFoundation.NetStandard.Opc.Ua.Core": "1.5.378.182"
+        }
+      },
+      "OPCFoundation.NetStandard.Opc.Ua.Configuration": {
+        "type": "Transitive",
+        "resolved": "1.5.378.182",
+        "contentHash": "xVKh0ldsbumW0G6h92mQ8lJu2QdkbTEMEh7ykCwcD3QcKb6+TwzifmjGOuA6N5Bvtkb4mvvy4iayjNsBQpf/8w==",
+        "dependencies": {
+          "OPCFoundation.NetStandard.Opc.Ua.Core": "1.5.378.182"
+        }
+      },
+      "OPCFoundation.NetStandard.Opc.Ua.Core": {
+        "type": "Transitive",
+        "resolved": "1.5.378.182",
+        "contentHash": "TDCpf0VkGimaHGxKUo+Vq9iypcc+bYOf/OmiSMQWh7fkI83TBfIwgyFWc1h1jWgOO62U+AjSjQ6j6pd8sJ7xGg==",
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.4",
+          "OPCFoundation.NetStandard.Opc.Ua.Security.Certificates": "1.5.378.182",
+          "OPCFoundation.NetStandard.Opc.Ua.Types": "1.5.378.182"
+        }
+      },
+      "OPCFoundation.NetStandard.Opc.Ua.Security.Certificates": {
+        "type": "Transitive",
+        "resolved": "1.5.378.182",
+        "contentHash": "pEllr9iFON+ZxRXZcFkCfCNA3Ukkq8+Ryq1vEUR8rQeQCQPYCPpERDe+oOZb2YlcqfThqPuJYgTlYFtNm5zf9Q==",
+        "dependencies": {
+          "OPCFoundation.NetStandard.Opc.Ua.Types": "1.5.378.182"
+        }
+      },
+      "OPCFoundation.NetStandard.Opc.Ua.Types": {
+        "type": "Transitive",
+        "resolved": "1.5.378.182",
+        "contentHash": "jTWvryUoryJxh5GfO7RP19s6f91hfjaAUqryHKW2U+1wJSBXOiZVIeZm4xHAZEi4tSbk32ZtXNrBPhQ8xqY44Q=="
+      },
       "StyleCop.Analyzers.Unstable": {
         "type": "Transitive",
         "resolved": "1.2.0.556",
         "contentHash": "zvn9Mqs/ox/83cpYPignI8hJEM2A93s2HkHs8HYMOAQW0PkampyoErAiIyKxgTLqbbad29HX/shv/6LGSjPJNQ=="
+      },
+      "plantops.ai": {
+        "type": "Project",
+        "dependencies": {
+          "PlantOps.Application": "[1.0.0, )"
+        }
       },
       "plantops.application": {
         "type": "Project",
@@ -82,6 +139,13 @@
           "Microsoft.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.12, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
+          "PlantOps.Application": "[1.0.0, )"
+        }
+      },
+      "plantops.integrations.opcua": {
+        "type": "Project",
+        "dependencies": {
+          "OPCFoundation.NetStandard.Opc.Ua.Client": "[1.5.378.182, )",
           "PlantOps.Application": "[1.0.0, )"
         }
       }

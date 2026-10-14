@@ -1,0 +1,114 @@
+[
+  {
+    "Package": "OPCFoundation.NetStandard.Opc.Ua.Client",
+    "Version": "1.5.378.182",
+    "License": "LICENSE.txt",
+    "LicenseType": "file",
+    "RepositoryCommit": "6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b"
+  },
+  {
+    "Package": "OPCFoundation.NetStandard.Opc.Ua.Server",
+    "Version": "1.5.378.182",
+    "License": "LICENSE.txt",
+    "LicenseType": "file",
+    "RepositoryCommit": "6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b"
+  },
+  {
+    "Package": "StyleCop.Analyzers",
+    "Version": "1.2.0-beta.556",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": null
+  },
+  {
+    "Package": "BitFaster.Caching",
+    "Version": "2.6.0",
+    "License": "LICENSE",
+    "LicenseType": "file",
+    "RepositoryCommit": "43a8822785038dd90f8376b202243ad28c53f845"
+  },
+  {
+    "Package": "Microsoft.Extensions.DependencyInjection",
+    "Version": "10.0.8",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca"
+  },
+  {
+    "Package": "Microsoft.Extensions.DependencyInjection.Abstractions",
+    "Version": "10.0.8",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca"
+  },
+  {
+    "Package": "Microsoft.Extensions.Logging",
+    "Version": "10.0.8",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca"
+  },
+  {
+    "Package": "Microsoft.Extensions.Logging.Abstractions",
+    "Version": "10.0.8",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca"
+  },
+  {
+    "Package": "Microsoft.Extensions.Options",
+    "Version": "10.0.8",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca"
+  },
+  {
+    "Package": "Microsoft.Extensions.Primitives",
+    "Version": "10.0.8",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca"
+  },
+  {
+    "Package": "Newtonsoft.Json",
+    "Version": "13.0.4",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": "4e13299d4b0ec96bd4df9954ef646bd2d1b5bf2a"
+  },
+  {
+    "Package": "OPCFoundation.NetStandard.Opc.Ua.Configuration",
+    "Version": "1.5.378.182",
+    "License": "LICENSE.txt",
+    "LicenseType": "file",
+    "RepositoryCommit": "6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b"
+  },
+  {
+    "Package": "OPCFoundation.NetStandard.Opc.Ua.Core",
+    "Version": "1.5.378.182",
+    "License": "LICENSE.txt",
+    "LicenseType": "file",
+    "RepositoryCommit": "6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b"
+  },
+  {
+    "Package": "OPCFoundation.NetStandard.Opc.Ua.Security.Certificates",
+    "Version": "1.5.378.182",
+    "License": "LICENSE.txt",
+    "LicenseType": "file",
+    "RepositoryCommit": "6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b"
+  },
+  {
+    "Package": "OPCFoundation.NetStandard.Opc.Ua.Types",
+    "Version": "1.5.378.182",
+    "License": "LICENSE.txt",
+    "LicenseType": "file",
+    "RepositoryCommit": "6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b"
+  },
+  {
+    "Package": "StyleCop.Analyzers.Unstable",
+    "Version": "1.2.0.556",
+    "License": "MIT",
+    "LicenseType": "expression",
+    "RepositoryCommit": null
+  }
+]

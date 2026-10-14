@@ -48,6 +48,25 @@ public sealed class LocalDocumentFileStore(IConfiguration config, IHostEnvironme
 
     public Task<byte[]> ReadAsync(string key) => File.ReadAllBytesAsync(PathFor(key));
 
+    public async Task<byte[]> ReadBoundedAsync(string key, int maximumBytes, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var file = new FileStream(PathFor(key), FileMode.Open, FileAccess.Read, FileShare.Read,
+            4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (file.Length > maximumBytes)
+        {
+            throw new IOException("Document exceeds the permitted read size.");
+        }
+        var content = new byte[checked((int)file.Length)];
+        await file.ReadExactlyAsync(content, cancellationToken);
+        if (file.Length != content.Length)
+        {
+            throw new IOException("Document changed during the read.");
+        }
+        return content;
+    }
+
     public Task RemoveAsync(string key)
     {
         File.Delete(PathFor(key));

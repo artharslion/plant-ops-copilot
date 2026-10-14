@@ -18,7 +18,7 @@ public sealed class DocumentTests
     private static readonly Guid South = Guid.Parse("10000000-0000-0000-0000-000000000002");
     private static readonly Guid Pump = Guid.Parse("30000000-0000-0000-0000-000000000001");
 
-    private static async Task<HttpResponseMessage> Upload(AssetManagementTests.Session s, DocumentInput input, string name = "manual.md", string mime = "text/markdown", byte[]? content = null, Guid? id = null)
+    internal static async Task<HttpResponseMessage> Upload(AssetManagementTests.Session s, DocumentInput input, string name = "manual.md", string mime = "text/markdown", byte[]? content = null, Guid? id = null)
     {
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent(JsonSerializer.Serialize(input)), "metadata");
@@ -28,9 +28,9 @@ public sealed class DocumentTests
         return await s.Client.PostAsync(id.HasValue ? $"/api/v1/documents/{id}/versions" : "/api/v1/documents", form);
     }
 
-    private static DocumentInput Metadata(DocumentDto d) => new(d.PlantId, d.AssetId, d.Title, d.Category, d.Visibility, d.AllowedRoles, d.Version);
+    internal static DocumentInput Metadata(DocumentDto d) => new(d.PlantId, d.AssetId, d.Title, d.Category, d.Visibility, d.AllowedRoles, d.Version);
 
-    private static async Task<DocumentDto> Publish(AssetManagementTests.Session s, DocumentDto d, int v, bool withdraw = false)
+    internal static async Task<DocumentDto> Publish(AssetManagementTests.Session s, DocumentDto d, int v, bool withdraw = false)
     {
         var r = await s.Client.PostAsJsonAsync($"/api/v1/documents/{d.Id}/{(withdraw ? "withdraw" : "publish")}", new PublishDocument(d.Version, v));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
@@ -149,6 +149,7 @@ public sealed class DocumentTests
         await using var scope = s.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         Assert.Equal(1, await db.AuditLogs.CountAsync(x => x.ResourceId == d.Id));
+        Assert.Single(await db.DocumentChunks.Where(x => x.DocumentId == d.Id).ToListAsync());
         d = await Publish(s, d, 1);
         Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync($"/api/v1/documents/{d.Id}/versions/1/download")).StatusCode);
     }

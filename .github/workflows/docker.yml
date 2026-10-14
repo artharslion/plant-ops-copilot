@@ -1,0 +1,39 @@
+name: Docker smoke test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: docker-ci-database-only
+      DEMO_PASSWORD: Docker-CI-Only-123!
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose and build images
+        run: |
+          docker compose config --quiet
+          docker compose build api worker web
+      - name: Initialize isolated demo database
+        run: |
+          docker compose up -d --wait database
+          docker compose run --rm --no-deps db-init
+      - name: Start and check the full stack
+        run: |
+          docker compose up -d --wait --wait-timeout 180 api worker web
+          curl --fail http://127.0.0.1:8080/health/ready
+          curl --fail http://127.0.0.1:8080/
+          curl --fail http://127.0.0.1:8080/alarms
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/api/v1/plants)" = 401
+          docker compose exec -T worker bash /app/healthcheck.sh
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
+      - name: Stop containers
+        if: always()
+        run: docker compose down

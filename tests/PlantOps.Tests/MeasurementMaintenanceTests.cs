@@ -56,7 +56,143 @@ public sealed class MeasurementMaintenanceTests
             Db.ChangeTracker.Clear();
         }
 
+        public async Task UseOpcUa()
+        {
+            var source = await Db.DataSources.SingleAsync();
+            source.Kind = "OpcUa";
+            await Db.SaveChangesAsync();
+            Db.ChangeTracker.Clear();
+            Source = Assert.Single(await new SourceConfigurationReader(Db).GetEnabledAsync());
+        }
+
         public ValueTask DisposeAsync() => Db.DisposeAsync();
+    }
+
+    [DatabaseFact]
+    public async Task FiniteStoppedOpcUaRunAggregatesOnlyClosedMinutesWithoutAddingReadings()
+    {
+        await using var f = await Fixture.Create();
+        await f.UseOpcUa();
+        var start = f.Clock.Now.AddSeconds(10);
+        f.Db.SamplingProfiles.Add(new()
+        {
+            PointId = f.Source.PointId,
+            SourceMappingId = f.Source.MappingId,
+            MappingVersion = f.Source.MappingVersion,
+            EffectiveFrom = start,
+            EffectiveTo = start.AddSeconds(50),
+            Mode = "Periodic",
+            RevisedSamplingIntervalMs = 1000
+        });
+        await f.Db.SaveChangesAsync();
+        for (var i = 0; i < 50; i++)
+        {
+            f.Clock.Now = start.AddSeconds(i);
+            await f.Send(f.Clock.Now, i < 15 ? 4 : i < 30 ? 12.6 : 6);
+        }
+        await f.Db.SourceMappings.ExecuteUpdateAsync(x => x.SetProperty(m => m.Enabled, false));
+        await f.Db.DataSources.ExecuteUpdateAsync(x => x.SetProperty(s => s.Enabled, false));
+        // Current minute must not be published, even after collection has stopped.
+        Assert.Equal(0, await f.Maintenance.AggregateAsync());
+        Assert.Empty(await f.Db.MeasurementMinutes.ToListAsync());
+        f.Clock.Now = start.AddSeconds(51);
+        Assert.Equal(1, await f.Maintenance.AggregateAsync());
+        var minute = Assert.Single(await f.Db.MeasurementMinutes.AsNoTracking().ToListAsync());
+        Assert.Equal(50, minute.SampleCount);
+        Assert.Equal(50, minute.GoodCount);
+        Assert.Equal(4, minute.Min);
+        Assert.Equal(12.6, minute.Max);
+        Assert.Equal((15 * 4 + 15 * 12.6 + 20 * 6) / 50, minute.Average!.Value, 9);
+        Assert.True(minute.HasGap);
+        Assert.Equal(50, await f.Db.MeasurementReadings.CountAsync());
+        Assert.Empty(await f.Db.DirtyMeasurementMinutes.ToListAsync());
+    }
+
+    [DatabaseFact]
+    public async Task OverflowIsPersistedOnceResetsPendingAndCannotAdvanceLastGoodOrMinuteStatistics()
+    {
+        await using var f = await Fixture.Create();
+        var start = f.Clock.Now;
+        await f.Send(start, 12.6);
+        var trusted = await f.Db.PointLatestStates.SingleAsync();
+        var lastGoodId = trusted.LastGoodReadingId;
+        var overflow = SamplePolicy.Normalize(f.Source, 99, "Good", start.AddSeconds(1), null,
+            start.AddSeconds(1), "overflow-event", 0x480, "Good|Overflow");
+        var ingestor = new MeasurementIngestor(f.Db, f.Clock);
+        Assert.Equal(1, (await ingestor.IngestAsync([overflow])).Inserted);
+        Assert.Equal(1, (await ingestor.IngestAsync([overflow])).Duplicates);
+        f.Db.ChangeTracker.Clear();
+        Assert.Equal(lastGoodId, (await f.Db.PointLatestStates.SingleAsync()).LastGoodReadingId);
+        var gap = Assert.Single(await f.Db.IngestionGaps.ToListAsync());
+        Assert.Equal("ServerOverflow", gap.Reason);
+        Assert.Null(gap.DroppedCount);
+        Assert.True(gap.IsPossible);
+        Assert.Null((await f.Db.RuleRuntimeStates.SingleAsync()).PendingRaiseSince);
+        f.Clock.Now = start.AddMinutes(2);
+        await f.Maintenance.AggregateAsync();
+        var minute = Assert.Single(await f.Db.MeasurementMinutes.ToListAsync());
+        Assert.Equal(1, minute.GoodCount);
+        Assert.Equal(12.6, minute.Max);
+        Assert.True(minute.HasGap);
+    }
+
+    [DatabaseFact]
+    public async Task RevisedPeriodicProfileAvoidsInventedLossAndSurvivesLateMinuteRebuild()
+    {
+        await using var f = await Fixture.Create();
+        await f.UseOpcUa();
+        var start = f.Clock.Now;
+        f.Db.SamplingProfiles.Add(new()
+        {
+            PointId = f.Source.PointId,
+            SourceMappingId = f.Source.MappingId,
+            MappingVersion = f.Source.MappingVersion,
+            EffectiveFrom = start,
+            Mode = "Periodic",
+            RevisedSamplingIntervalMs = 2000
+        });
+        await f.Db.SaveChangesAsync();
+        for (var i = 0; i < 30; i++)
+        {
+            f.Clock.Now = start.AddSeconds(i * 2);
+            await f.Send(f.Clock.Now, 4);
+        }
+        Assert.Empty(await f.Db.IngestionGaps.ToListAsync());
+        f.Clock.Now = start.AddMinutes(2);
+        await f.Maintenance.AggregateAsync();
+        var minute = Assert.Single(await f.Db.MeasurementMinutes.ToListAsync());
+        Assert.Equal(1.0, minute.CoverageRatio);
+        Assert.False(minute.HasGap);
+        await f.Send(start.AddSeconds(15), 4, key: "late-independent");
+        await f.Maintenance.AggregateAsync();
+        minute = Assert.Single(await f.Db.MeasurementMinutes.AsNoTracking().ToListAsync());
+        Assert.Equal(1.0, minute.CoverageRatio);
+    }
+
+    [DatabaseFact]
+    public async Task ChangeNotificationCoverageIsUnknownWithoutInventedPhysicalLoss()
+    {
+        await using var f = await Fixture.Create();
+        await f.UseOpcUa();
+        var start = f.Clock.Now;
+        f.Db.SamplingProfiles.Add(new()
+        {
+            PointId = f.Source.PointId,
+            SourceMappingId = f.Source.MappingId,
+            MappingVersion = f.Source.MappingVersion,
+            EffectiveFrom = start,
+            Mode = "Changes"
+        });
+        await f.Db.SaveChangesAsync();
+        await f.Send(start, 4);
+        await f.Send(start.AddSeconds(50), 4);
+        Assert.Empty(await f.Db.IngestionGaps.ToListAsync());
+        f.Clock.Now = start.AddMinutes(2);
+        await f.Maintenance.AggregateAsync();
+        var minute = Assert.Single(await f.Db.MeasurementMinutes.ToListAsync());
+        Assert.Null(minute.CoverageRatio);
+        Assert.Equal("Changes", minute.SamplingMode);
+        Assert.False(minute.HasGap);
     }
 
     [DatabaseFact]
@@ -261,6 +397,6 @@ public sealed class MeasurementMaintenanceTests
         await f.Maintenance.AggregateAsync();
         var minute = Assert.Single(await f.Db.MeasurementMinutes.ToListAsync());
         Assert.True(minute.HasGap);
-        Assert.Equal(2.0 / 60, minute.CoverageRatio, 8);
+        Assert.Equal(2.0 / 60, minute.CoverageRatio!.Value, 8);
     }
 }

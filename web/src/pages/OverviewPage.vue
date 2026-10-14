@@ -63,8 +63,9 @@ onMounted(refresh)
     </article>
     <article class="status-card planned">
       <div class="card-label">调查助手 <span>03</span></div>
-      <h2>计划中</h2>
-      <p>Phase 3 · Investigation Copilot</p>
+      <h2>从告警开始</h2>
+      <p>只读调查 · 授权证据 · 人工核实</p>
+      <RouterLink to="/alarms">进入告警台 →</RouterLink>
     </article>
   </section>
   <p class="checked-at">

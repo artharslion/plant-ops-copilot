@@ -5,21 +5,32 @@ namespace PlantOps.Application.Telemetry;
 public static class TrendBuilder
 {
     public static MeasurementTrend Build(MeasurementPoint point, IReadOnlyList<MeasurementReading> readings,
-        DateTimeOffset from, DateTimeOffset to, string bucket, DateTimeOffset checkedAt, IReadOnlyList<IngestionGap>? gaps = null)
+        DateTimeOffset from, DateTimeOffset to, string bucket, DateTimeOffset checkedAt, IReadOnlyList<IngestionGap>? gaps = null,
+        IReadOnlyList<SamplingProfile>? profiles = null)
     {
         var ordered = readings.OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToList();
-        var tolerance = TimeSpan.FromMilliseconds(point.ExpectedIntervalMs * 1.5);
+        var protocol = ordered.Any(x => x.SourceKind == "OpcUa");
+        var pointProfiles = profiles?.Where(x => x.PointId == point.Id).ToArray() ?? [];
+        bool TimingGap(DateTimeOffset start, DateTimeOffset end)
+        {
+            return protocol ? SamplingCoverage.HasIntervalGap(start, end, pointProfiles)
+                : end - start > TimeSpan.FromMilliseconds(point.ExpectedIntervalMs * 1.5);
+        }
+        bool ExplicitGap(DateTimeOffset start, DateTimeOffset end, bool includeEnd = false) =>
+            (end > start || includeEnd) && (gaps?.Any(g => g.PointId == point.Id
+                && (includeEnd ? g.From <= end : g.From < end) && (g.To == null || g.To > start)) ?? false);
         var samples = new List<TrendSample>();
         DateTimeOffset prior = from;
         foreach (var r in ordered)
         {
             samples.Add(new(r.Id, r.EffectiveAt, r.ReceivedAt, r.NumericValue, r.Quality, r.TimeAnomaly,
-                r.EffectiveAt - prior > tolerance || (gaps?.Any(g => g.From <= r.EffectiveAt && (g.To == null || g.To > prior)) ?? false), r.DataSourceId, r.SourceMappingId, r.MappingVersion, r.SourceKind,
+                SamplePolicy.HasOverflow(r.RawStatusCode) || TimingGap(prior, r.EffectiveAt)
+                    || ExplicitGap(prior, r.EffectiveAt, includeEnd: true), r.DataSourceId, r.SourceMappingId, r.MappingVersion, r.SourceKind,
                 r.TimestampOrigin, r.SourceTimestamp, r.ServerTimestamp, r.RawStatusCode, r.StatusSymbol));
             prior = r.EffectiveAt;
         }
-        var leading = ordered.Count == 0 || ordered[0].EffectiveAt - from > tolerance || (gaps?.Any(g => g.From <= from && (g.To == null || g.To > from)) ?? false);
-        var trailing = ordered.Count == 0 || to - ordered[^1].EffectiveAt > tolerance || (gaps?.Any(g => g.From < to && (g.To == null || g.To >= to)) ?? false);
+        var leading = ordered.Count == 0 || TimingGap(from, ordered[0].EffectiveAt) || ExplicitGap(from, ordered[0].EffectiveAt);
+        var trailing = ordered.Count == 0 || TimingGap(ordered[^1].EffectiveAt, to) || ExplicitGap(ordered[^1].EffectiveAt, to);
         var buckets = new List<TrendBucket>();
         if (bucket == "1m")
         {
@@ -33,9 +44,18 @@ public static class TrendBuilder
                 var expected = Math.Max(1, Math.Ceiling((coveredTo - coveredFrom).TotalMilliseconds / point.ExpectedIntervalMs));
                 var hasGap = rows.Count < expected || rows.Any(x => x.Quality != "Good" || x.TimeAnomaly || x.NumericValue == null)
                     || samples.Any(x => x.EffectiveAt >= start && x.EffectiveAt < start.AddMinutes(1) && x.GapBefore);
+                var coverage = protocol ? SamplingCoverage.Calculate(coveredFrom, coveredTo, values.Length, pointProfiles)
+                    : new SamplingCoverageResult("Periodic", expected, Math.Min(1, values.Length / expected));
+                if (protocol)
+                {
+                    hasGap = coverage.Mode == "Unknown" || coverage.CoverageRatio < 1 || rows.Any(x => !SamplePolicy.IsGood(x))
+                        || SamplingCoverage.HasTimingGap(coveredFrom, coveredTo, pointProfiles, rows)
+                        || (gaps?.Any(g => g.PointId == point.Id && g.From < coveredTo
+                            && (g.To == null || g.To > coveredFrom)) ?? false);
+                }
                 buckets.Add(new(start, values.Length == 0 ? null : values.Min(), values.Length == 0 ? null : values.Max(),
                     values.Length == 0 ? null : values.Average(), values.Length, rows.Count(x => x.Quality == "Uncertain"),
-                    rows.Count(x => x.Quality == "Bad"), rows.Count(x => x.TimeAnomaly), hasGap, Math.Min(1, values.Length / expected)));
+                    rows.Count(x => x.Quality == "Bad"), rows.Count(x => x.TimeAnomaly), hasGap, coverage.CoverageRatio, coverage.Mode));
             }
         }
         return new(point.Id, point.CanonicalUnit, from, to, bucket, checkedAt,

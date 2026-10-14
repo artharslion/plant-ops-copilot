@@ -66,9 +66,10 @@ public sealed class AssetManagementTests
 
         public string Token { get; private set; } = "";
 
-        public string DocumentRoot => Path.GetFullPath(Path.Combine("artifacts", "test-documents"));
+        public string DocumentRoot => Path.GetFullPath(Environment.GetEnvironmentVariable("PLANTOPS_TEST_DOCUMENT_ROOT")
+            ?? Path.Combine("artifacts", "test-documents"));
 
-        public Session(TimeProvider? clock = null, string? connection = null)
+        public Session(TimeProvider? clock = null, string? connection = null, Action<IServiceCollection>? configureServices = null)
         {
             Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
@@ -79,6 +80,7 @@ public sealed class AssetManagementTests
                     ["Demo:Password"] = Password,
                     ["Realtime:Enabled"] = "false",
                     ["Demo:SeedHistory"] = "false",
+                    ["AI:Provider"] = "Fake",
                     ["Documents:StorageRoot"] = DocumentRoot,
                     ["Logging:LogLevel:Default"] = "Warning"
                 }));
@@ -88,6 +90,10 @@ public sealed class AssetManagementTests
                     builder.ConfigureServices(services => services.AddSingleton(clock));
                 }
             });
+            if (configureServices != null)
+            {
+                Factory = Factory.WithWebHostBuilder(builder => builder.ConfigureServices(configureServices));
+            }
             Client = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         }
 

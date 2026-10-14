@@ -5,9 +5,11 @@ using PlantOps.Application.Assets;
 using PlantOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
+using PlantOps.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddPlantOpsInfrastructure(builder.Configuration);
+builder.Services.AddPlantOpsAi(builder.Configuration);
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["correlationId"] = ctx.HttpContext.TraceIdentifier);
 builder.Services.AddOpenApi();
@@ -101,6 +103,7 @@ app.MapTelemetry();
 app.MapAlarms();
 app.MapWorkOrders();
 app.MapDocuments();
+app.MapInvestigations();
 app.MapHub<PlantEventsHub>("/hubs/plant-events");
 if (app.Environment.IsDevelopment())
 {
