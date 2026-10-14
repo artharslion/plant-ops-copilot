@@ -1,0 +1,94 @@
+name: plantops-demo
+
+x-backend-environment: &backend-environment
+  ASPNETCORE_ENVIRONMENT: Development
+  ConnectionStrings__PlantOps: Host=database;Port=5432;Database=plantops;Username=plantops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the Docker env file};GSS Encryption Mode=Disable
+  Documents__StorageRoot: /var/lib/plantops/documents
+  AI__Provider: ${AI_PROVIDER:-Fake}
+  AI__BaseUrl: ${AI_BASE_URL:-}
+  AI__Model: ${AI_MODEL:-}
+  AI__ApiKey: ${AI_API_KEY:-}
+
+services:
+  database:
+    image: postgres:17@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    environment:
+      POSTGRES_DB: plantops
+      POSTGRES_USER: plantops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the Docker env file}
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plantops -d plantops"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  db-init:
+    image: plantops-worker:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      target: worker
+    profiles: [tools]
+    environment:
+      <<: *backend-environment
+      Demo__Password: ${DEMO_PASSWORD:?Set DEMO_PASSWORD in the Docker env file}
+    command: ["--initialize-db"]
+    volumes:
+      - documents:/var/lib/plantops/documents
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  api:
+    image: plantops-api:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      target: api
+    environment:
+      <<: *backend-environment
+    volumes:
+      - documents:/var/lib/plantops/documents
+      - api-keys:/home/app/.aspnet/DataProtection-Keys
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: plantops-worker:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      target: worker
+    environment:
+      <<: *backend-environment
+    volumes:
+      - documents:/var/lib/plantops/documents
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: plantops-web:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  database-data:
+  documents:
+  api-keys:
