@@ -114,6 +114,8 @@ npm run dev
 
 默认 AI 使用 Fake Provider，不访问外网。真实模型为可选配置，接入方法见 [AI 配置指南](docs/AI_PROVIDER_SETUP.md)；模拟结果与真实模型结果分别标记。
 
+三点 OPC UA 场景推荐使用相邻 `industrial-device-simulation-framework` 仓库提供的Server：在本仓库运行 `./deploy/Run-IndustrialSimRuntime.ps1 -Run <新名称>`，按固定时间线演示温升、独立振动与停服恢复，并经普通Worker写入独立测试schema。它不会自动切换Docker工作台的数据源，详见 [IndustrialSim三点验证](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md)。
+
 ## 文档
 
 - [Docker 指南](docs/DOCKER.md)：完整容器启动、配置、存储与日常操作。

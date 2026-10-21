@@ -19,9 +19,10 @@ internal static class Program
     {
         var root = Path.GetFullPath(args.ElementAtOrDefault(1) ?? "artifacts/p2/spike");
         Directory.CreateDirectory(root);
-        if (args.FirstOrDefault() is "runtime" or "scenario")
+        if (args.FirstOrDefault() is "runtime" or "scenario" or "industrial-scenario")
         {
-            await RuntimeExperiment.RunAsync(root, args[0] == "scenario");
+            await RuntimeExperiment.RunAsync(root, args[0] != "runtime",
+                args[0] == "industrial-scenario" ? Path.GetFullPath(args.ElementAtOrDefault(2) ?? throw new ArgumentException("Simulator root required.")) : null);
             return;
         }
         var telemetry = new SpikeTelemetry();

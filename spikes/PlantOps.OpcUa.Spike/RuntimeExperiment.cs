@@ -34,7 +34,7 @@ internal static class RuntimeExperiment
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
-    public static async Task RunAsync(string root, bool minimalScenario = false)
+    public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -65,7 +65,11 @@ internal static class RuntimeExperiment
         services.AddSingleton<IConfiguration>(settings);
         services.AddSingleton<IHostEnvironment>(new RuntimeEnvironment(root));
         services.AddPlantOpsInfrastructure(settings);
-        var approved = new OpcUaApprovedRuntimeEndpoint(Program.Endpoint, "urn:localhost:plantops:spike:server", Program.NamespaceUri,
+        var industrial = industrialSimRoot != null;
+        var approved = new OpcUaApprovedRuntimeEndpoint(industrial ? IndustrialSimProcess.Endpoint : Program.Endpoint,
+            industrial ? "urn:industrial-sim:server" : "urn:localhost:plantops:spike:server",
+            industrial ? IndustrialSimProcess.NamespaceUri : Program.NamespaceUri,
+            industrial ? IndustrialSimProcess.Nodes.Select(node => "String:" + node).ToArray() :
             minimalScenario ? MinimalScenario.Points.Select(point => "String:" + point.Identifier).ToArray()
                 : ["String:North.Utilities.P101.VibrationRms", "String:North.Point001.VibrationRms", "String:North.Point002.VibrationRms"],
             Path.Combine(root, "client-certificates"));
@@ -142,7 +146,7 @@ internal static class RuntimeExperiment
             db.DataSources.Add(source);
             for (var index = 0; index < points.Length; index++)
             {
-                var mapping = new OpcUaMappingInput(Program.NamespaceUri, "String", approved.Nodes[index]["String:".Length..]);
+                var mapping = new OpcUaMappingInput(approved.NamespaceUri, "String", approved.Nodes[index]["String:".Length..]);
                 db.SourceMappings.Add(new SourceMapping
                 {
                     Id = Guid.NewGuid(),
@@ -158,9 +162,11 @@ internal static class RuntimeExperiment
             await db.SaveChangesAsync(ct);
         }
         var telemetry = new SpikeTelemetry();
-        var application = await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
+        var application = industrial ? null : await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
         var scenario = minimalScenario ? new MinimalScenario() : null;
-        var server = new SimulatorServer(new(Constant: false), scenario);
+        var server = industrial ? null : new SimulatorServer(new(Constant: false), scenario);
+        await using var external = industrial ? new IndustrialSimProcess(industrialSimRoot!, Path.Combine(root, "industrial-sim")) : null;
+        double ElapsedSeconds() => external?.ElapsedSeconds ?? scenario!.ElapsedSeconds;
         var worker = provider.GetRequiredService<MeasurementWorker>();
         var phases = new List<object>();
         var started = DateTimeOffset.UtcNow;
@@ -173,6 +179,7 @@ internal static class RuntimeExperiment
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
+                external?.EnsureRunning();
                 if (disk.AvailableFreeSpace < 2L * 1024 * 1024 * 1024 || initialFree - disk.AvailableFreeSpace > 256L * 1024 * 1024)
                 {
                     throw new InvalidOperationException("Runtime experiment disk budget exceeded.");
@@ -192,7 +199,14 @@ internal static class RuntimeExperiment
         }
         try
         {
-            await application.StartAsync(server);
+            if (external != null)
+            {
+                await external.StartAsync(ct);
+            }
+            else
+            {
+                await application!.StartAsync(server);
+            }
             await worker.StartAsync(ct);
             await WaitAsync(db => db.Alarms.AnyAsync(alarm => alarm.State == "Active" && pointIds.Contains(alarm.PointId), ct));
             phases.Add(new
@@ -202,7 +216,7 @@ internal static class RuntimeExperiment
             });
             if (scenario != null)
             {
-                await WaitAsync(_ => Task.FromResult(scenario.ElapsedSeconds >= MinimalScenario.StopAtSecond));
+                await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= (industrial ? 39 : MinimalScenario.StopAtSecond)));
                 await using var scope = provider.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
                 var connected = await db.DataSourceHealth.AsNoTracking().SingleAsync(health => health.DataSourceId == sourceId, ct);
@@ -230,14 +244,18 @@ internal static class RuntimeExperiment
                             SourceTimestampFresh = sourceFresh,
                             ValueChanged = ordered.Length > 1 && ordered[^2].NumericValue != latest.NumericValue,
                             DataTrustworthy = latest.Quality == "Good" && !latest.TimeAnomaly && notificationFresh && sourceFresh,
-                            Scope = "Latest simulated observation only; no physical coverage inference"
+                            Scope = industrial ? "Latest protocol projection only; device-state age and physical observation freshness unknown"
+                                : "Latest simulated observation only; no physical coverage inference"
                         };
                     }).ToArray()
                 });
             }
-            stoppedAt = DateTimeOffset.UtcNow;
-            await server.StopAsync();
-            server.Dispose();
+            stoppedAt = external?.StartedAt.AddSeconds(MinimalScenario.StopAtSecond) ?? DateTimeOffset.UtcNow;
+            if (server != null)
+            {
+                await server.StopAsync();
+                server.Dispose();
+            }
             await WaitAsync(db => db.DataSourceHealth.AnyAsync(health => health.DataSourceId == sourceId && health.State == "Reconnecting", ct));
             phases.Add(new
             {
@@ -246,7 +264,7 @@ internal static class RuntimeExperiment
             });
             if (scenario != null)
             {
-                await WaitAsync(_ => Task.FromResult(scenario.ElapsedSeconds >= MinimalScenario.RestartAtSecond));
+                await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= MinimalScenario.RestartAtSecond));
                 await using var scope = provider.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
                 if (!await db.Alarms.AnyAsync(alarm => alarm.PointId == pointIds[0] && alarm.State == "Active", ct))
@@ -258,14 +276,17 @@ internal static class RuntimeExperiment
             {
                 await Task.Delay(2500, ct);
             }
-            server = new SimulatorServer(new(ReorderNamespaces: true, Constant: true), scenario);
-            restartedAt = DateTimeOffset.UtcNow;
-            await application.StartAsync(server);
+            restartedAt = external?.StartedAt.AddSeconds(MinimalScenario.RestartAtSecond) ?? DateTimeOffset.UtcNow;
+            if (!industrial)
+            {
+                server = new SimulatorServer(new(ReorderNamespaces: true, Constant: true), scenario);
+                await application!.StartAsync(server);
+            }
             await WaitAsync(async db => await db.Alarms.AnyAsync(alarm => alarm.State == "Recovered" && pointIds.Contains(alarm.PointId), ct)
                 && await db.SamplingProfiles.CountAsync(profile => pointIds.Contains(profile.PointId), ct) >= 6);
             phases.Add(new
             {
-                Phase = "NamespaceReorderedAndRecoveredAlarm",
+                Phase = industrial ? "IndustrialSimRestartedAndRecoveredAlarm" : "NamespaceReorderedAndRecoveredAlarm",
                 At = DateTimeOffset.UtcNow
             });
             passed = true;
@@ -278,8 +299,15 @@ internal static class RuntimeExperiment
         {
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await worker.StopAsync(stop.Token);
-            await server.StopAsync();
-            server.Dispose();
+            if (server != null)
+            {
+                await server.StopAsync();
+                server.Dispose();
+            }
+            if (external != null)
+            {
+                await external.DisposeAsync();
+            }
         }
         await using var finalScope = provider.CreateAsyncScope();
         var finalDb = finalScope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
@@ -288,6 +316,7 @@ internal static class RuntimeExperiment
         var gaps = await finalDb.IngestionGaps.AsNoTracking().Where(gap => pointIds.Contains(gap.PointId)).ToArrayAsync();
         var health = await finalDb.DataSourceHealth.AsNoTracking().SingleAsync(health => health.DataSourceId == sourceId);
         var alarms = await finalDb.Alarms.AsNoTracking().Where(alarm => pointIds.Contains(alarm.PointId)).ToArrayAsync();
+        passed &= external == null || external.CompletedSuccessfully;
         passed &= readings.Select(reading => reading.PointId).Distinct().Count() == 3 && readings.All(reading => reading.SourceKind == "OpcUa")
             && profiles.Length >= 6 && profiles.All(profile => profile.EffectiveTo != null) && gaps.Length >= 3
             && gaps.All(gap => gap.To != null) && health.ReconnectCount > 0 && health.State == "Stopped"
@@ -302,7 +331,7 @@ internal static class RuntimeExperiment
                 && readings.Where(reading => reading.PointId == pointIds[1]).Select(reading => reading.SourceTimestamp).Distinct().Count() > 5,
             UnitsQualityAndTime = readings.All(reading => reading.CanonicalUnit == MinimalScenario.Points[Array.IndexOf(pointIds, reading.PointId)].Unit
                 && reading.Quality == "Good" && !reading.TimeAnomaly && reading.TimestampOrigin == "Source"),
-            MatchesActualGeneration = readings.All(reading => scenario.Generated.Any(generated =>
+            MatchesActualGeneration = industrial ? (bool?)null : readings.All(reading => scenario.Generated.Any(generated =>
                 generated.Identifier == MinimalScenario.Points[Array.IndexOf(pointIds, reading.PointId)].Identifier
                 && generated.SourceTimestamp == reading.SourceTimestamp && generated.Value == reading.NumericValue)),
             AllPointsAfterRestart = pointIds.All(id => readings.Any(reading => reading.PointId == id && reading.SourceTimestamp > restartedAt))
@@ -310,7 +339,7 @@ internal static class RuntimeExperiment
         if (scenarioChecks != null)
         {
             passed &= scenarioChecks.TemperatureStages && scenarioChecks.IndependentVibration && scenarioChecks.ConstantUpdatesTime
-                && scenarioChecks.UnitsQualityAndTime && scenarioChecks.MatchesActualGeneration && scenarioChecks.AllPointsAfterRestart;
+                && scenarioChecks.UnitsQualityAndTime && scenarioChecks.MatchesActualGeneration != false && scenarioChecks.AllPointsAfterRestart;
         }
         // Leave the retained experiment inert; never disable or alter business configuration.
         await finalDb.SourceMappings.Where(mapping => mapping.DataSourceId == sourceId).ExecuteUpdateAsync(update => update.SetProperty(mapping => mapping.Enabled, false));
@@ -334,12 +363,21 @@ internal static class RuntimeExperiment
             Failure = failure,
             ScenarioVersion = scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
-            ScenarioStartedAt = scenario?.StartedAt,
+            ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,
             RestartedAt = restartedAt,
             ScenarioChecks = scenarioChecks,
-            PointContracts = scenario == null ? null : MinimalScenario.Points,
-            Generated = scenario?.Generated,
+            PointContracts = scenario == null ? null : MinimalScenario.Points.Select((point, index) =>
+                point with
+                {
+                    Identifier = approved.Nodes[index]["String:".Length..]
+                }),
+            Generated = industrial ? null : scenario?.Generated,
+            ObservationProvider = industrial ? "industrial-device-simulation-framework" : "PlantOps spike",
+            Endpoint = approved.Url,
+            NamespaceUri = approved.NamespaceUri,
+            SourceTimestampMeaning = industrial ? "Adapter projection time of StateStore, not new physical sampling" : "Simulator generation time",
+            ServerTimelineTimesArePlanned = industrial,
             NotificationContract = "StatusValueTimestamp; count actual generated/received only, no sampling-based physical coverage or lost sample claim",
             SubscriptionKeepAliveIndependentlyObserved = false,
             FullP2Accepted = false

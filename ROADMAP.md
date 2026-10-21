@@ -6,6 +6,8 @@
 
 2026-10-21 实施增量（在上述路线重评之后）：基于 `4de521e` 完成 **P5.3 最小场景源**，92项定向检查、一次新场景真实协议有限运行及旧协议入口复验通过，见 [场景契约与验证](docs/P5_3_MINIMAL_SCENARIO.md)。仅独立测试库/schema，0模型调用，无业务数据库或部署更新；后续从 P5.1 最小证据契约继续，完整 P5 仍未验收。
 
+同日按用户指定，将推荐三点场景源接入 `D:/Repos/industrial-device-simulation-framework`：框架独立进程Server → 现有Adapter/普通Worker/测量规则管道，141条真实协议入库及停服恢复通过；配置、通知/投影时间契约、失败轮和证据见 [IndustrialSim有限验证](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md)。原spike保留作协议回归；未切换当前Docker业务来源。
+
 ## 1. 定位、边界与阶段顺序
 
 核心定位：**基于工业实时数据、告警、设备历史和技术文档，提供有证据、可追溯、受权限约束的 AI 辅助调查。**

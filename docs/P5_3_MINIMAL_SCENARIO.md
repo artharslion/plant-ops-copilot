@@ -1,5 +1,7 @@
 # P5.3 最小场景源
 
+2026-10-21 用户指定后的推荐入口已改为 **IndustrialSim框架独立进程**：`./deploy/Run-IndustrialSimRuntime.ps1 -Run <新名称>`。三点YAML位于 `D:/Repos/industrial-device-simulation-framework`，接入记录及投影时间契约见 [框架三点验证](INDUSTRIALSIM_RUNTIME_VALIDATION.md)。下文保留此前内置spike的生成契约和历史证据；框架的SourceTimestamp仅为投影/读取时间，不能沿用旧spike逐条生成匹配结论。
+
 版本 `p5.3-minimal-v1`，无随机输入，种子记为 0。原创仿真观测，经真实 OPC UA SDK → 现有 Adapter → 普通 MeasurementWorker → 测量/规则事务；不调用 LLM。旧 Simulation GoldenPath、协议 selftest/capacity/runtime 入口保持原行为。
 
 ## 点位与固定时间线
