@@ -19,9 +19,9 @@ internal static class Program
     {
         var root = Path.GetFullPath(args.ElementAtOrDefault(1) ?? "artifacts/p2/spike");
         Directory.CreateDirectory(root);
-        if (args.FirstOrDefault() == "runtime")
+        if (args.FirstOrDefault() is "runtime" or "scenario")
         {
-            await RuntimeExperiment.RunAsync(root);
+            await RuntimeExperiment.RunAsync(root, args[0] == "scenario");
             return;
         }
         var telemetry = new SpikeTelemetry();

@@ -19,11 +19,18 @@ internal sealed class MinimalScenario
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly ConcurrentQueue<ScenarioObservation> generated = new();
 
-    public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
+    // PostgreSQL stores microseconds; keep exact source-time evidence on round trips.
+    public DateTimeOffset StartedAt { get; } = MicrosecondUtcNow();
 
     public double ElapsedSeconds => clock.Elapsed.TotalSeconds;
 
     public ScenarioObservation[] Generated => generated.ToArray();
+
+    private static DateTimeOffset MicrosecondUtcNow()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new DateTimeOffset(now.Ticks / 10 * 10, TimeSpan.Zero);
+    }
 
     public static double ValueAt(int point, int second) => point switch
     {

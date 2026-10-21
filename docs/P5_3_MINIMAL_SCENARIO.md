@@ -33,3 +33,30 @@ Namespace URI 为 `urn:plant-ops:simulator`。本场景运行器只批准以下�
 实施中的运行结果、实际执行命令与限制在本文件后续追加；历史记录不算本次重跑。完整 P5 的30分钟、复杂崩溃矩阵、真实现场设备、真实模型与部署更新均不属于本步。
 
 里程碑1（2026-10-21）：`dotnet test tests/PlantOps.Tests --no-restore --filter FullyQualifiedName~MinimalScenarioTests`：2通过，0失败/跳过；核对温度阶段边界、独立振动变化与三点单位。`dotnet build spikes/PlantOps.OpcUa.Spike --no-restore`：0警告/错误。TRX 保留于 `artifacts/p53/checks/p53-scenario.trx`。首次检查发现格式空行问题已修复；一次并行构建遇共享输出锁，串行重跑通过。此里程碑尚不代表真实协议验收。
+
+## 有限真实协议验收（2026-10-21）
+
+复现：先确保独立测试 PostgreSQL 已就绪，在仓库根目录运行 `./deploy/Run-LocalOpcUaRuntime.ps1 -Run <新小写名称> -MinimalScenario`。连接配置沿用忽略的 `artifacts/p4/database.local.json`。只允许 `plantops_tests` 和全新 `opcua_runtime_*` schema / 空证据目录；保留150秒/500条、每盘至少2GiB余量/单轮新增≤256MiB的既有预算。端口48480已被占用则拒绝，不停止现有进程。运行后停 Worker/Server、停用本轮测试来源与映射；保留测试 schema。未更改业务数据库、部署或模型配置。
+
+`p53_trial1_20261021` 在创建 schema 前因测试容器启动恢复中的 PostgreSQL `57P03` 失败；未启动 OPC UA。失败目录和 `setup-failure.json` 保留，未复用。
+
+`p53_trial2_20261021` 通过，schema `plantops_tests.opcua_runtime_p53_trial2_20261021`。北京时间09:45:14–09:46:13，约60秒的有限运行：
+
+| 核查 | 实测 |
+|---|---|
+| 真实普通 Worker 管道 | 3点各53条，共159条 OPC UA 来源读数 |
+| 温度与振动 | 同一温度点实际收到60、75、90°C；振动实际收到4、12.6、7 mm/s并回到4；参考温度始终62°C但源时间持续更新 |
+| 单位/质量/时间 | 全部单位匹配、Good、无时间异常，采用 Source 时间；源时间精度对齐 PostgreSQL 微秒，保留精确生成匹配 |
+| 生成与入库对应 | 实际生成165条，每点55条；入库159条均精确匹配真实生成的点/值/源时间。差额不解释为物理丢样，也不据sampling反推覆盖 |
+| 停服与恢复 | t≈40.23s请求停服，t≈48.13s请求重启；运行中实际进入Reconnecting，累计重连2次，三点重启后均收到新源时间观测 |
+| 规则链路 | 温度90°C触发唯一告警；停服期间仍Active；恢复60°C后满足5秒恢复条件，最终唯一Recovered |
+| 退出 | 健康Stopped；6段采样区间全部关闭，6条既有缺口记录全部闭合，不将其解释为精确样本损失 |
+| 时效语义 | 停服前逐点通知/源时间均新鲜；ValueChanged=false仍可有本仿真契约下的新观测。报告保留Session健康、订阅修正与实际通知依据，独立Subscription KeepAlive仍未知 |
+
+完整原始证据：[result.json](../artifacts/opcua-runtime/p53_trial2_20261021/result.json)，含读数、实际生成记录、三点契约、各阶段时间、采样修正、健康、缺口和告警；SHA256 `9A15B25A85B02BFAADB96ED5DB3302EC2FF0C3AF924CB27727422F30FF899C6B`。原始 artifacts 为本地保留文件，不纳入Git。0次模型调用；观测为原创仿真，订阅与业务入库是真实执行。
+
+兼容检查：旧加密 `selftest` 在 `artifacts/p53/secure_20261021/result.json` 通过，不受本场景批准列表影响；8秒窗口恒值收到8条/8个源时间，证书拒绝与显式信任、17项元数据/身份场景通过。未据此验收长期运行或现场设备。
+
+旧 `runtime` 入口也实际重跑通过：`./deploy/Run-LocalOpcUaRuntime.ps1 -Run p53_legacy_20261021`，84条读数、三点、停服/Namespace重排后恢复，证据 `artifacts/opcua-runtime/p53_legacy_20261021/result.json`。旧 Simulation GoldenPath 生成实现未修改；本轮未另跑其完整端到端演示。
+
+最终定向后端检查：加载专用测试连接后，筛选 `MinimalScenarioTests / OpcUa* / ThresholdEvaluatorTests / MeasurementWorkerTests / MeasurementPipelineTests / SamplePolicyTests`，**92通过、0失败、0跳过**（28秒），TRX `artifacts/p53/checks/p53-focused.trx`。锁定恢复、spike构建通过（0警告/错误），`git diff --check`通过。查询确认本场景测试来源及映射已停用。未跑完整后端/前端套件、30分钟或复杂崩溃矩阵；没有实现P5.1新证据DTO或修改既有覆盖算法。

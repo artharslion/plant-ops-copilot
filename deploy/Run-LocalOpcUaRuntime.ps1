@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Run = ('run_' + (Get-Date -Format 'yyyyMMdd_HHmmss')))
+param([string]$Run = ('run_' + (Get-Date -Format 'yyyyMMdd_HHmmss')), [switch]$MinimalScenario)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -22,7 +22,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
     & dotnet build spikes/PlantOps.OpcUa.Spike --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-    & dotnet spikes/PlantOps.OpcUa.Spike/bin/Debug/net10.0/PlantOps.OpcUa.Spike.dll runtime $resultRoot
+    $mode = if ($MinimalScenario) { 'scenario' } else { 'runtime' }
+    & dotnet spikes/PlantOps.OpcUa.Spike/bin/Debug/net10.0/PlantOps.OpcUa.Spike.dll $mode $resultRoot
     if ($LASTEXITCODE -ne 0) { throw "Runtime acceptance failed; retain $resultRoot." }
 } finally {
     $env:PLANTOPS_RUNTIME_CONNECTION = $savedConnection
