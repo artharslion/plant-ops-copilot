@@ -1,0 +1,14 @@
+{
+  "OpcUa": {
+    "LocalRuntimeEnabled": true,
+    "ApprovedEndpoints": {
+      "industrial-sim-local": {
+        "Url": "opc.tcp://127.0.0.1:48481",
+        "ApplicationUri": "urn:industrial-sim:server",
+        "NamespaceUri": "urn:industrial-sim:runtime",
+        "Nodes": ["String:plantops-p101/vibration"],
+        "CertificateRoot": "artifacts/local-opcua/certificates"
+      }
+    }
+  }
+}

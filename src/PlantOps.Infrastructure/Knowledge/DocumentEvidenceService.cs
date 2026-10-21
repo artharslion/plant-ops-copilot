@@ -175,7 +175,9 @@ public sealed partial class DocumentService
     {
         cancellationToken.ThrowIfCancellationRequested();
         var asset = await directory.GetAsync(actor, "assets", assetId);
-        await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Approval revalidation participates in the caller's transaction and must not commit it.
+        await using var tx = db.Database.CurrentTransaction == null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({asset.PlantId.ToString()}, 0))", cancellationToken);
         var roles = await EvidenceRolesAsync(actor, assetId, asset.PlantId, cancellationToken);
         var document = await EvidenceDocuments(asset.PlantId, assetId, roles).SingleOrDefaultAsync(x => x.Id == documentId && x.CurrentPublishedVersionId == versionId, cancellationToken)
@@ -192,7 +194,10 @@ public sealed partial class DocumentService
             throw new DirectoryException(404, "Evidence not available.");
         }
         var result = Evidence(assetId, document, version, chunk, 0);
-        await tx.CommitAsync(cancellationToken);
+        if (tx != null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
         return result;
     }
 }

@@ -1,5 +1,9 @@
 # OPC UA 集成设计 v0.1
 
+2026-10-21 规划更新：剩余采集任务统一归 [开发计划 P5](../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)。先区分采样/通知/源时间与可信度，交付最小场景/证据/基础故障以服务 P6.1，再补完整可靠性；外部安全 Server 为核心 Demo 后的可选 P5.5。下文旧阶段顺序、百点满量和通用安全部署描述不作为当前已实现能力或前置；实际受控模式及限制仍见运行验收记录。
+
+2026-10-20：新增 [受控本机常驻多点增量](OPCUA_RUNTIME_VALIDATION.md)，使用独立 Adapter 接入普通 Worker；仅显式 Development 回环批准策略可启用。三点停服重连/Namespace 重排/告警恢复真实协议实验通过；下面“业务 Source 未启用”等语句保留历史范围，不表示当前仍只有有限单点。工业网络、证书运维与完整 P2/G0 仍未验收。
+
 2026-10-09 当前范围：按 [AI 优先演示计划](plans/2026-10-09-ai-demo-acceptance.md)，完整 OPC UA 暂缓，AI 先基于 Simulation 实现。旧 G0 长期容量前置已延期且未验收，不阻塞 AI。下面协议要求保留为后续增强契约，不代表当前已经实现；业务 Source 仍未启用。
 
 2026-10-06 当前进度：[P2.1 固定 SDK/许可与安全隔离实验](P2_1_SPIKE.md)、[P2.2 配置/标准化/采样区间增量](P2_2_VALIDATION.md) 已落地。G0 和完整 P2 未通过，业务 Source/重连/证书运维/健康未完成；后文早期“未开始”保留历史标记。
@@ -67,7 +71,11 @@ Adapter 只负责连接、订阅、Namespace 解析、质量/时间和数值单�
 6. DataChange 回调捕获值、原始状态、时间和映射版本，形成不可变 Envelope，快速入队；不得在回调中查询数据库或调用 LLM。
 7. 停止时取消订阅、关闭 Session、有限时间排空队列；超时损失记录 IngestionGap。
 
-演示采用 StatusValueTimestamp DataChangeTrigger，使恒定数值但更新源时间的通知也可到达；服务器支持情况需验证。若源不更新时间或静态变量无通知，健康轮询只更新接收/质量检查，不假装新增物理采样；UI 区分连接存活与数值新鲜度。必要时按受限频率 Read 已映射点位作为补充，并显式标识来源模式。
+当前 Connector 显式使用 StatusValueTimestamp、未设置 deadband；它允许状态/值/SourceTimestamp 的变化触发通知，不保证 1s SamplingInterval 下每秒必有一条，单独 ServerTimestamp 更新也不满足该触发条件；未设过滤器的默认行为是 STATUS_VALUE。规范见 [Sampling interval](https://reference.opcfoundation.org/specs/OPC-10000-4/5.13.1.2)和[DataChangeTrigger](https://reference.opcfoundation.org/specs/OPC-10000-4/7.10)。客户端保存请求/修正间隔、过滤参数及“周期更新已验证/按变化/未知”的观测契约，不能用当前 Periodic 配置反推通知或物理采样覆盖。
+
+没有通知时不得更新逐点 NotificationFresh，更不能因 Session/Subscription KeepAlive 将点值当作新观测。当前 LastKeepAliveAt 来自 Session 事件，不是独立订阅活性证明；订阅 KeepAlive 本身也不包含新测量，见 [Subscription model](https://reference.opcfoundation.org/specs/OPC-10000-4/5.14.1)。ConnectionHealthy、NotificationFresh、SourceTimestampFresh、ValueChanged 和 DataTrustworthy 的定义/Unknown 状态及测试矩阵以开发计划为准，不要求五个新数据库字段。
+
+必要时后续用受限 Read 确认已批准点位，明确该来源及原始时间；不伪装成新 DataChange/物理采样，也不默认开启无限轮询。首个 AI 闭环不以实现补充 Read 为条件。
 
 ## 4. 质量码、时间戳与新鲜度
 
@@ -78,22 +86,22 @@ OPC UA DataValue 包含值、状态和来源/服务器时间，语义依据 [OPC
 | Good + 有效数值 + 时间正常 | 存为 Good；显示值和年龄 | 仅新鲜且按序样本参与计时 |
 | Uncertain | 原值可保留，标黄并解释 | 不触发、不清除，中断 pending 计时 |
 | Bad / 转换失败 | 存状态，NumericValue 可 null；标红 | 不触发、不清除，中断 pending 计时 |
-| 数据源失联/超过 StaleAfter | 保留历史值，当前标 Stale | 不把历史值当恢复证据 |
+| 数据源失联/超出适用的观测确认时效 | 保留原值及年龄，当前确认不足；与合法恒值静默区分 | 不把历史值当恢复证据，不据此确诊传感器故障 |
 | Overflow 信息位 | 存码、计数、登记缺口 | 中断持续时间，需后续连续样本重建计时 |
 | 来源时间异常 | 保留原时间和 TimeAnomaly，不更新最新可信投影 | 不参与在线规则 |
 
 EffectiveAt 优先 SourceTimestamp，其次 ServerTimestamp，最后 ReceivedAt；TimestampOrigin 明确 Source/Server/ReceiveFallback。0/无效时间按缺失处理；SourceTimestamp 保留 UTC，不擅自修改源时间。
 
-初始时间策略：比 ReceivedAt 超前 > 5 秒标 FutureTimestamp；来源过旧 > StaleAfterMs 标迟到/陈旧，历史可存但不驱动在线规则；阈值应可配置。监测 clock skew，不仅靠本机时间推断设备异常。最新快照不能被迟到样本回退。
+既有规则以 EffectiveAt/点位 StaleAfterMs 做有限演示的新鲜度门槛，未来时间 >5s 标异常；这不是适用于所有 Server 的完整时间可信度模型。P5 在保留原始时间及历史排序的同时，按观测契约解释源时间年龄：SourceTimestamp 可能是最后值/状态变化时刻，不因它不前进就确认冻结；ServerTimestamp 表示服务器接收或确认值准确的时刻，也不能独立证明现场采样。参见 [SourceTimestamp](https://reference.opcfoundation.org/specs/OPC-10000-4/7.11.3)及[ServerTimestamp](https://reference.opcfoundation.org/specs/OPC-10000-4/7.11.4)。来源/时钟含义未核实则当前证据不足，监测 clock skew，不将合法恒值静默自动当故障；迟到观测不能回退最新快照。
 
-点位新鲜度同时考虑最后通知/健康读取与最后可信有效时间：连接活着不表示值可信；LastGood 必须显示自身年龄。超过两次 keep-alive 预期无响应标连接可疑，真正连接恢复由 SDK 状态确定。
+通知接收、源时间年龄、Session/Subscription 活性、Worker 心跳及 LastGood 适用范围分别表达。按变化/未知契约不能以 1.5×SamplingInterval 无通知确认丢样或完整率；已确认的断线、overflow/本地丢弃仍登记相应 gap。无法验证连续观测时不推进持续告警/恢复；数据可信度由后端按点位/窗口判断，AI 保留其他可靠点的异常证据，不用一个点否定全设备。
 
 ## 5. 去重、顺序、过载
 
 - 有 SourceTimestamp 时事件键为规范化 `(mappingId, mappingVersion, sourceTimestamp, 原始类型/值, rawStatusCode)` 的哈希；无 SourceTimestamp 时优先 ServerTimestamp。ServerTimestamp 不进入有源时间事件键，避免重传导致不同键。
 - 没有任何可信时间时，为入站 Envelope 分配 ID，重试复用 ID；新通知不以“值相同”直接去重，以免丢掉恒定值的采样。
 - 同点位按 EffectiveAt 处理；迟到记录归档，不重放在线告警；重连通知重传走同一去重规则。
-- Channel 初始容量 10,000；消费者每 500 ms 或 500 条批写。总容量是配置值，需要负载实验校准。
+- 当前 SDK 通知缓冲 100 条，外层 Worker 总队列预算 10,000，500 ms/500 条触发提交；二者分别观测/验证，不能混称同一队列的容量。
 - 队列满时 DropOldest 保持近期可见性，但必须记录 dropped count、受影响点位与时间区间，并重置规则 pending 计时。可用自定义缓冲区/丢弃回调拿到被丢 Envelope，不能使用无法追踪丢弃的静默模式。
 - 数据库离线时不无限缓存，日志记录损失摘要，恢复后持久化 gap；进程崩溃造成的未知尾部按 LastPersistedAt→恢复时刻记录“可能缺口”。不承诺断线期间无损采集。
 
@@ -103,7 +111,7 @@ EffectiveAt 优先 SourceTimestamp，其次 ServerTimestamp，最后 ReceivedAt�
 
 1. 网络错误后停止新的可信判定，保留已有 Active 告警，开始 gap 区间。
 2. 指数退避 1、2、4、8 秒，最大 30 秒，加约 ±20% jitter；单源同一时刻只允许一个重连任务。
-3. 优先恢复 Session 并复用有效订阅；按 SDK/Server 支持尝试 Republish 或 TransferSubscriptions。能力不支持、保留队列过期或序号不可用时重建 Session/Subscription/MonitoredItems。
+3. 当前受控 Runtime 采用重建 Session/Subscription/MonitoredItems 并重验元数据，不承诺离线无损；Republish/TransferSubscriptions 留待另行需求与能力验证，不作为 P5 最小闭环或 P5.5 的必需实现。
 4. 每次新 Session 重新读 NamespaceArray、校验节点，Namespace URI 缺失不能退回旧 ns index。
 5. 恢复后受限 Read 一次获得当前快照，记录恢复时刻；快照不是离线期间历史。只有服务器支持且配置允许 HistoryRead 时才可未来扩展补采，本阶段不做历史回补。
 6. 所有恢复/重传/队列溢出走幂等入库。可恢复通知不意味着完整离线数据；无法证明连续性则保留 gap 并中断 pending 计时。
@@ -120,13 +128,14 @@ EffectiveAt 优先 SourceTimestamp，其次 ServerTimestamp，最后 ReceivedAt�
 
 ## 8. 模拟器与验收实验
 
-P2.1 优先运行锁定版本的官方示例 Server 验证 SDK；随后写最小模拟器 NodeManager，创建本文虚构 Namespace 和节点，以支持业务回归。运行说明必须记录版本、命令、端口、证书指纹确认方法和 deterministic seed。
-
-模拟器脚本：振动 4.0 持续 10 秒 → 12.6 持续 10 秒 → 7.0 持续 10 秒；温度 55°C；能注入 Bad/Uncertain、冻结时间、未来时间、断连、重复和乱序。规则数字见 [领域模型](DOMAIN_MODEL.md)。
+锁定 SDK 与原创 Server/NodeManager、有限及常驻三点实验已有实现，见[既有常驻验收](OPCUA_RUNTIME_VALIDATION.md)，不重新安排 spike。新增实验的任务顺序及细节见开发计划：先补60→75→90°C、独立振动变化/停服及最小证据，P8.1准确记录后做首次AI联合调查，再补完整矩阵。运行说明记录版本、命令、场景时间线、过滤/时间语义、证书指纹与固定种子；以下项目是待完成的新范围，不是已执行报告。
 
 | 实验 | 操作 | 验收 |
 |---|---|---|
-| 正常流 | 100 点 1 Hz、30 分钟 | 点位/单位正确；落库到 UI p95 < 2 秒；无静默丢失 |
+| 正常周期场景 | 三点请求 sampling/publishing 1s、声明并验证周期更新时间；完整版30min | 核对实际生成且满足过滤的通知与入库，不能推算固定物理样本数；1s请求不保证1Hz通知 |
+| 恒值但更新时间 | 值恒定、源时间推进，显式 StatusValueTimestamp | 值未变化与新源时间分别可见，不制造设备异常 |
+| 合法静默 | 恒值/STATUS_VALUE，或值与源时间均未改变的 StatusValueTimestamp | 无新通知只说明近期确认不足；不伪造观测、完整率、丢样或传感器故障 |
+| Session 与订阅分离 | 订阅停止，Session 保活仍成功 | 不能以 Session 保活声称订阅/点位正常；返回独立状态或Unknown |
 | 超限/恢复 | 高振动再恢复 | 持续时间/回差正确；同规则只一个 Active |
 | 坏质量 | 高值期间注入 Bad/Uncertain | LastGood 保留但标年龄；告警不自动恢复 |
 | 停机/网络 | 停 Server 60 秒再启动 | 可见 Reconnecting/Stale/gap；恢复后无重复告警 |
@@ -135,6 +144,8 @@ P2.1 优先运行锁定版本的官方示例 Server 验证 SDK；随后写最小
 | 时间缺失/未来 | 缺来源时间或超前时间 | fallback 标记正确；未来值不进入可信判定 |
 | 安全失败 | 更换未受信证书 | 连接拒绝，不自动接受或降级 |
 | 队列/数据库 | 消费变慢或暂停数据库 | 有 dropped/gap 指标；恢复后缺口持久化 |
+| 部分数据失效 | 温度Bad，振动可信且高值 | AI分别给“部分可信/设备异常证据存在”，仅排除受影响点/结论 |
+| 外部安全 Server（P5.5，可选） | 独立部署、批准端点/证书/策略，断网恢复、错误信任与证书失效 | 同一采集链路可安全接入/恢复，失败明确拒绝且不降级；不冒充完整工业运维验收 |
 
 ## 9. 可观测性与配置
 

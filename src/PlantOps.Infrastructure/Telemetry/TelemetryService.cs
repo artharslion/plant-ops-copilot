@@ -14,7 +14,7 @@ using PlantOps.Infrastructure.Persistence;
 namespace PlantOps.Infrastructure.Telemetry;
 
 public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory directory, UserManager<PlantOpsUser> users,
-    TimeProvider clock, IConfiguration? settings = null) : ITelemetryService
+    TimeProvider clock, IConfiguration? settings = null, Microsoft.Extensions.Hosting.IHostEnvironment? environment = null) : ITelemetryService
 {
     private async Task Admin(Actor actor)
     {
@@ -228,8 +228,23 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
     public async Task<IReadOnlyList<SourceDto>> SourcesAsync(Actor actor, Guid plantId)
     {
         await directory.GetAsync(actor, "plants", plantId);
-        return (await db.DataSources.AsNoTracking().Where(x => x.PlantId == plantId).OrderBy(x => x.Id).Take(200)
-            .ToListAsync()).Select(MapSource).ToArray();
+        var sources = await db.DataSources.AsNoTracking().Where(x => x.PlantId == plantId).OrderBy(x => x.Id).Take(200).ToListAsync();
+        var ids = sources.Select(x => x.Id).ToArray();
+        var health = await db.DataSourceHealth.AsNoTracking().Where(x => ids.Contains(x.DataSourceId)).ToDictionaryAsync(x => x.DataSourceId);
+        return sources.Select(source =>
+        {
+            var dto = MapSource(source);
+            if (!health.TryGetValue(source.Id, out var row))
+            {
+                return dto;
+            }
+            var current = source.Enabled && row.SourceVersion == source.Version && clock.GetUtcNow() - row.UpdatedAt <= TimeSpan.FromSeconds(10);
+            return dto with
+            {
+                Health = new(row.DataSourceId, row.SourceVersion, row.State, row.UpdatedAt,
+                row.LastKeepAliveAt, row.LastReceivedAt, row.ReconnectCount, row.FailureCode, current)
+            };
+        }).ToArray();
     }
 
     private static SourceDto MapSource(DataSource source) => new(source.Id, source.PlantId, source.Name,
@@ -250,10 +265,6 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
             }
             return;
         }
-        if (input.Enabled)
-        {
-            throw new DirectoryException(400, "General OPC UA activation is not accepted yet. Save disabled configuration; use the finite local demo command for IndustrialSim.");
-        }
         if (input.OpcUa == null)
         {
             throw new DirectoryException(400, "Approved OPC UA endpoint reference required.");
@@ -273,6 +284,31 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         {
             throw new DirectoryException(400, "Endpoint reference is not approved by deployment configuration.");
         }
+        if (input.Enabled)
+        {
+            ValidateRuntimeEndpoint(input.OpcUa.EndpointReference);
+            if (input.OpcUa.PublishingIntervalMs != 1000)
+            {
+                throw new DirectoryException(400, "Controlled local runtime requires 1 Hz publishing.");
+            }
+        }
+    }
+
+    private OpcUaApprovedRuntimeEndpoint ValidateRuntimeEndpoint(string reference)
+    {
+        var approved = settings!.GetSection($"OpcUa:ApprovedEndpoints:{reference}");
+        var endpoint = new OpcUaApprovedRuntimeEndpoint(approved["Url"] ?? "", approved["ApplicationUri"] ?? "",
+            approved["NamespaceUri"] ?? "", approved.GetSection("Nodes").Get<string[]>() ?? [], approved["CertificateRoot"] ?? "");
+        try
+        {
+            OpcUaRuntimePolicy.ValidateEndpoint(endpoint, environment?.EnvironmentName == "Development",
+                settings.GetValue("OpcUa:LocalRuntimeEnabled", false));
+        }
+        catch (SourceConfigurationException)
+        {
+            throw new DirectoryException(400, "OPC UA activation requires deployment-approved Development loopback runtime configuration.");
+        }
+        return endpoint;
     }
 
     public async Task<SourceDto> SaveSourceAsync(Actor actor, Guid plantId, Guid? id, SourceInput input)
@@ -382,6 +418,19 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
                 throw new DirectoryException(400, "Node is outside the deployment-approved Namespace and identifier range.");
             }
             parameters = JsonSerializer.Serialize(input.OpcUa);
+            if (input.Enabled)
+            {
+                ValidateRuntimeEndpoint(connection.EndpointReference);
+                if (connection.PublishingIntervalMs != 1000 || input.OpcUa.SamplingIntervalMs != 1000
+                    || input.OpcUa.SamplingMode != "Periodic" || input.OpcUa.QueueSize > 10 || !exactNode)
+                {
+                    throw new DirectoryException(400, "Controlled runtime requires exact approved nodes and bounded 1 Hz periodic sampling.");
+                }
+                if (await db.SourceMappings.CountAsync(x => x.DataSourceId == source.Id && x.Enabled && x.Id != id) >= 10)
+                {
+                    throw new DirectoryException(400, "Controlled runtime supports at most ten enabled points per source.");
+                }
+            }
         }
         else if (source.Kind != "Simulation" || input.OpcUa != null || point.Quantity != "Vibration" || point.CanonicalUnit != "mm/s" || input.RawUnit != "mm/s")
         {

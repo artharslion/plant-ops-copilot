@@ -3,9 +3,9 @@ using PlantOps.Domain.Maintenance;
 
 namespace PlantOps.Application.Maintenance;
 
-public sealed record CreateWorkOrder(Guid AssetId, string Title, string Description = "", string Priority = "Medium", Guid? AlarmId = null, string? AssignedToUserId = null);
+public sealed record CreateWorkOrder(Guid AssetId, string Title, string Description = "", string Priority = "Medium", Guid? AlarmId = null, string? AssignedToUserId = null, bool OpenImmediately = false);
 
-public sealed record TransitionWorkOrder(long Version, string Status, string? Reason = null, string? Resolution = null);
+public sealed record TransitionWorkOrder(long Version, string Status, string? Reason = null, string? Resolution = null, bool CloseAfterCompletion = false);
 
 public sealed record AppendWorkOrderNote(long Version, string Text);
 

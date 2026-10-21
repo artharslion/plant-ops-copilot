@@ -79,6 +79,11 @@ public sealed class WorkOrderNote
 
     public string Kind { get; set; } = "Note";
 
+    public Guid? AiProposalId
+    {
+        get; set;
+    }
+
     public string ActorUserId { get; set; } = "";
 
     public DateTimeOffset OccurredAt

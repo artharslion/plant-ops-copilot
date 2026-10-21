@@ -22,10 +22,12 @@ public static class DependencyInjection
         services.AddDbContext<PlantOpsDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("PlantOps") ?? string.Empty));
         services.AddScoped<IDatabaseReadiness, DatabaseReadiness>();
+        services.AddScoped<IOverviewService, OverviewService>();
         services.AddScoped<IAssetDirectory, AssetDirectory>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IMeasurementSource, SimulationSource>();
         services.AddScoped<ISourceConfigurationReader, SourceConfigurationReader>();
+        services.AddSingleton<ISourceRuntimeStore, SourceRuntimeStore>();
         services.AddScoped<IMeasurementIngestor, MeasurementIngestor>();
         services.AddScoped<IIngestionGapRecorder, IngestionGapRecorder>();
         services.AddScoped<IMeasurementMaintenance, MeasurementMaintenance>();
@@ -33,10 +35,12 @@ public static class DependencyInjection
         services.AddScoped<ITelemetryService, TelemetryService>();
         services.AddScoped<IAlarmRuntimeReset, AlarmRuntimeReset>();
         services.AddScoped<IAlarmService, AlarmService>();
-        services.AddScoped<PlantOps.Application.Maintenance.IWorkOrderService, PlantOps.Infrastructure.Maintenance.WorkOrderService>();
+        services.AddScoped<PlantOps.Infrastructure.Maintenance.WorkOrderService>();
+        services.AddScoped<PlantOps.Application.Maintenance.IWorkOrderService>(s => s.GetRequiredService<PlantOps.Infrastructure.Maintenance.WorkOrderService>());
         services.AddScoped<PlantOps.Application.Knowledge.IDocumentService, PlantOps.Infrastructure.Knowledge.DocumentService>();
         services.AddScoped<PlantOps.Application.Knowledge.IDocumentEvidenceService, PlantOps.Infrastructure.Knowledge.DocumentService>();
         services.AddScoped<PlantOps.Application.AI.IInvestigationService, PlantOps.Infrastructure.AI.InvestigationService>();
+        services.AddScoped<PlantOps.Application.AI.IActionProposalService, PlantOps.Infrastructure.AI.ActionProposalService>();
         services.AddSingleton<PlantOps.Application.Knowledge.IDocumentFileStore, PlantOps.Infrastructure.Knowledge.LocalDocumentFileStore>();
         services.AddIdentity<PlantOpsUser, IdentityRole>(options =>
         {

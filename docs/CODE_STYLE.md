@@ -50,3 +50,17 @@ ESLint 10 要求 Node 22.13 或更高的 22.x；本仓库开发与 CI 使用 22.
 新增规则应先清理现有诊断，再启用 warning；本仓库已有 `TreatWarningsAsErrors`，warning 会阻止构建。
 
 格式修改和业务重构分开提交，方便审阅。格式化工具不会替代业务命名和职责审查。
+
+
+## UI 组件约定
+
+- Element Plus 组件在 `main.ts` 显式注册；新增组件时同步注册，避免完整插件安装带入全部组件。统一中文由 `ElConfigProvider` 提供。依赖固定版本并更新锁文件。
+- 业务列表使用 `ElTable`，行键使用稳定业务 ID；设备/资料/工单名称提供可聚焦按钮，不只依赖鼠标点击行。空态使用业务文本，前台读取使用 `v-loading` / Skeleton，后台补查不得反复遮盖表单。
+- 表单使用 `ElForm` / `ElFormItem` / Input / Select / Checkbox；`prop` 对应模型字段，提交前等待 `validate()`。输入长度和必填约束以及服务端校验必须保留。文件仍用原生文件选择器，后续上传沿用授权 API，禁止绕开下载与 AI 引用重授权。
+- 主按钮明确 `type="primary"`；提交按钮设置 `native-type="submit"`，普通操作保持默认 button。草稿/复核等分支不得随组件迁移改变提交含义。
+- `SidePanel` 是 Drawer/Dialog 的薄封装，统一 title、焦点约束、Escape、关闭保护及非点击遮罩关闭。简单编辑用 `mode="dialog"`；维护工单通过全局 `WorkOrderDrawer` 在当前设备/告警上下文上打开一层新抽屉，不跳转独立页面。App 层抽屉启用可卸载的全局路由离开保护。嵌入设备 Drawer 的资料采用 Dialog，独立资料页采用 Drawer。
+- `useLeaveProtection` 接收响应式 dirty/busy 读取函数，不在后台响应时重置表单来解除保护。各配置子组件暴露 busy 供外层浮层使用；保存成功后再更新快照。
+- 标签内容必须放在对应 `ElTabPane` 中。测量用条件挂载；工单/资料隐藏分区保留状态并停用后台读取。销毁时注销订阅和计时器。
+- 全局基础 CSS 不得覆盖 `.el-*` 内部输入、按钮与焦点。主题采用 `--el-*` token；基准间距 4/8/16/24/32px、4px 圆角、13px 正文。窄屏允许表格内部水平滚动，页面本身不得横向溢出，工单操作栏不能遮住最后一项输入。
+
+官方接口参考：[安装](https://element-plus.org/en-US/guide/installation.html)、[Drawer](https://element-plus.org/en-US/component/drawer.html)、[Dialog](https://element-plus.org/en-US/component/dialog.html)、[Form](https://element-plus.org/en-US/component/form)、[Table](https://element-plus.org/en-US/component/table.html)、[Tree](https://element-plus.org/en-US/component/tree.html)、[Steps](https://element-plus.org/en-US/component/steps.html)。升级依赖时先核对这些 API，再检查关闭保护、路由深链接及后台刷新行为。

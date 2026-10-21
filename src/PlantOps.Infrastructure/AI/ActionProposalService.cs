@@ -1,0 +1,528 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using PlantOps.Application.AI;
+using PlantOps.Application.Assets;
+using PlantOps.Application.Maintenance;
+using PlantOps.Domain.AI;
+using PlantOps.Domain.Identity;
+using PlantOps.Infrastructure.Maintenance;
+using PlantOps.Infrastructure.Persistence;
+
+namespace PlantOps.Infrastructure.AI;
+
+public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationService investigations,
+    WorkOrderService workOrders, TimeProvider clock) : IActionProposalService
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private static string Hash(object value) => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, Json)));
+
+    private static string InvestigationHash(AiRun run) => Hash(new { run.ResultJson, run.EvidenceJson, run.WarningsJson, run.Provider, run.Model, run.Simulated });
+
+    private static WorkOrderDraft Payload(ActionProposal proposal) => JsonSerializer.Deserialize<WorkOrderDraft>(proposal.PayloadJson, Json)!;
+
+    private static WorkOrderNoteDraft NotePayload(ActionProposal proposal) => JsonSerializer.Deserialize<WorkOrderNoteDraft>(proposal.PayloadJson, Json)!;
+
+    private static string NotePayloadHash(ActionProposal proposal, WorkOrderNoteDraft draft) => Hash(new
+    {
+        proposal.SchemaVersion,
+        proposal.ActionType,
+        proposal.DraftOrigin,
+        proposal.AiRunId,
+        proposal.PlantId,
+        proposal.AssetId,
+        proposal.AlarmId,
+        proposal.AssetVersion,
+        proposal.AlarmVersion,
+        proposal.InvestigationHash,
+        proposal.TargetWorkOrderId,
+        proposal.TargetWorkOrderVersion,
+        draft
+    });
+
+    private static string PayloadHash(ActionProposal proposal, WorkOrderDraft draft) =>
+        Hash(new
+        {
+            proposal.SchemaVersion,
+            proposal.ActionType,
+            proposal.DraftOrigin,
+            proposal.AiRunId,
+            proposal.PlantId,
+            proposal.AssetId,
+            proposal.AlarmId,
+            proposal.AssetVersion,
+            proposal.AlarmVersion,
+            proposal.InvestigationHash,
+            draft
+        });
+
+    private async Task<AiRun> OwnedRunAsync(Actor actor, Guid runId, CancellationToken token) =>
+        await db.AiRuns.AsNoTracking().SingleOrDefaultAsync(x => x.Id == runId && x.ActorUserId == actor.UserId, token)
+        ?? throw new DirectoryException(404, "Investigation not found.");
+
+    private async Task<ActionProposal> OwnedAsync(Actor actor, Guid id, CancellationToken token) =>
+        await db.ActionProposals.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == actor.UserId, token)
+        ?? throw new DirectoryException(404, "Proposal not found.");
+
+    private async Task LockPlantAsync(Guid plantId, CancellationToken token)
+    {
+        // A bounded wait returns a recoverable error; no model or network work happens in this transaction.
+        await db.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '5s'", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({plantId.ToString()}, 0))", token);
+    }
+
+    private async Task LockIdentityAsync(string userId, Guid plantId, CancellationToken token)
+    {
+        // Share row locks prevent revocation/disable between authorization and commit, even outside plant-lock writers.
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"AspNetUsers\" WHERE \"Id\" = {userId} FOR SHARE", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"AspNetUserRoles\" WHERE \"UserId\" = {userId} ORDER BY \"RoleId\" FOR SHARE", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"AspNetRoles\" WHERE \"Id\" IN (SELECT \"RoleId\" FROM \"AspNetUserRoles\" WHERE \"UserId\" = {userId}) ORDER BY \"Id\" FOR SHARE", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"UserPlantAccess\" WHERE \"UserId\" = {userId} AND \"PlantId\" = {plantId} FOR SHARE", token);
+    }
+
+    private async Task AuthorizeAsync(Actor actor, Guid plantId, Guid assetId, bool maintenance, CancellationToken token)
+    {
+        if (!await db.Users.AsNoTracking().AnyAsync(x => x.Id == actor.UserId && x.IsEnabled, token))
+        {
+            throw new DirectoryException(401, "Session unavailable.");
+        }
+        if (!await db.UserPlantAccess.AnyAsync(x => x.UserId == actor.UserId && x.PlantId == plantId, token)
+            || !await db.Assets.AsNoTracking().AnyAsync(x => x.Id == assetId && x.PlantId == plantId && !x.IsArchived, token)
+            || !await db.Plants.AsNoTracking().AnyAsync(x => x.Id == plantId && !x.IsArchived, token))
+        {
+            throw new DirectoryException(404, "Proposal not available.");
+        }
+        var roles = await (from grant in db.UserRoles
+                           join role in db.Roles on grant.RoleId equals role.Id
+                           where grant.UserId == actor.UserId
+                           select role.Name).ToListAsync(token);
+        if (maintenance && !roles.Any(x => x is "Admin" or "MaintenanceEngineer")
+            || !roles.Any(x => x is "Admin" or "MaintenanceEngineer" or "Viewer" or "Operator"))
+        {
+            throw new DirectoryException(403, "Maintenance role required.");
+        }
+    }
+
+    private async Task<AiRun> LockContextAsync(Actor actor, ActionProposal proposal, bool maintenance, CancellationToken token)
+    {
+        var run = await OwnedRunAsync(actor, proposal.AiRunId, token);
+        await LockIdentityAsync(actor.UserId, proposal.PlantId, token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Plants\" WHERE \"Id\" = {proposal.PlantId} FOR SHARE", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Assets\" WHERE \"Id\" = {proposal.AssetId} FOR SHARE", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Alarms\" WHERE \"Id\" = {proposal.AlarmId} FOR SHARE", token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"AiRuns\" WHERE \"Id\" = {run.Id} FOR SHARE", token);
+        await AuthorizeAsync(actor, proposal.PlantId, proposal.AssetId, maintenance, token);
+        if (proposal.TargetWorkOrderId is { } orderId)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"WorkOrders\" WHERE \"Id\" = {orderId} AND \"PlantId\" = {proposal.PlantId} AND \"AssetId\" = {proposal.AssetId} FOR UPDATE", token);
+        }
+        foreach (var item in (JsonSerializer.Deserialize<InvestigationEvidence[]>(run.EvidenceJson, Json) ?? [])
+            .Where(x => x.Kind == "Document").OrderBy(x => x.ResourceId).ThenBy(x => x.VersionId).ThenBy(x => x.ChunkId))
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Documents\" WHERE \"Id\" = {item.ResourceId} FOR SHARE", token);
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"DocumentVersions\" WHERE \"Id\" = {item.VersionId} FOR SHARE", token);
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"DocumentChunks\" WHERE \"Id\" = {item.ChunkId} FOR SHARE", token);
+        }
+        return await OwnedRunAsync(actor, run.Id, token);
+    }
+
+    private async Task<ActionProposal> LockProposalAsync(Actor actor, Guid id, CancellationToken token)
+    {
+        var snapshot = await OwnedAsync(actor, id, token);
+        await LockPlantAsync(snapshot.PlantId, token);
+        // Avoid EF identity-map snapshots after waiting for another approval/editor.
+        var tracked = db.ActionProposals.Local.SingleOrDefault(x => x.Id == id);
+        if (tracked != null)
+        {
+            db.Entry(tracked).State = EntityState.Detached;
+        }
+        return await db.ActionProposals.FromSqlInterpolated($"SELECT * FROM \"ActionProposals\" WHERE \"Id\" = {id} AND \"OwnerUserId\" = {actor.UserId} FOR UPDATE")
+            .SingleAsync(token);
+    }
+
+    private async Task<InvestigationRunDto?> CurrentInvestigationAsync(Actor actor, ActionProposal proposal, AiRun run, CancellationToken token)
+    {
+        if (run.Status != "Succeeded" || run.ResultJson == null || InvestigationHash(run) != proposal.InvestigationHash)
+        {
+            return null;
+        }
+        try
+        {
+            var current = await investigations.GetAsync(actor, run.Id, token);
+            return current.Status == "Succeeded" && current.Result != null ? current : null;
+        }
+        catch (DirectoryException exception) when (exception.Status is 404 or 409)
+        {
+            return null;
+        }
+    }
+
+    private async Task<ActionProposalDto> DtoAsync(Actor actor, ActionProposal proposal, AiRun run, CancellationToken token)
+    {
+        var investigation = await CurrentInvestigationAsync(actor, proposal, run, token);
+        var asset = await db.Assets.AsNoTracking().SingleAsync(x => x.Id == proposal.AssetId, token);
+        var alarm = await db.Alarms.AsNoTracking().SingleAsync(x => x.Id == proposal.AlarmId, token);
+        var status = proposal.Status;
+        var target = proposal.TargetWorkOrderId.HasValue
+            ? await db.WorkOrders.AsNoTracking().SingleOrDefaultAsync(x => x.Id == proposal.TargetWorkOrderId
+                && x.AssetId == proposal.AssetId && x.PlantId == proposal.PlantId, token) : null;
+        string? reason = null;
+        if (investigation == null)
+        {
+            reason = "资料版本或权限已变化，旧提案正文已隐藏。请重新调查。";
+            if (status == "Pending")
+            {
+                status = "Invalidated";
+            }
+        }
+        if (status == "Pending" && (asset.Version != proposal.AssetVersion || alarm.Version != proposal.AlarmVersion))
+        {
+            status = "Invalidated";
+            reason = "设备或告警已变化，请重新整理并确认工单草稿。";
+        }
+        if (status == "Pending" && clock.GetUtcNow() >= proposal.ExpiresAt)
+        {
+            status = "Expired";
+            reason = "提案已过期，请重新整理并确认工单草稿。";
+        }
+        if (status == "Pending" && proposal.ActionType == "AppendWorkOrderNote"
+            && (target == null || target.Version != proposal.TargetWorkOrderVersion || target.Status is "Closed" or "Cancelled"))
+        {
+            status = "Invalidated";
+            reason = "目标工单已变化、关闭或取消，请重新选择工单并整理备注。";
+        }
+        if (proposal.Status == "Pending" && status != "Pending")
+        {
+            var before = JsonSerializer.Serialize(proposal, Json);
+            proposal.Status = status;
+            proposal.Version++;
+            Audit(actor, proposal, status, before);
+            await db.SaveChangesAsync(token);
+        }
+        return new(proposal.Id, proposal.AiRunId, proposal.PlantId, proposal.AssetId, proposal.AlarmId,
+            asset.Name, status, proposal.Version, proposal.PayloadHash, proposal.ExpiresAt,
+            investigation != null && status is not ("Invalidated" or "Expired") && proposal.ActionType == "CreateWorkOrder" ? Payload(proposal) : null,
+            investigation, proposal.ResultEntityId, proposal.ExecutedAt, proposal.ApprovalCorrelationId, reason,
+            proposal.ActionType, proposal.TargetWorkOrderId, proposal.TargetWorkOrderVersion, target?.Number, target?.Title,
+            investigation != null && status is not ("Invalidated" or "Expired") && proposal.ActionType == "AppendWorkOrderNote" ? NotePayload(proposal) : null);
+    }
+
+    private void Audit(Actor actor, ActionProposal proposal, string action, string? before) => db.AuditLogs.Add(new AuditLog
+    {
+        PlantId = proposal.PlantId,
+        ResourceId = proposal.Id,
+        ResourceType = "ActionProposal",
+        Action = action,
+        ActorUserId = actor.UserId,
+        Before = before,
+        After = JsonSerializer.Serialize(proposal, Json),
+        CorrelationId = actor.CorrelationId,
+        OccurredAt = clock.GetUtcNow()
+    });
+
+    private static WorkOrderDraft Normalize(WorkOrderDraft draft)
+    {
+        if (string.IsNullOrWhiteSpace(draft.Title) || draft.Title.Length > 200 || draft.Description == null
+            || draft.Description.Length > 8000 || draft.Priority is not ("Low" or "Medium" or "High")
+            || draft.AssignedToUserId?.Length > 450)
+        {
+            throw new DirectoryException(400, "标题必填且最多200字，描述最多8000字，请选择有效优先级。生成内容超限时请缩减调查内容后重新整理。");
+        }
+        return draft with
+        {
+            Title = draft.Title.Trim(),
+            Description = draft.Description.Trim(),
+            AssignedToUserId = string.IsNullOrWhiteSpace(draft.AssignedToUserId) ? null : draft.AssignedToUserId.Trim()
+        };
+    }
+
+    private static WorkOrderDraft Template(InvestigationRunDto run)
+    {
+        var result = run.Result!.Value;
+        var text = new StringBuilder($"调查 {run.Id} · {run.CreatedAt:O}\n模型来源：{(run.Simulated ? "模拟模型结果" : run.Model)}\n以下为调查快照与待核查建议，需现场人员核实。\n");
+        void Statements(string field, string label)
+        {
+            text.AppendLine($"\n{label}");
+            foreach (var item in result.GetProperty(field).EnumerateArray())
+            {
+                text.AppendLine(item.GetProperty("text").GetString());
+                text.AppendLine("引用：" + string.Join(", ", item.GetProperty("evidenceIds").EnumerateArray().Select(x => x.GetString())));
+                if (field == "hypotheses")
+                {
+                    text.AppendLine($"支持程度：{item.GetProperty("support").GetString()}；核实方式：{item.GetProperty("verification").GetString()}");
+                }
+            }
+        }
+        Statements("observations", "观测事实");
+        Statements("hypotheses", "待验证假设（并非确诊原因）");
+        Statements("nextChecks", "建议核查");
+        text.AppendLine("\n缺失信息");
+        foreach (var item in result.GetProperty("missingInformation").EnumerateArray())
+        {
+            text.AppendLine(item.GetString());
+        }
+        text.AppendLine("\n服务端质量与来源提示");
+        foreach (var warning in run.Warnings)
+        {
+            text.AppendLine(warning);
+        }
+        foreach (var item in run.Evidence.Where(x => x.Kind == "DataQuality"))
+        {
+            text.AppendLine($"[{item.Id}] " + string.Join("\n", item.Facts));
+        }
+        return Normalize(new("核查告警并验证调查建议", text.ToString()));
+    }
+
+    public Task<ActionProposalDto> CreateAsync(Actor actor, Guid runId, CancellationToken cancellationToken = default) =>
+        CreateCoreAsync(actor, runId, null, cancellationToken);
+
+    public Task<ActionProposalDto> CreateNoteAsync(Actor actor, Guid runId, CreateNoteProposal input, CancellationToken cancellationToken = default) =>
+        CreateCoreAsync(actor, runId, input, cancellationToken);
+
+    private async Task<ActionProposalDto> CreateCoreAsync(Actor actor, Guid runId, CreateNoteProposal? input, CancellationToken cancellationToken)
+    {
+        var run = await OwnedRunAsync(actor, runId, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await LockPlantAsync(run.PlantId, cancellationToken);
+        var proposal = new ActionProposal
+        {
+            AiRunId = runId,
+            PlantId = run.PlantId,
+            AssetId = run.AssetId,
+            AlarmId = run.AlarmId,
+            OwnerUserId = actor.UserId,
+            CreatedAt = clock.GetUtcNow()
+        };
+        if (input != null)
+        {
+            proposal.ActionType = "AppendWorkOrderNote";
+            proposal.SchemaVersion = 2;
+            proposal.TargetWorkOrderId = input.WorkOrderId;
+            proposal.TargetWorkOrderVersion = input.WorkOrderVersion;
+        }
+        run = await LockContextAsync(actor, proposal, true, cancellationToken);
+        if (input != null)
+        {
+            var target = await db.WorkOrders.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.WorkOrderId
+                && x.AssetId == proposal.AssetId && x.PlantId == proposal.PlantId, cancellationToken)
+                ?? throw new DirectoryException(404, "目标工单不在当前设备下或不可用。");
+            if (target.Version != input.WorkOrderVersion || target.Status is "Closed" or "Cancelled")
+            {
+                throw new DirectoryException(409, "目标工单已变化、关闭或取消，请重新选择。");
+            }
+        }
+        var investigation = await investigations.GetAsync(actor, runId, cancellationToken);
+        if (investigation.Status != "Succeeded" || investigation.Result == null)
+        {
+            throw new DirectoryException(409, "只有成功且当前仍可读取的调查才能整理工单草稿。");
+        }
+        proposal.ExpiresAt = proposal.CreatedAt.AddMinutes(15);
+        proposal.AssetVersion = await db.Assets.Where(x => x.Id == run.AssetId).Select(x => x.Version).SingleAsync(cancellationToken);
+        proposal.AlarmVersion = await db.Alarms.Where(x => x.Id == run.AlarmId).Select(x => x.Version).SingleAsync(cancellationToken);
+        proposal.InvestigationHash = InvestigationHash(run);
+        var draft = Template(investigation);
+        if (input == null)
+        {
+            proposal.PayloadJson = JsonSerializer.Serialize(draft, Json);
+            proposal.PayloadHash = PayloadHash(proposal, draft);
+        }
+        else
+        {
+            var note = NormalizeNote(new(draft.Description));
+            proposal.PayloadJson = JsonSerializer.Serialize(note, Json);
+            proposal.PayloadHash = NotePayloadHash(proposal, note);
+        }
+        db.ActionProposals.Add(proposal);
+        Audit(actor, proposal, "Create", null);
+        await db.SaveChangesAsync(cancellationToken);
+        var dto = await DtoAsync(actor, proposal, run, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return dto;
+    }
+
+    public async Task<IReadOnlyList<ActionProposalDto>> ListAsync(Actor actor, Guid runId, CancellationToken cancellationToken = default)
+    {
+        var run = await OwnedRunAsync(actor, runId, cancellationToken);
+        await AuthorizeAsync(actor, run.PlantId, run.AssetId, false, cancellationToken);
+        var ids = await db.ActionProposals.AsNoTracking().Where(x => x.AiRunId == runId && x.OwnerUserId == actor.UserId)
+            .OrderBy(x => x.Status == "Pending" ? 0 : 1).ThenByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .Take(20).Select(x => x.Id).ToListAsync(cancellationToken);
+        var result = new List<ActionProposalDto>();
+        foreach (var id in ids)
+        {
+            result.Add(await GetAsync(actor, id, cancellationToken));
+        }
+        return result.OrderBy(x => x.Status == "Pending" ? 0 : 1).ToArray();
+    }
+
+    public async Task<ActionProposalDto> GetAsync(Actor actor, Guid id, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var proposal = await LockProposalAsync(actor, id, cancellationToken);
+        var run = await LockContextAsync(actor, proposal, false, cancellationToken);
+        var dto = await DtoAsync(actor, proposal, run, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return dto;
+    }
+
+    private async Task<ActionProposalDto> MutateAsync(Actor actor, Guid id, long version,
+        Func<ActionProposal, Task> change, CancellationToken token)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
+        var proposal = await LockProposalAsync(actor, id, token);
+        var run = await LockContextAsync(actor, proposal, true, token);
+        var current = await DtoAsync(actor, proposal, run, token);
+        if (current.Status != "Pending" || proposal.Version != version)
+        {
+            // Persist terminal invalidation even though the requested command cannot proceed.
+            await transaction.CommitAsync(token);
+            throw new DirectoryException(409, current.UnavailableReason ?? "提案状态或版本已变化，请刷新并重新核对。");
+        }
+        await change(proposal);
+        await db.SaveChangesAsync(token);
+        var result = await DtoAsync(actor, proposal, run, token);
+        await transaction.CommitAsync(token);
+        return result;
+    }
+
+    public Task<ActionProposalDto> EditAsync(Actor actor, Guid id, EditActionProposal input, CancellationToken cancellationToken = default) =>
+        MutateAsync(actor, id, input.Version, async proposal =>
+        {
+            if (proposal.ActionType != "CreateWorkOrder")
+            {
+                throw new DirectoryException(400, "提案类型不匹配。");
+            }
+            var draft = Normalize(input.Draft ?? throw new DirectoryException(400, "Draft required."));
+            await ValidateAssigneeAsync(actor, proposal.PlantId, draft.AssignedToUserId, cancellationToken);
+            var before = JsonSerializer.Serialize(proposal, Json);
+            proposal.PayloadJson = JsonSerializer.Serialize(draft, Json);
+            proposal.PayloadHash = PayloadHash(proposal, draft);
+            proposal.Version++;
+            Audit(actor, proposal, "Edit", before);
+        }, cancellationToken);
+
+    private static WorkOrderNoteDraft NormalizeNote(WorkOrderNoteDraft draft)
+    {
+        if (string.IsNullOrWhiteSpace(draft.Text) || draft.Text.Length > 8000)
+        {
+            throw new DirectoryException(400, "备注必填且最多8000字。");
+        }
+        return draft with
+        {
+            Text = draft.Text.Trim()
+        };
+    }
+
+    public Task<ActionProposalDto> EditNoteAsync(Actor actor, Guid id, EditNoteProposal input, CancellationToken cancellationToken = default) =>
+        MutateAsync(actor, id, input.Version, proposal =>
+        {
+            if (proposal.ActionType != "AppendWorkOrderNote")
+            {
+                throw new DirectoryException(400, "提案类型不匹配。");
+            }
+            var draft = NormalizeNote(input.Draft ?? throw new DirectoryException(400, "Draft required."));
+            var before = JsonSerializer.Serialize(proposal, Json);
+            proposal.PayloadJson = JsonSerializer.Serialize(draft, Json);
+            proposal.PayloadHash = NotePayloadHash(proposal, draft);
+            proposal.Version++;
+            Audit(actor, proposal, "Edit", before);
+            return Task.CompletedTask;
+        }, cancellationToken);
+
+    public Task<ActionProposalDto> RejectAsync(Actor actor, Guid id, RejectActionProposal input, CancellationToken cancellationToken = default) =>
+        MutateAsync(actor, id, input.Version, proposal =>
+        {
+            var before = JsonSerializer.Serialize(proposal, Json);
+            proposal.Status = "Rejected";
+            proposal.Version++;
+            Audit(actor, proposal, "Reject", before);
+            return Task.CompletedTask;
+        }, cancellationToken);
+
+    private async Task ValidateAssigneeAsync(Actor actor, Guid plantId, string? userId, CancellationToken token)
+    {
+        if (userId == null)
+        {
+            return;
+        }
+        await LockIdentityAsync(userId, plantId, token);
+        if (!(await workOrders.AssigneesAsync(actor, plantId)).Any(x => x.Id == userId))
+        {
+            throw new DirectoryException(400, "责任人需要具备当前工厂的维护权限。");
+        }
+    }
+
+    private void RequireUnexpired(ActionProposal proposal)
+    {
+        if (clock.GetUtcNow() >= proposal.ExpiresAt)
+        {
+            throw new DirectoryException(409, "提案已过期，请重新整理并确认工单草稿。");
+        }
+    }
+
+    public async Task<ActionProposalDto> ExecuteAsync(Actor actor, Guid id, ConfirmActionProposal input, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(input.IdempotencyKey) || input.IdempotencyKey.Length > 128 || input.PayloadHash?.Length != 64)
+        {
+            throw new DirectoryException(400, "A bounded idempotency key and payload hash are required.");
+        }
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var proposal = await LockProposalAsync(actor, id, cancellationToken);
+        var run = await LockContextAsync(actor, proposal, true, cancellationToken);
+        if (proposal.Version != input.Version || proposal.PayloadHash != input.PayloadHash)
+        {
+            throw new DirectoryException(409, "提案内容已变化，请重新保存并核对完整内容。");
+        }
+        if (proposal.Status == "Executed")
+        {
+            var receipt = await DtoAsync(actor, proposal, run, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return receipt;
+        }
+        var current = await DtoAsync(actor, proposal, run, cancellationToken);
+        if (current.Status != "Pending")
+        {
+            await transaction.CommitAsync(cancellationToken);
+            throw new DirectoryException(409, current.UnavailableReason ?? "提案已拒绝或失效。");
+        }
+        var before = JsonSerializer.Serialize(proposal, Json);
+        if (proposal.ActionType == "AppendWorkOrderNote")
+        {
+            var draft = NormalizeNote(NotePayload(proposal));
+            if (NotePayloadHash(proposal, draft) != input.PayloadHash)
+            {
+                throw new DirectoryException(409, "Proposal payload integrity conflict.");
+            }
+            RequireUnexpired(proposal);
+            var note = await workOrders.NoteInTransactionAsync(actor, proposal.TargetWorkOrderId!.Value,
+                new(proposal.TargetWorkOrderVersion!.Value, draft.Text), proposal.Id);
+            proposal.ResultEntityId = note.Id;
+        }
+        else
+        {
+            var draft = Normalize(Payload(proposal));
+            if (PayloadHash(proposal, draft) != input.PayloadHash)
+            {
+                throw new DirectoryException(409, "Proposal payload integrity conflict.");
+            }
+            await ValidateAssigneeAsync(actor, proposal.PlantId, draft.AssignedToUserId, cancellationToken);
+            RequireUnexpired(proposal);
+            var workOrder = await workOrders.CreateInTransactionAsync(actor,
+                new(proposal.AssetId, draft.Title, draft.Description, draft.Priority, proposal.AlarmId, draft.AssignedToUserId), proposal.Id);
+            proposal.ResultEntityId = workOrder.Id;
+        }
+        proposal.Status = "Executed";
+        proposal.ExecutedAt = clock.GetUtcNow();
+        proposal.ApprovalCorrelationId = actor.CorrelationId;
+        proposal.ExecutionKey = input.IdempotencyKey;
+        Audit(actor, proposal, "Execute", before);
+        await db.SaveChangesAsync(cancellationToken);
+        var result = await DtoAsync(actor, proposal, run, cancellationToken);
+        // Slow SQL/lock waits can cross the deadline after the initial revalidation. Roll back the entire command.
+        RequireUnexpired(proposal);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+}

@@ -165,7 +165,7 @@ async function saveSource() {
         s.id ? 'PATCH' : 'POST',
         {
           ...s,
-          enabled: s.kind === 'OpcUa' ? false : s.enabled,
+          enabled: s.enabled,
           opcUa: s.kind === 'OpcUa' ? s.opcUa : null,
         },
       )
@@ -173,7 +173,7 @@ async function saveSource() {
     chooseSource(saved.id)
     notice.value =
       saved.kind === 'OpcUa'
-        ? 'OPC UA 配置已保存为停用状态；IndustrialSim 使用限时本地演示入口，常驻接入尚未验收。'
+        ? 'OPC UA 配置已保存；启用受部署批准的本机运行策略约束，连接状态请在测量面板查看。'
         : '模拟源已保存并记录审计。'
     emit('saved')
   })
@@ -204,6 +204,7 @@ async function saveMapping() {
   })
 }
 onMounted(() => run(loadSources))
+defineExpose({ busy })
 </script>
 <template>
   <div class="telemetry-configuration">
@@ -211,147 +212,171 @@ onMounted(() => run(loadSources))
     <p class="path-note">
       仅 Admin 可管理。Simulation 固定采用 GoldenPath
       场景。变更来源或换算前，先停用并保存映射；已有读数后不能更改点位单位。冲突后关闭配置、刷新测量，再重新编辑。
-      OPC UA 可预先保存批准的来源和节点配置，当前接入尚未开放。
+      OPC UA 启用仅限部署批准的本机 Development 演示；一个来源最多 10 点，1
+      Hz。连接与数值质量分别展示。
     </p>
-    <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
-    <p v-if="notice" class="success-banner" role="status">{{ notice }}</p>
-    <form class="directory-form" @submit.prevent="savePoint">
+    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+    <el-alert v-if="notice" :title="notice" type="success" :closable="false" show-icon />
+    <el-form label-position="top" class="directory-form" @submit.prevent="savePoint">
       <h4 class="wide">1 / 点位定义</h4>
-      <label class="wide"
-        >编辑点位<select v-model="selected" :disabled="busy" @change="choosePoint">
-          <option value="">新增点位</option>
-          <option v-for="p in points" :key="p.id" :value="p.id">
-            {{ p.code }} · v{{ p.version }}
-          </option>
-        </select></label
-      ><label>点位编码<input v-model="point.code" required maxlength="64" /></label
-      ><label>点位名称<input v-model="point.name" required maxlength="200" /></label
-      ><label>量纲<input v-model="point.quantity" required maxlength="64" /></label
-      ><label>标准单位<input v-model="point.canonicalUnit" required maxlength="32" /></label
-      ><label
-        >期望间隔（毫秒）<input
+      <el-form-item class="wide" label="编辑点位"
+        ><el-select filterable v-model="selected" :disabled="busy" @change="choosePoint">
+          <el-option value="" label="新增点位" />
+          <el-option
+            v-for="p in points"
+            :key="p.id"
+            :value="p.id"
+            :label="p.code + ' · v' + p.version"
+          /> </el-select></el-form-item
+      ><el-form-item label="点位编码"
+        ><el-input v-model="point.code" required maxlength="64" /></el-form-item
+      ><el-form-item label="点位名称"
+        ><el-input v-model="point.name" required maxlength="200" /></el-form-item
+      ><el-form-item label="量纲"
+        ><el-input v-model="point.quantity" required maxlength="64" /></el-form-item
+      ><el-form-item label="标准单位"
+        ><el-input v-model="point.canonicalUnit" required maxlength="32" /></el-form-item
+      ><el-form-item label="期望间隔（毫秒）"
+        ><el-input
           v-model.number="point.expectedIntervalMs"
           type="number"
           min="1000"
           max="60000"
           step="1000"
-          required /></label
-      ><label
-        >陈旧阈值（毫秒）<input
+          required /></el-form-item
+      ><el-form-item label="陈旧阈值（毫秒）"
+        ><el-input
           v-model.number="point.staleAfterMs"
           type="number"
           min="1000"
           max="300000"
-          required /></label
-      ><label class="check-label"><input v-model="point.enabled" type="checkbox" />点位启用</label
-      ><button :disabled="busy">保存点位</button>
-    </form>
-    <form class="directory-form" @submit.prevent="saveSource">
+          required /></el-form-item
+      ><el-checkbox class="check-label" v-model="point.enabled">点位启用</el-checkbox
+      ><el-button :disabled="busy" native-type="submit" type="primary">保存点位</el-button>
+    </el-form>
+    <el-form label-position="top" class="directory-form" @submit.prevent="saveSource">
       <h4 class="wide">2 / 同厂数据源</h4>
-      <label
-        >选择来源<select
+      <el-form-item label="选择来源"
+        ><el-select
+          filterable
           :value="source.id"
           :disabled="busy"
           @change="chooseSource(($event.target as HTMLSelectElement).value)"
         >
-          <option value="">新增数据源</option>
-          <option v-for="s in sources" :key="s.id" :value="s.id">
-            {{ s.name }} · {{ s.enabled ? '启用' : '停用' }} · v{{ s.version }}
-          </option>
-        </select></label
-      ><label
-        >来源类型<select
+          <el-option value="" label="新增数据源" />
+          <el-option
+            v-for="s in sources"
+            :key="s.id"
+            :value="s.id"
+            :label="s.name + ' · ' + (s.enabled ? '启用' : '停用') + ' · v' + s.version"
+          /> </el-select></el-form-item
+      ><el-form-item label="来源类型"
+        ><el-select
+          filterable
           v-model="source.kind"
           :disabled="!!source.id"
           @change="source.enabled = source.kind === 'Simulation'"
         >
-          <option value="Simulation">Simulation</option>
-          <option value="OpcUa">OPC UA（预配置）</option>
-        </select></label
-      >
+          <el-option value="Simulation" label="Simulation" />
+          <el-option value="OpcUa" label="OPC UA（受控本机）" /> </el-select
+      ></el-form-item>
       <template v-if="source.kind === 'OpcUa'">
-        <label
-          >批准的端点引用<input v-model="source.opcUa.endpointReference" required maxlength="64"
-        /></label>
-        <label
-          >发布间隔（毫秒）<input
+        <el-form-item label="批准的端点引用"
+          ><el-input v-model="source.opcUa.endpointReference" required maxlength="64"
+        /></el-form-item>
+        <el-form-item label="发布间隔（毫秒）"
+          ><el-input
             v-model.number="source.opcUa.publishingIntervalMs"
             type="number"
             min="1000"
             max="60000"
             required
-        /></label>
-        <p class="wide path-note">采用加密安全策略；端点地址由部署配置批准。当前仅保存停用配置。</p>
+        /></el-form-item>
+        <p class="wide path-note">
+          端点由部署配置批准。当前常驻运行仅支持 Development 本机回环、明确批准的节点及 1 Hz
+          采集；使用 None 安全模式，仅用于本机演示。
+        </p>
       </template>
-      <label>来源名称<input v-model="source.name" maxlength="200" required /></label
-      ><label class="check-label"
-        ><input
-          v-model="source.enabled"
-          type="checkbox"
-          :disabled="source.kind === 'OpcUa'"
-        />来源启用</label
-      ><button :disabled="busy">保存来源</button>
-    </form>
-    <form v-if="point.id" class="directory-form" @submit.prevent="saveMapping">
+      <el-form-item label="来源名称"
+        ><el-input v-model="source.name" maxlength="200" required /></el-form-item
+      ><el-checkbox class="check-label" v-model="source.enabled">来源启用</el-checkbox
+      ><el-button :disabled="busy" native-type="submit" type="primary">保存来源</el-button>
+    </el-form>
+    <el-form
+      label-position="top"
+      v-if="point.id"
+      class="directory-form"
+      @submit.prevent="saveMapping"
+    >
       <h4 class="wide">3 / {{ point.code }} 的来源映射</h4>
-      <label
-        >编辑映射<select
+      <el-form-item label="编辑映射"
+        ><el-select
+          filterable
           :value="mapping.id"
           :disabled="busy"
           @change="chooseMapping(($event.target as HTMLSelectElement).value)"
         >
-          <option value="">新增映射</option>
-          <option v-for="m in mappings" :key="m.id" :value="m.id">
-            {{ m.sourceKey }} · {{ m.enabled ? '启用' : '停用' }} · v{{ m.version }}
-          </option>
-        </select></label
-      ><label
-        >数据源<select v-model="mapping.dataSourceId" required>
-          <option value="">选择来源</option>
-          <option v-for="s in sources" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select></label
-      ><label v-if="!protocolMapping"
-        >来源键<input v-model="mapping.sourceKey" maxlength="128" required /></label
+          <el-option value="" label="新增映射" />
+          <el-option
+            v-for="m in mappings"
+            :key="m.id"
+            :value="m.id"
+            :label="m.sourceKey + ' · ' + (m.enabled ? '启用' : '停用') + ' · v' + m.version"
+          /> </el-select></el-form-item
+      ><el-form-item label="数据源"
+        ><el-select filterable v-model="mapping.dataSourceId" required>
+          <el-option value="" label="选择来源" />
+          <el-option
+            v-for="s in sources"
+            :key="s.id"
+            :value="s.id"
+            :label="s.name"
+          /> </el-select></el-form-item
+      ><el-form-item v-if="!protocolMapping" label="来源键"
+        ><el-input v-model="mapping.sourceKey" maxlength="128" required /></el-form-item
       ><template v-if="protocolMapping">
-        <label>Namespace URI<input v-model="node.namespaceUri" maxlength="512" required /></label>
-        <label
-          >标识符类型<select v-model="node.identifierType">
-            <option>String</option>
-            <option>Numeric</option>
-            <option>Guid</option>
-          </select></label
-        >
-        <label class="wide"
-          >节点标识符<input v-model="node.identifier" maxlength="512" required
-        /></label>
-        <label
-          >请求采样间隔（毫秒）<input
+        <el-form-item label="Namespace URI"
+          ><el-input v-model="node.namespaceUri" maxlength="512" required
+        /></el-form-item>
+        <el-form-item label="标识符类型"
+          ><el-select filterable v-model="node.identifierType">
+            <el-option value="String" label="String" />
+            <el-option value="Numeric" label="Numeric" />
+            <el-option value="Guid" label="Guid" /> </el-select
+        ></el-form-item>
+        <el-form-item class="wide" label="节点标识符"
+          ><el-input v-model="node.identifier" maxlength="512" required
+        /></el-form-item>
+        <el-form-item label="请求采样间隔（毫秒）"
+          ><el-input
             v-model.number="node.samplingIntervalMs"
             type="number"
             min="1000"
             max="60000"
             required
-        /></label>
-        <label
-          >队列大小<input v-model.number="node.queueSize" type="number" min="1" max="100" required
-        /></label>
-        <label
-          >采样语义<select v-model="node.samplingMode">
-            <option value="Periodic">周期采样</option>
-            <option value="Changes">变化通知（覆盖率未知）</option>
-          </select></label
-        >
+        /></el-form-item>
+        <el-form-item label="队列大小"
+          ><el-input v-model.number="node.queueSize" type="number" min="1" max="100" required
+        /></el-form-item>
+        <el-form-item label="采样语义"
+          ><el-select filterable v-model="node.samplingMode">
+            <el-option value="Periodic" label="周期采样" />
+            <el-option value="Changes" label="变化通知（覆盖率未知）" /> </el-select
+        ></el-form-item>
       </template>
-      <label>原始单位<input v-model="mapping.rawUnit" required maxlength="32" /></label
-      ><label>比例<input v-model.number="mapping.scale" type="number" step="any" required /></label
-      ><label>偏移<input v-model.number="mapping.offset" type="number" step="any" required /></label
-      ><label class="check-label"
-        ><input
-          v-model="mapping.enabled"
-          type="checkbox"
-          :disabled="protocolMapping"
-        />映射启用</label
-      ><button :disabled="busy">保存映射</button>
-    </form>
+      <el-form-item label="原始单位"
+        ><el-input v-model="mapping.rawUnit" required maxlength="32" /></el-form-item
+      ><el-form-item label="比例"
+        ><el-input v-model.number="mapping.scale" type="number" step="any" required /></el-form-item
+      ><el-form-item label="偏移"
+        ><el-input
+          v-model.number="mapping.offset"
+          type="number"
+          step="any"
+          required /></el-form-item
+      ><el-checkbox class="check-label" v-model="mapping.enabled" :disabled="protocolMapping"
+        >映射启用</el-checkbox
+      ><el-button :disabled="busy" native-type="submit" type="primary">保存映射</el-button>
+    </el-form>
   </div>
 </template>

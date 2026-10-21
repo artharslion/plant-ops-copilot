@@ -40,6 +40,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
 
     public DbSet<SamplingProfile> SamplingProfiles => Set<SamplingProfile>();
 
+    public DbSet<DataSourceHealth> DataSourceHealth => Set<DataSourceHealth>();
+
     public DbSet<PlantOps.Domain.Operations.DevelopmentSeedState> DevelopmentSeedStates => Set<PlantOps.Domain.Operations.DevelopmentSeedState>();
 
     public DbSet<AlarmRule> AlarmRules => Set<AlarmRule>();
@@ -61,6 +63,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
     public DbSet<PlantOps.Domain.Knowledge.DocumentChunk> DocumentChunks => Set<PlantOps.Domain.Knowledge.DocumentChunk>();
 
     public DbSet<PlantOps.Domain.AI.AiRun> AiRuns => Set<PlantOps.Domain.AI.AiRun>();
+
+    public DbSet<PlantOps.Domain.AI.ActionProposal> ActionProposals => Set<PlantOps.Domain.AI.ActionProposal>();
 
     public DbSet<PlantOps.Domain.Operations.OutboxEvent> OutboxEvents => Set<PlantOps.Domain.Operations.OutboxEvent>();
 

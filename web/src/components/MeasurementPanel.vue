@@ -2,14 +2,38 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { request } from '../api'
 import type { components } from '../generated/api'
+import SidePanel from './SidePanel.vue'
 import TelemetryConfiguration from './TelemetryConfiguration.vue'
+const configuration = ref<InstanceType<typeof TelemetryConfiguration>>()
 import { subscribePlantEvents } from '../realtime'
 type Point = components['schemas']['PointOverview']
 type Trend = components['schemas']['MeasurementTrend']
-const props = defineProps<{ assetId: string; plantId: string; admin: boolean; archived: boolean }>()
+type Source = components['schemas']['SourceDto']
+const props = defineProps<{
+  assetId: string
+  plantId: string
+  admin: boolean
+  archived: boolean
+  initialPointId?: string
+}>()
 const points = ref<Point[]>([]),
   pointId = ref(''),
   trend = ref<Trend | null>(null)
+const sources = ref<Source[]>([])
+const source = computed(() => sources.value.find((s) => s.id === point.value?.dataSourceId))
+function connectionState() {
+  if (!source.value?.enabled) return '来源停用'
+  const health = source.value.health
+  if (!health || !health.isCurrent) return '状态未确认（Worker 心跳过期或配置已变化）'
+  const labels: Record<string, string> = {
+    Connecting: '连接中',
+    Connected: '已连接',
+    Reconnecting: '断线重连中',
+    Faulted: '配置或安全校验失败，等待调整配置',
+    Stopped: '采集已停止',
+  }
+  return labels[health.state] ?? '状态未知'
+}
 const error = ref(''),
   checked = ref(''),
   busy = ref(false),
@@ -21,21 +45,27 @@ const observationLatencies = ref<number[]>([])
 let recordedReading: string | null = null
 const point = computed(() => points.value.find((p) => p.id === pointId.value))
 let generation = 0
+let refreshing = false
 function at(value?: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 }
 function value(v?: number | string | null) {
   return v == null ? '—' : Number(v).toFixed(2)
 }
-async function refresh() {
-  if (busy.value) return
+async function refresh(background = false) {
+  if (refreshing) return
+  refreshing = true
   const current = ++generation,
     asset = props.assetId
-  busy.value = true
+  if (!background) busy.value = true
   try {
-    const list = await request<Point[]>(`/assets/${asset}/measurement-points`)
+    const [list, sourceList] = await Promise.all([
+      request<Point[]>(`/assets/${asset}/measurement-points`),
+      request<Source[]>(`/plants/${props.plantId}/data-sources`),
+    ])
     if (current !== generation) return
     points.value = list
+    sources.value = sourceList
     if (!list.some((x) => x.id === pointId.value))
       pointId.value = list.find((x) => x.code === 'VIBRATION_RMS')?.id ?? list[0]?.id ?? ''
     const end =
@@ -64,15 +94,20 @@ async function refresh() {
     if (current === generation) {
       error.value = e instanceof Error ? e.message : '测量读取失败'
       points.value = []
+      sources.value = []
       trend.value = null
       checked.value = ''
     }
   } finally {
-    if (current === generation) busy.value = false
+    if (current === generation) {
+      busy.value = false
+      refreshing = false
+    }
   }
 }
 function change() {
   generation++
+  refreshing = false
   busy.value = false
   trend.value = null
   void refresh()
@@ -81,9 +116,10 @@ watch(
   () => props.assetId,
   () => {
     generation++
+    refreshing = false
     busy.value = false
     points.value = []
-    pointId.value = ''
+    pointId.value = props.initialPointId ?? ''
     trend.value = null
     error.value = ''
     configure.value = false
@@ -92,7 +128,7 @@ watch(
   { immediate: true },
 )
 const timer = setInterval(() => {
-  if (auto.value && !configure.value) void refresh()
+  if (auto.value && !configure.value) void refresh(true)
 }, 5000)
 const unsubscribe = subscribePlantEvents((event) => {
   if (
@@ -100,7 +136,7 @@ const unsubscribe = subscribePlantEvents((event) => {
     auto.value &&
     (!event || (event.plantId === props.plantId && event.eventType === 'MeasurementChanged'))
   )
-    void refresh()
+    void refresh(true)
 })
 onUnmounted(() => {
   generation++
@@ -177,39 +213,39 @@ const quality = computed(() => {
   >
     <div class="section-title">
       <div>
-        <p class="eyebrow">MEASUREMENTS / SIMULATION</p>
+        <p class="eyebrow">MEASUREMENTS / QUALITY</p>
         <h2>观测、质量与时间。</h2>
       </div>
       <div class="actions">
-        <button :disabled="busy" class="secondary" @click="refresh">刷新测量</button
-        ><button v-if="admin && !archived" class="secondary" @click="configure = !configure">
+        <el-button :disabled="busy" @click="refresh()">刷新测量</el-button
+        ><el-button v-if="admin && !archived" @click="configure = !configure">
           {{ configure ? '关闭配置' : '配置测量' }}
-        </button>
+        </el-button>
       </div>
     </div>
     <p v-if="error" role="alert" class="error-banner">
       {{ error }} 已隐藏未验证的测量状态，请重试。
     </p>
     <div class="measurement-toolbar">
-      <label
-        >点位<select v-model="pointId" :disabled="busy" @change="change">
-          <option v-if="!points.length" value="">暂无点位</option>
-          <option v-for="p in points" :key="p.id" :value="p.id">
-            {{ p.code }} · {{ p.name }}{{ p.enabled ? '' : '（已停用）' }}
-          </option>
-        </select></label
-      ><label
-        >时间窗口<select v-model="windowMinutes" @change="change">
-          <option :value="15">最近 15 分钟</option>
-          <option :value="60">最近 1 小时</option>
-          <option :value="1440">最近 24 小时</option>
-        </select></label
-      ><label
-        >粒度<select v-model="bucket" @change="change">
-          <option value="raw">原始观测</option>
-          <option value="1m">分钟统计</option>
-        </select></label
-      ><label class="check-label"><input v-model="auto" type="checkbox" />每 5 秒刷新</label>
+      <el-form-item label-position="top" label="点位"
+        ><el-select filterable v-model="pointId" :disabled="busy" @change="change">
+          <el-option v-if="!points.length" value="" label="暂无点位" />
+          <el-option
+            v-for="p in points"
+            :key="p.id"
+            :value="p.id"
+            :label="p.code + ' · ' + p.name + (p.enabled ? '' : '（已停用）')"
+          /> </el-select></el-form-item
+      ><el-form-item label-position="top" label="时间窗口"
+        ><el-select filterable v-model="windowMinutes" @change="change">
+          <el-option :value="15" label="最近 15 分钟" />
+          <el-option :value="60" label="最近 1 小时" />
+          <el-option :value="1440" label="最近 24 小时" /> </el-select></el-form-item
+      ><el-form-item label-position="top" label="粒度"
+        ><el-select filterable v-model="bucket" @change="change">
+          <el-option value="raw" label="原始观测" />
+          <el-option value="1m" label="分钟统计" /> </el-select></el-form-item
+      ><el-checkbox class="check-label" v-model="auto">每 5 秒刷新</el-checkbox>
     </div>
     <template v-if="point">
       <div class="measurement-summary">
@@ -254,6 +290,16 @@ const quality = computed(() => {
           <p>
             {{ point.sourceKind ?? '未启用映射' }} · {{ point.enabled ? '点位启用' : '点位停用' }}
           </p>
+          <template v-if="point.sourceKind === 'OpcUa'">
+            <p role="status">{{ connectionState() }}</p>
+            <p class="path-note">
+              重连 {{ source?.health?.reconnectCount ?? 0 }} 次 · 心跳
+              {{ at(source?.health?.updatedAt) }}<br />
+              协议保活 {{ at(source?.health?.lastKeepAliveAt) }}<br />
+              {{ source?.health?.failureCode ?? ''
+              }}<br />连接存活与观测新鲜度分别判断；断线期间不补造样本。
+            </p>
+          </template>
           <p class="path-note">
             {{ point.sourceKey ?? '—' }}<br />映射 v{{ point.mappingVersion ?? '—' }} · 点位 v{{
               point.version
@@ -310,70 +356,74 @@ const quality = computed(() => {
       <details v-if="trend">
         <summary>查看质量、时间与来源明细</summary>
         <div class="telemetry-table">
-          <table v-if="trend.bucket === 'raw'">
-            <thead>
-              <tr>
-                <th>有效时间</th>
-                <th>值 / 质量</th>
-                <th>时间依据</th>
-                <th>来源 / 映射版本</th>
-                <th>状态 / 接收时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="s in trend.samples.slice(-100).reverse()" :key="s.id">
-                <td>
-                  {{ at(s.effectiveAt) }}{{ s.gapBefore ? ' · 缺口' : ''
-                  }}{{ s.timeAnomaly ? ' · 时间异常' : '' }}
-                </td>
-                <td>{{ value(s.value) }} {{ s.quality }}</td>
-                <td>
-                  {{ s.timestampOrigin }}<br />源 {{ at(s.sourceTimestamp) }}<br />服务器
-                  {{ at(s.serverTimestamp) }}
-                </td>
-                <td>{{ s.sourceKind }} / v{{ s.mappingVersion }}<br />{{ s.sourceMappingId }}</td>
-                <td>
-                  {{ s.statusSymbol ?? '—' }} / {{ s.rawStatusCode ?? '—' }}<br />{{
-                    at(s.receivedAt)
-                  }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <table v-else>
-            <thead>
-              <tr>
-                <th>分钟</th>
-                <th>最小 / 最大 / 平均</th>
-                <th>Good / Uncertain / Bad</th>
-                <th>覆盖率 / 缺口</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="b in trend.buckets.slice(-100).reverse()" :key="b.start">
-                <td>{{ at(b.start) }}</td>
-                <td>{{ value(b.min) }} / {{ value(b.max) }} / {{ value(b.average) }}</td>
-                <td>{{ b.goodCount }} / {{ b.uncertainCount }} / {{ b.badCount }}</td>
-                <td>
-                  {{
-                    b.coverageRatio == null
-                      ? '覆盖率未知'
-                      : (Number(b.coverageRatio) * 100).toFixed(0) + '%'
-                  }}
-                  ·
-                  {{
-                    b.samplingMode === 'Changes'
-                      ? '变化通知'
-                      : b.samplingMode === 'Unknown'
-                        ? '采样区间未确认'
-                        : '周期采样'
-                  }}
-                  ·
-                  {{ b.hasGap ? '有缺口' : '完整' }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <el-table
+            v-if="trend.bucket === 'raw'"
+            :data="trend.samples.slice(-100).reverse()"
+            row-key="id"
+            max-height="360"
+            empty-text="此时间窗口暂无数据"
+            ><el-table-column label="有效时间" min-width="200"
+              ><template #default="{ row: s }">
+                {{ at(s.effectiveAt) }}{{ s.gapBefore ? ' · 缺口' : ''
+                }}{{ s.timeAnomaly ? ' · 时间异常' : '' }}
+              </template></el-table-column
+            ><el-table-column label="值 / 质量" min-width="120"
+              ><template #default="{ row: s }"
+                >{{ value(s.value) }} {{ s.quality }}</template
+              ></el-table-column
+            ><el-table-column label="时间依据" min-width="220"
+              ><template #default="{ row: s }">
+                {{ s.timestampOrigin }}<br />源 {{ at(s.sourceTimestamp) }}<br />服务器
+                {{ at(s.serverTimestamp) }}
+              </template></el-table-column
+            ><el-table-column label="来源 / 映射版本" min-width="240"
+              ><template #default="{ row: s }"
+                >{{ s.sourceKind }} / v{{ s.mappingVersion }}<br />{{ s.sourceMappingId }}</template
+              ></el-table-column
+            ><el-table-column label="状态 / 接收时间" min-width="220"
+              ><template #default="{ row: s }">
+                {{ s.statusSymbol ?? '—' }} / {{ s.rawStatusCode ?? '—' }}<br />{{
+                  at(s.receivedAt)
+                }}
+              </template></el-table-column
+            ></el-table
+          >
+          <el-table
+            v-else
+            :data="trend.buckets.slice(-100).reverse()"
+            row-key="start"
+            max-height="360"
+            empty-text="此时间窗口暂无数据"
+            ><el-table-column label="分钟" min-width="190"
+              ><template #default="{ row: b }">{{ at(b.start) }}</template></el-table-column
+            ><el-table-column label="最小 / 最大 / 平均" min-width="180"
+              ><template #default="{ row: b }"
+                >{{ value(b.min) }} / {{ value(b.max) }} / {{ value(b.average) }}</template
+              ></el-table-column
+            ><el-table-column label="Good / Uncertain / Bad" min-width="170"
+              ><template #default="{ row: b }"
+                >{{ b.goodCount }} / {{ b.uncertainCount }} / {{ b.badCount }}</template
+              ></el-table-column
+            ><el-table-column label="覆盖率 / 缺口" min-width="230"
+              ><template #default="{ row: b }">
+                {{
+                  b.coverageRatio == null
+                    ? '覆盖率未知'
+                    : (Number(b.coverageRatio) * 100).toFixed(0) + '%'
+                }}
+                ·
+                {{
+                  b.samplingMode === 'Changes'
+                    ? '变化通知'
+                    : b.samplingMode === 'Unknown'
+                      ? '采样区间未确认'
+                      : '周期采样'
+                }}
+                ·
+                {{ b.hasGap ? '有缺口' : '完整' }}
+              </template></el-table-column
+            ></el-table
+          >
         </div>
         <p class="path-note">展示最近 100 条；窗口查询保留全部返回数据。</p>
       </details>
@@ -385,12 +435,22 @@ const quality = computed(() => {
       最近成功读取 {{ at(checked) }} ·
       {{ auto && !configure ? '自动刷新中' : '自动刷新已暂停，当前展示为读取时的快照' }}
     </p>
-    <TelemetryConfiguration
+    <SidePanel
+      :busy="configuration?.busy"
       v-if="configure"
-      :asset-id="assetId"
-      :plant-id="plantId"
-      :points="points"
-      @saved="change"
-    />
+      title="配置测量"
+      mode="dialog"
+      dirty
+      @close="configure = false"
+    >
+      <TelemetryConfiguration
+        ref="configuration"
+        v-if="configure"
+        :asset-id="assetId"
+        :plant-id="plantId"
+        :points="points"
+        @saved="change"
+      />
+    </SidePanel>
   </section>
 </template>

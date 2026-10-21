@@ -61,7 +61,7 @@ public sealed record SourceInput(string Name, bool Enabled = true, long Version 
     string Kind = "Simulation", OpcUaConnectionInput? OpcUa = null);
 
 public sealed record SourceDto(Guid Id, Guid PlantId, string Name, string Kind, bool Enabled, long Version,
-    OpcUaConnectionInput? OpcUa = null);
+    OpcUaConnectionInput? OpcUa = null, SourceHealth? Health = null);
 
 public sealed record MappingInput(Guid DataSourceId, string SourceKey, string RawUnit = "mm/s", double Scale = 1,
     double Offset = 0, bool Enabled = true, long Version = 0, OpcUaMappingInput? OpcUa = null);

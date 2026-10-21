@@ -159,6 +159,20 @@ public sealed class WorkOrderService(
 
     public async Task<WorkOrder> CreateAsync(Actor actor, CreateWorkOrder input)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var workOrder = await CreateInTransactionAsync(actor, input);
+        await SaveChangesAsync();
+        await transaction.CommitAsync();
+        return workOrder;
+    }
+
+    // Only the approval service can compose this core into its own transaction. Never commits independently.
+    internal async Task<WorkOrder> CreateInTransactionAsync(Actor actor, CreateWorkOrder input, Guid? proposalId = null)
+    {
+        if (db.Database.CurrentTransaction == null)
+        {
+            throw new InvalidOperationException("Work order creation requires a transaction.");
+        }
         await RequireMaintenanceRoleAsync(actor);
         var asset = await directory.GetAsync(actor, "assets", input.AssetId);
         ValidateText(input.Title, 200, true);
@@ -168,7 +182,6 @@ public sealed class WorkOrderService(
             throw new DirectoryException(400, "Invalid priority.");
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync();
         await LockPlantAsync(asset.PlantId);
 
         // Access and archive state may have changed while this request waited for the plant lock.
@@ -199,14 +212,19 @@ public sealed class WorkOrderService(
             Description = input.Description,
             Priority = input.Priority,
             AssignedToUserId = input.AssignedToUserId,
+            Source = proposalId.HasValue ? "AIProposal" : "Manual",
+            AiProposalId = proposalId,
             CreatedByUserId = actor.UserId,
             CreatedAt = clock.GetUtcNow()
         };
         workOrder.Number = $"WO-{workOrder.Id:N}";
         db.WorkOrders.Add(workOrder);
         RecordWorkOrderAudit(actor, workOrder, "Create", null);
-        await SaveChangesAsync();
-        await transaction.CommitAsync();
+        if (input.OpenImmediately)
+        {
+            ApplyTransition(actor, workOrder, "Open", null, null);
+        }
+
         return workOrder;
     }
 
@@ -234,55 +252,82 @@ public sealed class WorkOrderService(
         var workOrder = await GetForUpdateAsync(actor, id, input.Version);
         ValidateText(input.Reason, 8000);
         ValidateText(input.Resolution, 8000);
-        var resolution = input.Status == "Completed" ? input.Resolution : workOrder.Resolution;
-        var error = WorkOrderState.Validate(workOrder.Status, input.Status, input.Reason, resolution);
+        if (input.CloseAfterCompletion && input.Status != "Completed")
+        {
+            throw new DirectoryException(400, "Combined close requires completion.");
+        }
+
+        ApplyTransition(actor, workOrder, input.Status, input.Reason, input.Resolution);
+        if (input.CloseAfterCompletion)
+        {
+            ApplyTransition(actor, workOrder, "Closed", null, null);
+        }
+
+        await SaveChangesAsync();
+        await transaction.CommitAsync();
+        return workOrder;
+    }
+
+    private void ApplyTransition(Actor actor, WorkOrder workOrder, string status, string? reason, string? result)
+    {
+        var resolution = status == "Completed" ? result : workOrder.Resolution;
+        var error = WorkOrderState.Validate(workOrder.Status, status, reason, resolution);
         if (error != null)
         {
             throw new DirectoryException(400, error);
         }
 
         var before = JsonSerializer.Serialize(workOrder);
-        if (input.Reason != null)
+        if (reason != null)
         {
             db.WorkOrderNotes.Add(new WorkOrderNote
             {
-                WorkOrderId = id,
-                Text = input.Reason,
-                Kind = TransitionNoteKind(workOrder.Status, input.Status),
+                WorkOrderId = workOrder.Id,
+                Text = reason,
+                Kind = TransitionNoteKind(workOrder.Status, status),
                 ActorUserId = actor.UserId,
                 OccurredAt = clock.GetUtcNow()
             });
         }
 
-        workOrder.Status = input.Status;
+        workOrder.Status = status;
         workOrder.Version++;
-        if (input.Status == "Completed")
+        if (status == "Completed")
         {
             workOrder.CompletedAt = clock.GetUtcNow();
-            workOrder.Resolution = input.Resolution!.Trim();
+            workOrder.Resolution = result!.Trim();
         }
 
-        if (input.Status == "InProgress")
+        if (status == "InProgress")
         {
             workOrder.CompletedAt = null;
             workOrder.Resolution = null;
         }
 
-        if (input.Status == "Closed")
+        if (status == "Closed")
         {
             workOrder.ClosedAt = clock.GetUtcNow();
         }
 
         RecordWorkOrderAudit(actor, workOrder, "Transition", before);
-        await SaveChangesAsync();
-        await transaction.CommitAsync();
-        return workOrder;
     }
 
     public async Task<WorkOrder> NoteAsync(Actor actor, Guid id, AppendWorkOrderNote input)
     {
-        ValidateText(input.Text, 8000, true);
         await using var transaction = await db.Database.BeginTransactionAsync();
+        var note = await NoteInTransactionAsync(actor, id, input);
+        await SaveChangesAsync();
+        await transaction.CommitAsync();
+        return db.WorkOrders.Local.Single(x => x.Id == note.WorkOrderId);
+    }
+
+    internal async Task<WorkOrderNote> NoteInTransactionAsync(Actor actor, Guid id, AppendWorkOrderNote input, Guid? proposalId = null)
+    {
+        if (db.Database.CurrentTransaction == null)
+        {
+            throw new InvalidOperationException("Work order note creation requires a transaction.");
+        }
+        ValidateText(input.Text, 8000, true);
         var workOrder = await GetForUpdateAsync(actor, id, input.Version);
         if (workOrder.Status is "Closed" or "Cancelled")
         {
@@ -295,6 +340,8 @@ public sealed class WorkOrderService(
         {
             WorkOrderId = id,
             Text = input.Text.Trim(),
+            Kind = proposalId.HasValue ? "AIInvestigation" : "Note",
+            AiProposalId = proposalId,
             ActorUserId = actor.UserId,
             OccurredAt = clock.GetUtcNow()
         };
@@ -311,9 +358,7 @@ public sealed class WorkOrderService(
             CorrelationId = actor.CorrelationId,
             OccurredAt = clock.GetUtcNow()
         });
-        await SaveChangesAsync();
-        await transaction.CommitAsync();
-        return workOrder;
+        return note;
     }
 
     private static string TransitionNoteKind(string currentStatus, string nextStatus)

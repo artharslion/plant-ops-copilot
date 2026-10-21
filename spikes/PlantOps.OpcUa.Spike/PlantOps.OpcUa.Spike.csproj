@@ -5,6 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/PlantOps.Infrastructure/PlantOps.Infrastructure.csproj" />
     <ProjectReference Include="../../src/PlantOps.Integrations.OpcUa/PlantOps.Integrations.OpcUa.csproj" />
+    <ProjectReference Include="../../src/PlantOps.Worker/PlantOps.Worker.csproj" Aliases="worker" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" Version="1.5.378.182" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Server" Version="1.5.378.182" />
   </ItemGroup>

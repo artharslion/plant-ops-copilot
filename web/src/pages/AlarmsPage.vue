@@ -1,17 +1,22 @@
 <script setup lang="ts">
+import SidePanel from '../components/SidePanel.vue'
 import InvestigationPanel from '../components/InvestigationPanel.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { listAll, request, type DirectoryRecord } from '../api'
 import { useSession } from '../stores/session'
+import { useWorkOrderDrawer } from '../stores/workOrderDrawer'
 import type { components } from '../generated/api'
 import AlarmRuleConfiguration from '../components/AlarmRuleConfiguration.vue'
 import { subscribePlantEvents } from '../realtime'
 type Alarm = components['schemas']['AlarmDto']
 type Page = components['schemas']['AlarmPage']
 type Event = components['schemas']['AlarmEventDto']
+const ruleConfiguration = ref<InstanceType<typeof AlarmRuleConfiguration>>()
+const investigation = ref<InstanceType<typeof InvestigationPanel>>()
 const session = useSession(),
   route = useRoute()
+const workOrderDrawer = useWorkOrderDrawer()
 const plants = ref<DirectoryRecord[]>([]),
   plantId = ref(''),
   assetId = ref(''),
@@ -29,6 +34,7 @@ const busy = ref(false),
   auto = ref(true),
   configuring = ref(false)
 let generation = 0
+let refreshing = false
 const canAcknowledge = computed(
   () =>
     session.user?.roles.some((x) => ['Operator', 'MaintenanceEngineer', 'Admin'].includes(x)) ??
@@ -60,9 +66,10 @@ const eventNames: Record<string, string> = {
   Acknowledged: '人工确认',
   Recovered: '可信低值恢复',
 }
-async function refresh(more = false) {
-  if (busy.value || !plantId.value) return
-  busy.value = true
+async function refresh(more = false, background = false) {
+  if (busy.value || refreshing || !plantId.value) return
+  refreshing = true
+  if (!background) busy.value = true
   const current = ++generation
   try {
     await session.load()
@@ -91,11 +98,15 @@ async function refresh(more = false) {
       checked.value = ''
     }
   } finally {
-    if (current === generation) busy.value = false
+    if (current === generation) {
+      busy.value = false
+      refreshing = false
+    }
   }
 }
 function change(clearAsset = false) {
   generation++
+  refreshing = false
   busy.value = false
   rows.value = []
   selectedId.value = ''
@@ -113,15 +124,26 @@ function clearAssetFilter() {
   change()
 }
 async function select(id: string) {
+  generation++
+  refreshing = false
   selectedId.value = id
   actionError.value = ''
   notice.value = ''
   await refresh()
 }
+function closeAlarm() {
+  generation++
+  refreshing = false
+  busy.value = false
+  selectedId.value = ''
+  alarm.value = null
+}
 async function acknowledge() {
   if (!alarm.value) return
   const id = alarm.value.id,
     version = alarm.value.version
+  generation++
+  refreshing = false
   busy.value = true
   actionError.value = ''
   notice.value = ''
@@ -146,6 +168,7 @@ onMounted(async () => {
       plants.value[0]?.id ??
       ''
     assetId.value = typeof route.query.assetId === 'string' ? route.query.assetId : ''
+    selectedId.value = typeof route.query.alarmId === 'string' ? route.query.alarmId : ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : '工厂读取失败'
   } finally {
@@ -154,7 +177,7 @@ onMounted(async () => {
   }
 })
 const timer = setInterval(() => {
-  if (auto.value && !configuring.value) void refresh()
+  if (auto.value && !configuring.value) void refresh(false, true)
 }, 5000)
 const unsubscribe = subscribePlantEvents((event) => {
   if (
@@ -162,7 +185,7 @@ const unsubscribe = subscribePlantEvents((event) => {
     auto.value &&
     (!event || (event.plantId === plantId.value && event.eventType === 'AlarmChanged'))
   )
-    void refresh()
+    void refresh(false, true)
 })
 onUnmounted(() => {
   generation++
@@ -181,7 +204,7 @@ onUnmounted(() => {
       <h1>看见异常，确认收到。</h1>
       <p class="intro">告警由可信测量与确定性规则产生。人工确认与数据恢复各自独立。</p>
     </div>
-    <button :disabled="busy" @click="refresh()">刷新告警</button>
+    <el-button :disabled="busy" @click="refresh()" type="primary">刷新告警</el-button>
   </section>
   <p v-if="error" role="alert" class="error-banner">
     {{ error }} 已隐藏未验证的告警状态。<RouterLink v-if="!session.user" to="/login"
@@ -191,29 +214,29 @@ onUnmounted(() => {
   <p v-if="actionError" role="alert" class="error-banner">{{ actionError }}</p>
   <p v-if="notice" role="status" class="success-banner">{{ notice }}</p>
   <div class="measurement-toolbar alarm-toolbar">
-    <label
-      >工厂<select v-model="plantId" :disabled="busy" @change="change(true)">
-        <option v-if="!plants.length" value="">无授权工厂</option>
-        <option v-for="p in plants" :key="p.id" :value="p.id">
-          {{ p.name }}{{ p.isArchived ? '（已归档）' : '' }}
-        </option>
-      </select></label
-    ><label
-      >告警状态<select v-model="filter" :disabled="busy" @change="change()">
-        <option value="active">活动告警</option>
-        <option value="recovered">已恢复告警</option>
-        <option value="all">全部历史</option>
-      </select></label
-    ><label class="check-label"><input v-model="auto" type="checkbox" />每 5 秒刷新</label
-    ><button v-if="assetId" class="secondary" @click="clearAssetFilter">清除设备筛选</button
-    ><button
+    <el-form-item label-position="top" label="工厂"
+      ><el-select filterable v-model="plantId" :disabled="busy" @change="change(true)">
+        <el-option v-if="!plants.length" value="" label="无授权工厂" />
+        <el-option
+          v-for="p in plants"
+          :key="p.id"
+          :value="p.id"
+          :label="p.name + (p.isArchived ? '（已归档）' : '')"
+        /> </el-select></el-form-item
+    ><el-form-item label-position="top" label="告警状态"
+      ><el-select filterable v-model="filter" :disabled="busy" @change="change()">
+        <el-option value="active" label="活动告警" />
+        <el-option value="recovered" label="已恢复告警" />
+        <el-option value="all" label="全部历史" /> </el-select></el-form-item
+    ><el-checkbox class="check-label" v-model="auto">每 5 秒刷新</el-checkbox
+    ><el-button v-if="assetId" @click="clearAssetFilter">清除设备筛选</el-button
+    ><el-button
       v-if="session.admin && plantId"
-      class="secondary"
       :disabled="busy"
       @click="configuring = !configuring"
     >
       {{ configuring ? '关闭规则配置' : '配置告警规则' }}
-    </button>
+    </el-button>
   </div>
   <div v-if="!error" class="alarm-counts">
     <div>
@@ -233,134 +256,172 @@ onUnmounted(() => {
       </h2>
       <span class="path-note">{{ rows.length }} 条已加载 · 每页 50 条</span>
     </div>
-    <div class="alarm-table">
-      <div class="alarm-row-heading">
-        <span>设备 / 规则</span><span>业务状态</span><span>人工确认</span><span>发生时间</span>
-      </div>
-      <button
-        v-for="item in rows"
-        :key="item.id"
-        class="alarm-row"
-        :class="{ selected: selectedId === item.id, active: item.state === 'Active' }"
-        :disabled="busy"
-        @click="select(item.id)"
+    <el-table
+      :data="rows"
+      v-loading="busy"
+      row-key="id"
+      empty-text="此筛选下暂无告警"
+      @row-click="(item: (typeof rows)[number]) => !busy && select(item.id)"
+    >
+      <el-table-column label="设备 / 规则" min-width="240"
+        ><template #default="{ row }"
+          ><el-button link type="primary" :disabled="busy" @click.stop="select(row.id)"
+            >{{ row.assetCode }} · {{ row.ruleName }}</el-button
+          ><br /><small
+            >{{ row.pointCode }} · {{ row.severity }} · 触发
+            {{ Number(row.triggerValue).toFixed(2) }}</small
+          ></template
+        ></el-table-column
       >
-        <span
-          ><b>{{ item.assetCode }} · {{ item.ruleName }}</b
-          ><small
-            >{{ item.pointCode }} · {{ item.severity }} · 触发
-            {{ Number(item.triggerValue).toFixed(2) }}</small
-          ></span
-        ><span class="alarm-state"
-          >{{ state(item.state)
-          }}<small>{{
-            item.currentObservationTrusted ? '当前观测可信' : '当前状态无法验证'
-          }}</small></span
-        ><span
-          >{{ item.acknowledgedAt ? '已确认' : '未确认'
-          }}<small>{{
-            item.acknowledgedAt ? at(item.acknowledgedAt) : '确认不会使告警恢复'
-          }}</small></span
-        ><span
-          >{{ at(item.startedAt) }}<small>v{{ item.version }}</small></span
+      <el-table-column label="业务状态" min-width="160"
+        ><template #default="{ row }"
+          ><el-tag :type="row.state === 'Active' ? 'warning' : 'success'">{{
+            state(row.state)
+          }}</el-tag>
+          <p>{{ row.currentObservationTrusted ? '当前观测可信' : '当前状态无法验证' }}</p></template
+        ></el-table-column
+      >
+      <el-table-column label="人工确认" min-width="140"
+        ><template #default="{ row }"
+          >{{ row.acknowledgedAt ? '已确认' : '未确认' }}<br /><small>{{
+            row.acknowledgedAt ? at(row.acknowledgedAt) : '确认不会使告警恢复'
+          }}</small></template
+        ></el-table-column
+      >
+      <el-table-column label="发生时间" min-width="190"
+        ><template #default="{ row }"
+          >{{ at(row.startedAt) }}<br /><small>v{{ row.version }}</small></template
+        ></el-table-column
+      >
+    </el-table>
+    <el-button v-if="nextCursor" :disabled="busy" @click="refresh(true)"> 加载更多告警 </el-button>
+  </section>
+  <SidePanel
+    v-if="alarm"
+    :title="alarm.ruleName"
+    :subtitle="`${alarm.assetCode} / 告警详情`"
+    :busy="busy || investigation?.busy"
+    :dirty="investigation?.dirty"
+    @close="closeAlarm"
+  >
+    <p v-if="actionError" role="alert" class="error-banner">{{ actionError }}</p>
+    <p v-if="notice" role="status" class="success-banner">{{ notice }}</p>
+    <section class="alarm-detail">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">
+            {{ alarm.assetCode }} / {{ alarm.pointCode }} / RULE V{{ alarm.ruleVersion }}
+          </p>
+          <h2>{{ snapshot.Name ?? alarm.ruleName }}</h2>
+        </div>
+        <el-button
+          v-if="canAcknowledge && !alarm.acknowledgedAt"
+          :disabled="busy"
+          @click="acknowledge"
+          type="primary"
         >
-      </button>
-      <p v-if="!rows.length && !error" class="path-note">
-        {{ busy ? '正在读取告警…' : '此筛选下暂无告警。' }}
+          确认告警</el-button
+        ><span v-else class="quality-tag">{{
+          alarm.acknowledgedAt ? '已记录人工确认' : '当前角色只读'
+        }}</span>
+      </div>
+      <p class="alarm-status-note">
+        <strong>{{ state(alarm.state) }} · {{ alarm.acknowledgedAt ? '已确认' : '未确认' }}</strong
+        ><span>{{
+          alarm.currentObservationTrusted
+            ? '当前观测可信'
+            : '当前状态无法验证：测量质量、陈旧或采集配置不可用。此提示不会自动恢复活动告警。'
+        }}</span>
       </p>
-    </div>
-    <button v-if="nextCursor" class="secondary" :disabled="busy" @click="refresh(true)">
-      加载更多告警
-    </button>
-  </section>
-  <section v-if="alarm" class="alarm-detail">
-    <div class="section-title">
-      <div>
-        <p class="eyebrow">
-          {{ alarm.assetCode }} / {{ alarm.pointCode }} / RULE V{{ alarm.ruleVersion }}
-        </p>
-        <h2>{{ snapshot.Name ?? alarm.ruleName }}</h2>
-      </div>
-      <button v-if="canAcknowledge && !alarm.acknowledgedAt" :disabled="busy" @click="acknowledge">
-        确认告警</button
-      ><span v-else class="quality-tag">{{
-        alarm.acknowledgedAt ? '已记录人工确认' : '当前角色只读'
-      }}</span>
-    </div>
-    <p class="alarm-status-note">
-      <strong>{{ state(alarm.state) }} · {{ alarm.acknowledgedAt ? '已确认' : '未确认' }}</strong
-      ><span>{{
-        alarm.currentObservationTrusted
-          ? '当前观测可信'
-          : '当前状态无法验证：测量质量、陈旧或采集配置不可用。此提示不会自动恢复活动告警。'
-      }}</span>
-    </p>
-    <dl class="detail-grid">
-      <div>
-        <dt>设备</dt>
-        <dd>{{ alarm.assetName }}</dd>
-      </div>
-      <div>
-        <dt>触发值 / 标准单位</dt>
-        <dd>{{ Number(alarm.triggerValue).toFixed(2) }} {{ snapshot.Unit }}</dd>
-      </div>
-      <div>
-        <dt>触发条件快照</dt>
-        <dd>&gt; {{ snapshot.RaiseAbove }}，持续 {{ Number(snapshot.RaiseForMs) / 1000 }} 秒</dd>
-      </div>
-      <div>
-        <dt>恢复条件快照</dt>
-        <dd>&lt; {{ snapshot.ClearBelow }}，持续 {{ Number(snapshot.ClearForMs) / 1000 }} 秒</dd>
-      </div>
-      <div>
-        <dt>最大样本间隔</dt>
-        <dd>{{ Number(snapshot.MaxSampleGapMs) / 1000 }} 秒</dd>
-      </div>
-      <div>
-        <dt>恢复时间</dt>
-        <dd>{{ at(alarm.recoveredAt) }}</dd>
-      </div>
-      <div>
-        <dt>确认人 / 时间</dt>
-        <dd>{{ alarm.acknowledgedByUserId ?? '—' }}<br />{{ at(alarm.acknowledgedAt) }}</dd>
-      </div>
-      <div>
-        <dt>最后评估 / 版本</dt>
-        <dd>{{ at(alarm.lastEvaluatedAt) }} / v{{ alarm.version }}</dd>
-      </div>
-    </dl>
-    <p class="path-note">
-      <RouterLink :to="{ path: '/assets', query: { assetId: alarm.assetId, alarmId: alarm.id } }">{{
-        canMaintain ? '查看设备并创建关联工单 →' : '查看设备与维护历史 →'
-      }}</RouterLink>
-    </p>
-    <InvestigationPanel :key="alarm.id" :alarm-id="alarm.id" />
-    <h3>事件记录</h3>
-    <ol class="alarm-timeline">
-      <li v-for="event in events" :key="event.id">
-        <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
-        ><span>{{ at(event.occurredAt) }} · {{ event.actorUserId ?? '规则引擎' }}</span
-        ><small v-if="event.readingId">观测 {{ event.readingId }}</small>
-      </li>
-    </ol>
-    <p v-if="!alarm.triggerReadingAvailable" class="path-note">
-      原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。
-    </p>
-    <details>
-      <summary>追溯标识</summary>
+      <dl class="detail-grid">
+        <div>
+          <dt>设备</dt>
+          <dd>{{ alarm.assetName }}</dd>
+        </div>
+        <div>
+          <dt>触发值 / 标准单位</dt>
+          <dd>{{ Number(alarm.triggerValue).toFixed(2) }} {{ snapshot.Unit }}</dd>
+        </div>
+        <div>
+          <dt>触发条件快照</dt>
+          <dd>&gt; {{ snapshot.RaiseAbove }}，持续 {{ Number(snapshot.RaiseForMs) / 1000 }} 秒</dd>
+        </div>
+        <div>
+          <dt>恢复条件快照</dt>
+          <dd>&lt; {{ snapshot.ClearBelow }}，持续 {{ Number(snapshot.ClearForMs) / 1000 }} 秒</dd>
+        </div>
+        <div>
+          <dt>最大样本间隔</dt>
+          <dd>{{ Number(snapshot.MaxSampleGapMs) / 1000 }} 秒</dd>
+        </div>
+        <div>
+          <dt>恢复时间</dt>
+          <dd>{{ at(alarm.recoveredAt) }}</dd>
+        </div>
+        <div>
+          <dt>确认人 / 时间</dt>
+          <dd>{{ alarm.acknowledgedByUserId ?? '—' }}<br />{{ at(alarm.acknowledgedAt) }}</dd>
+        </div>
+        <div>
+          <dt>最后评估 / 版本</dt>
+          <dd>{{ at(alarm.lastEvaluatedAt) }} / v{{ alarm.version }}</dd>
+        </div>
+      </dl>
       <p class="path-note">
-        告警 {{ alarm.id }}<br />规则 {{ alarm.ruleId }} / v{{ alarm.ruleVersion }}<br />触发观测
-        {{ alarm.triggerReadingId }}
+        <el-button
+          v-if="canMaintain"
+          link
+          type="primary"
+          @click="
+            workOrderDrawer.open({ assetId: alarm.assetId, orderId: 'new', alarmId: alarm.id })
+          "
+        >
+          创建关联工单 →
+        </el-button>
+        <RouterLink
+          v-else
+          :to="{ path: '/assets', query: { assetId: alarm.assetId, alarmId: alarm.id } }"
+          >查看设备与维护历史 →</RouterLink
+        >
       </p>
-    </details>
-  </section>
-  <AlarmRuleConfiguration
+      <InvestigationPanel ref="investigation" :key="alarm.id" :alarm-id="alarm.id" />
+      <h3>事件记录</h3>
+      <ol class="alarm-timeline">
+        <li v-for="event in events" :key="event.id">
+          <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
+          ><span>{{ at(event.occurredAt) }} · {{ event.actorUserId ?? '规则引擎' }}</span
+          ><small v-if="event.readingId">观测 {{ event.readingId }}</small>
+        </li>
+      </ol>
+      <p v-if="!alarm.triggerReadingAvailable" class="path-note">
+        原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。
+      </p>
+      <details>
+        <summary>追溯标识</summary>
+        <p class="path-note">
+          告警 {{ alarm.id }}<br />规则 {{ alarm.ruleId }} / v{{ alarm.ruleVersion }}<br />触发观测
+          {{ alarm.triggerReadingId }}
+        </p>
+      </details>
+    </section>
+  </SidePanel>
+  <SidePanel
     v-if="configuring"
-    :key="plantId"
-    :plant-id="plantId"
-    :initial-asset-id="assetId"
-    @saved="refresh()"
-  />
+    mode="dialog"
+    dirty
+    title="配置告警规则"
+    :busy="busy || ruleConfiguration?.busy"
+    @close="configuring = false"
+  >
+    <AlarmRuleConfiguration
+      ref="ruleConfiguration"
+      v-if="configuring"
+      :key="plantId"
+      :plant-id="plantId"
+      :initial-asset-id="assetId"
+      @saved="refresh()"
+    />
+  </SidePanel>
   <p v-if="checked" class="path-note">
     最近成功读取 {{ at(checked) }} ·
     {{ auto && !configuring ? '自动刷新中' : '自动刷新已暂停，当前为读取时的快照' }} ·

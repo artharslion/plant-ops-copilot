@@ -154,6 +154,113 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.AI.ActionProposal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActionType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("AiRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AlarmId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AlarmVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ApprovalCorrelationId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AssetVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DraftOrigin")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("ExecutedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExecutionKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InvestigationHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("OwnerUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("PlantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ResultEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("TargetWorkOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("TargetWorkOrderVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AiRunId");
+
+                    b.HasIndex("OwnerUserId", "AiRunId", "CreatedAt");
+
+                    b.HasIndex("PlantId", "AssetId", "AlarmId");
+
+                    b.HasIndex("PlantId", "AssetId", "TargetWorkOrderId");
+
+                    b.ToTable("ActionProposals", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ActionProposal_State", "\"Status\" IN ('Pending','Rejected','Executed','Expired','Invalidated') AND ((\"ActionType\" = 'CreateWorkOrder' AND \"TargetWorkOrderId\" IS NULL AND \"TargetWorkOrderVersion\" IS NULL) OR (\"ActionType\" = 'AppendWorkOrderNote' AND \"TargetWorkOrderId\" IS NOT NULL AND \"TargetWorkOrderVersion\" > 0 AND \"TargetWorkOrderVersion\" IS NOT NULL)) AND \"DraftOrigin\" = 'InvestigationTemplate' AND \"Version\" > 0 AND \"ExpiresAt\" > \"CreatedAt\" AND ((\"Status\" = 'Executed' AND \"ResultEntityId\" IS NOT NULL AND \"ExecutedAt\" IS NOT NULL AND \"ExecutionKey\" IS NOT NULL) OR (\"Status\" <> 'Executed' AND \"ResultEntityId\" IS NULL AND \"ExecutedAt\" IS NULL AND \"ExecutionKey\" IS NULL))");
+                        });
+                });
+
             modelBuilder.Entity("PlantOps.Domain.AI.AiRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -966,6 +1073,8 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasIndex("PlantId", "Number")
                         .IsUnique();
 
+                    b.HasIndex("PlantId", "AssetId", "AiProposalId");
+
                     b.HasIndex("PlantId", "AssetId", "AlarmId");
 
                     b.HasIndex("AssetId", "Status", "CreatedAt", "Id");
@@ -987,6 +1096,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("character varying(450)");
 
+                    b.Property<Guid?>("AiProposalId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1004,6 +1116,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AiProposalId")
+                        .IsUnique();
 
                     b.HasIndex("WorkOrderId", "OccurredAt", "Id");
 
@@ -1100,6 +1215,40 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("DataSources");
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.DataSourceHealth", b =>
+                {
+                    b.Property<Guid>("DataSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastKeepAliveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ReconnectCount")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("SourceVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("DataSourceId");
+
+                    b.ToTable("DataSourceHealth");
                 });
 
             modelBuilder.Entity("PlantOps.Domain.Telemetry.DirtyMeasurementMinute", b =>
@@ -1655,6 +1804,41 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.AI.ActionProposal", b =>
+                {
+                    b.HasOne("PlantOps.Domain.AI.AiRun", null)
+                        .WithMany()
+                        .HasForeignKey("AiRunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Infrastructure.Identity.PlantOpsUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Assets.Asset", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId")
+                        .HasPrincipalKey("PlantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Alarms.Alarm", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId", "AlarmId")
+                        .HasPrincipalKey("PlantId", "AssetId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlantOps.Domain.Maintenance.WorkOrder", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId", "TargetWorkOrderId")
+                        .HasPrincipalKey("PlantId", "AssetId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("PlantOps.Domain.AI.AiRun", b =>
                 {
                     b.HasOne("PlantOps.Domain.Alarms.Alarm", null)
@@ -1799,6 +1983,12 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("PlantOps.Domain.AI.ActionProposal", null)
+                        .WithMany()
+                        .HasForeignKey("PlantId", "AssetId", "AiProposalId")
+                        .HasPrincipalKey("PlantId", "AssetId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PlantOps.Domain.Alarms.Alarm", null)
                         .WithMany()
                         .HasForeignKey("PlantId", "AssetId", "AlarmId")
@@ -1808,6 +1998,11 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("PlantOps.Domain.Maintenance.WorkOrderNote", b =>
                 {
+                    b.HasOne("PlantOps.Domain.AI.ActionProposal", null)
+                        .WithMany()
+                        .HasForeignKey("AiProposalId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PlantOps.Domain.Maintenance.WorkOrder", null)
                         .WithMany()
                         .HasForeignKey("WorkOrderId")
@@ -1820,6 +2015,15 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.HasOne("PlantOps.Domain.Assets.Plant", null)
                         .WithMany()
                         .HasForeignKey("PlantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PlantOps.Domain.Telemetry.DataSourceHealth", b =>
+                {
+                    b.HasOne("PlantOps.Domain.Telemetry.DataSource", null)
+                        .WithOne()
+                        .HasForeignKey("PlantOps.Domain.Telemetry.DataSourceHealth", "DataSourceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

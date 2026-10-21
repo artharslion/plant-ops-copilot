@@ -92,6 +92,14 @@ app.Use(async (ctx, next) =>
     {
         await Results.Problem(statusCode: 400, title: "Invalid antiforgery token. Refresh and retry.").ExecuteAsync(ctx);
     }
+    catch (BadHttpRequestException exception)
+    {
+        await Results.Problem(statusCode: exception.StatusCode, title: "Invalid request body.").ExecuteAsync(ctx);
+    }
+    catch (Npgsql.PostgresException exception) when (exception.SqlState is "55P03" or "40P01")
+    {
+        await Results.Problem(statusCode: 409, title: "操作等待超时或遇到并发冲突，请先查询原记录再重试。").ExecuteAsync(ctx);
+    }
     catch (DirectoryException e)
     {
         await Results.Problem(statusCode: e.Status, title: e.Message).ExecuteAsync(ctx);
@@ -99,11 +107,13 @@ app.Use(async (ctx, next) =>
 });
 app.MapAuth();
 app.MapDirectory();
+app.MapOverview();
 app.MapTelemetry();
 app.MapAlarms();
 app.MapWorkOrders();
 app.MapDocuments();
 app.MapInvestigations();
+app.MapActionProposals();
 app.MapHub<PlantEventsHub>("/hubs/plant-events");
 if (app.Environment.IsDevelopment())
 {

@@ -19,6 +19,11 @@ internal static class Program
     {
         var root = Path.GetFullPath(args.ElementAtOrDefault(1) ?? "artifacts/p2/spike");
         Directory.CreateDirectory(root);
+        if (args.FirstOrDefault() == "runtime")
+        {
+            await RuntimeExperiment.RunAsync(root);
+            return;
+        }
         var telemetry = new SpikeTelemetry();
         var serverApplication = await ConfigureAsync("Server", root, telemetry);
         var options = args.Length > 2
@@ -220,7 +225,7 @@ internal static class Program
         Console.WriteLine("Secure read-only subscription spike passed; public certificate fingerprints and results saved.");
     }
 
-    private static async Task<ApplicationInstance> ConfigureAsync(string role, string root, ITelemetryContext telemetry)
+    internal static async Task<ApplicationInstance> ConfigureAsync(string role, string root, ITelemetryContext telemetry, bool localRuntime = false)
     {
         var application = new ApplicationInstance(telemetry) { ApplicationName = "PlantOpsSpike" + role };
         var builder = application.Build("urn:localhost:plantops:spike:" + role.ToLowerInvariant(), "urn:plantops:spike");
@@ -237,8 +242,16 @@ internal static class Program
         IApplicationConfigurationBuilderSecurityOptions security;
         if (role == "Server")
         {
-            security = builder.AsServer([Endpoint])
-                .AddPolicy(MessageSecurityMode.SignAndEncrypt, SecurityPolicies.Basic256Sha256)
+            var serverBuilder = builder.AsServer([Endpoint]);
+            if (localRuntime)
+            {
+                serverBuilder.AddUnsecurePolicyNone();
+            }
+            else
+            {
+                serverBuilder.AddPolicy(MessageSecurityMode.SignAndEncrypt, SecurityPolicies.Basic256Sha256);
+            }
+            security = serverBuilder
                 .AddUserTokenPolicy(UserTokenType.Anonymous)
                 .AddSecurityConfiguration(certificates, Path.Combine(root, role));
         }

@@ -137,7 +137,7 @@ h1 {
   max-width: 620px;
   margin: 14px 0 0;
 }
-button {
+button:not([class*='el-']) {
   flex-shrink: 0;
   background: var(--green);
   border: 0;
@@ -147,10 +147,10 @@ button {
   padding: 12px 17px;
   cursor: pointer;
 }
-button:hover {
+button:not([class*='el-']):hover {
   background: #173f35;
 }
-button:disabled {
+button:not([class*='el-']):disabled {
   opacity: 0.6;
   cursor: wait;
 }
@@ -343,7 +343,7 @@ a:focus-visible {
   color: #aac1b5;
   margin-bottom: 16px;
 }
-.session-panel button {
+.session-panel button:not([class*='el-']) {
   color: #dce8df;
   border-color: #77988b;
   background: transparent;
@@ -387,9 +387,9 @@ label {
 .login-card label {
   margin-block: 20px;
 }
-input,
-select,
-textarea {
+input:not([class*='el-']),
+select:not([class*='el-']),
+textarea:not([class*='el-']) {
   width: 100%;
   background: #fff;
   border: 1px solid #bccdbe;
@@ -400,13 +400,13 @@ textarea {
   padding: 11px 12px;
   min-width: 0;
 }
-input:focus,
-select:focus,
-textarea:focus {
+input:not([class*='el-']):focus,
+select:not([class*='el-']):focus,
+textarea:not([class*='el-']):focus {
   outline: 2px solid #91ae9c;
   outline-offset: 1px;
 }
-.login-card > button {
+.login-card > button:not([class*='el-']) {
   width: 100%;
   margin-top: 8px;
 }
@@ -470,7 +470,7 @@ textarea:focus {
 .location-panel h2 {
   font-size: 14px;
 }
-.small-button {
+.small-button:not([class*='el-']) {
   padding: 8px 10px;
   font-size: 11px;
 }
@@ -725,10 +725,6 @@ dd {
   flex-wrap: wrap;
   margin: 24px 0;
 }
-.measurement-toolbar label:first-child {
-  flex: 1;
-  min-width: 210px;
-}
 .measurement-summary {
   display: grid;
   grid-template-columns: 1fr 1fr 1.2fr;
@@ -917,5 +913,351 @@ dd {
   .alarm-row,
   .alarm-row-heading {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+.workflow-hint {
+  background: #eaf0e8;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.side-panel .actions {
+  flex-wrap: wrap;
+}
+.side-panel .editor-panel label {
+  margin-block: 16px;
+}
+.side-panel .editor-panel textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.side-panel article {
+  overflow-wrap: anywhere;
+}
+.side-panel .document-version {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 12px;
+}
+@media (max-width: 800px) {
+  .side-panel {
+    width: calc(100vw - var(--panel-depth) * 20px);
+  }
+  .side-panel-header {
+    padding: 18px;
+  }
+  .side-panel-body {
+    padding: 0 16px 20px;
+  }
+  .side-panel-body > .asset-detail,
+  .side-panel-body > .editor-panel,
+  .side-panel-body > .alarm-detail {
+    padding: 18px;
+  }
+  .side-panel .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.workflow-actions {
+  margin-block: 20px;
+}
+.workflow-secondary {
+  border-top: 1px solid var(--line);
+  padding-block: 16px;
+}
+.workflow-secondary summary {
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Element Plus operational UI: shared spacing, color and interaction tokens. */
+:root {
+  --el-color-primary: #226252;
+  --el-color-primary-light-3: #548b7c;
+  --el-color-primary-light-5: #8bb0a4;
+  --el-color-primary-light-7: #bdd3ca;
+  --el-color-primary-light-8: #d4e3dc;
+  --el-color-primary-light-9: #edf4f0;
+  --el-color-primary-dark-2: #184c40;
+  --el-font-family: 'IBM Plex Sans', 'Noto Sans SC', sans-serif;
+  --el-font-size-base: 13px;
+  --el-border-radius-base: 4px;
+  --el-border-color: #cbd8d0;
+  --el-text-color-primary: #183732;
+  --el-text-color-regular: #38564c;
+}
+main {
+  padding-inline: 32px;
+  min-width: 0;
+  width: 100%;
+}
+.page-heading {
+  padding-block: 30px 24px;
+}
+.page-heading h1,
+.work-order-page h2 {
+  font-size: 26px;
+  letter-spacing: -0.5px;
+  line-height: 1.5;
+}
+.actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.actions .el-button + .el-button {
+  margin-left: 0;
+}
+.el-button {
+  font-family: inherit;
+}
+.el-button:focus-visible,
+.el-tree-node__content:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.el-form-item {
+  min-width: 0;
+  margin-bottom: 18px;
+}
+.el-form-item__label {
+  display: inline-flex;
+  flex-direction: row;
+  gap: 0;
+}
+.el-select {
+  width: 100%;
+  min-width: 140px;
+}
+.el-form-item__content > .el-select {
+  min-width: 0;
+}
+.el-checkbox {
+  flex-direction: row;
+  gap: 0;
+  white-space: normal;
+  height: auto;
+  min-height: 32px;
+}
+.el-checkbox__label {
+  white-space: normal;
+}
+.el-table {
+  margin-top: 20px;
+  --el-table-header-bg-color: #f3f6f3;
+  --el-table-row-hover-bg-color: #edf4f0;
+}
+.el-table .cell {
+  padding-block: 5px;
+  overflow-wrap: anywhere;
+}
+.el-table .cell p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.el-table .el-button {
+  white-space: normal;
+  height: auto;
+  text-align: left;
+  line-height: 1.5;
+}
+.el-tree {
+  background: transparent;
+  --el-tree-node-content-height: 36px;
+}
+.el-tree-node__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.location-panel {
+  background: #f3f6f3;
+  padding: 20px 14px;
+}
+.asset-list-panel {
+  padding: 24px;
+}
+.directory-toolbar > .el-form-item {
+  min-width: 240px;
+  margin-bottom: 0;
+}
+.el-alert {
+  margin-block: 12px;
+}
+.resource-panel .el-drawer__header {
+  margin: 0;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--line);
+  color: #183732;
+}
+.resource-panel .el-drawer__title,
+.resource-panel .el-dialog__title {
+  font-weight: 600;
+  font-size: 20px;
+}
+.resource-panel .el-drawer__body {
+  background: #f7f9f6;
+  padding: 20px 28px 28px;
+  overscroll-behavior: contain;
+}
+.resource-panel .el-tabs__header {
+  position: sticky;
+  top: -20px;
+  z-index: 2;
+  background: #f7f9f6;
+  padding-top: 12px;
+}
+.resource-panel .asset-detail,
+.resource-panel .editor-panel {
+  padding: 22px;
+  margin-top: 16px;
+}
+.resource-panel .measurement-panel {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 8px;
+}
+.resource-panel .el-form-item {
+  margin-bottom: 20px;
+}
+.resource-panel article,
+.resource-panel p {
+  overflow-wrap: anywhere;
+}
+.resource-panel .document-version {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 12px;
+}
+.work-order-page {
+  padding-bottom: 16px;
+}
+.work-order-page .el-steps {
+  margin-block: 32px;
+}
+.work-order-page .editor-panel {
+  max-width: 980px;
+}
+.workflow-footer {
+  position: sticky;
+  z-index: 10;
+  bottom: 0;
+  left: auto;
+  right: auto;
+  padding: 16px;
+  background: white;
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 16px #163e370a;
+  margin: 0;
+}
+@media (max-width: 960px) {
+  .workflow-footer {
+    left: auto;
+  }
+}
+@media (max-width: 650px) {
+  main {
+    padding-inline: 16px;
+  }
+  .workflow-footer {
+    left: auto;
+    padding: 14px 16px;
+  }
+  .work-order-page h2 {
+    font-size: 21px;
+    overflow-wrap: anywhere;
+  }
+  .resource-panel .el-drawer__body {
+    padding: 16px;
+  }
+  .resource-panel .asset-detail,
+  .resource-panel .editor-panel {
+    padding: 16px;
+  }
+  .resource-panel .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .directory-toolbar > .el-form-item {
+    width: 100%;
+  }
+  .el-step__title {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 650px) {
+  .sidebar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px 6px;
+    padding: 14px 16px;
+  }
+  .sidebar .brand {
+    grid-column: span 4;
+    gap: 10px;
+  }
+  .sidebar:has(.session-panel) .brand {
+    grid-column: span 2;
+  }
+  .sidebar .brand-mark {
+    padding: 7px 5px;
+  }
+  .sidebar .nav-item {
+    order: 2;
+    margin: 0;
+    padding: 10px 4px;
+    font-size: 12px;
+    justify-content: center;
+    white-space: nowrap;
+  }
+  .sidebar .nav-item span {
+    display: none;
+  }
+  .sidebar .session-panel {
+    grid-column: span 2;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: end;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .sidebar .session-panel p {
+    margin: 0;
+  }
+  .sidebar .session-panel small {
+    display: none;
+  }
+  .sidebar .session-panel .el-button {
+    padding-inline: 8px;
+  }
+}
+
+/* Filter fields share top labels and a control baseline, including inside drawers. */
+.measurement-toolbar > .el-form-item,
+.resource-panel .measurement-toolbar > .el-form-item {
+  flex: 1 1 150px;
+  margin-bottom: 0;
+}
+.measurement-toolbar > .el-form-item:first-child {
+  flex: 2 1 240px;
+}
+.alarm-toolbar > .el-form-item,
+.alarm-toolbar > .el-form-item:first-child {
+  flex: 0 1 260px;
+}
+.measurement-toolbar > .el-checkbox {
+  flex: 0 0 auto;
+  min-height: 32px;
+  margin-right: 0;
+}
+.measurement-toolbar > .el-button + .el-button {
+  margin-left: 0;
+}
+@media (max-width: 650px) {
+  .measurement-toolbar > .el-form-item,
+  .measurement-toolbar > .el-form-item:first-child {
+    flex: 1 1 100%;
   }
 }

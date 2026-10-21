@@ -573,6 +573,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plants/{plantId}/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    unacknowledgedOnly?: boolean;
+                    mine?: boolean;
+                    workOrderStatus?: string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path: {
+                    plantId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlantOverview"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["GetSystemInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assets/{assetId}/measurement-points": {
         parameters: {
             query?: never;
@@ -1488,6 +1546,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assets/{assetId}/document-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    query: string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path: {
+                    assetId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DocumentSearchResult"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{assetId}/document-evidence/{documentId}/{versionId}/{chunkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assetId: string;
+                    documentId: string;
+                    versionId: string;
+                    chunkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DocumentEvidence"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}": {
         parameters: {
             query?: never;
@@ -1724,16 +1862,487 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/system": {
+    "/api/v1/investigation-capabilities": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["GetSystemInfo"];
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AnonymousTypeOfstringAndstringAndboolean"];
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alarms/{alarmId}/investigations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alarmId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvestigationRunDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alarmId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvestigationRunDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvestigationRunDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/evidence/{evidenceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    evidenceId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvestigationEvidence"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/note-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateNoteProposal"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/action-proposals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditActionProposal"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/action-proposals/{id}/note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditNoteProposal"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/action-proposals/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RejectActionProposal"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/action-proposals/{id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmActionProposal"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActionProposalDto"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1747,6 +2356,41 @@ export interface components {
         AcknowledgeInput: {
             /** Format: int64 */
             version: number | string;
+        };
+        ActionProposalDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            aiRunId: string;
+            /** Format: uuid */
+            plantId: string;
+            /** Format: uuid */
+            assetId: string;
+            /** Format: uuid */
+            alarmId: string;
+            assetName: string;
+            status: string;
+            /** Format: int64 */
+            version: number | string;
+            payloadHash: string;
+            /** Format: date-time */
+            expiresAt: string;
+            draft: null | components["schemas"]["WorkOrderDraft"];
+            investigation: null | components["schemas"]["InvestigationRunDto"];
+            /** Format: uuid */
+            resultEntityId: null | string;
+            /** Format: date-time */
+            executedAt: null | string;
+            approvalCorrelationId: null | string;
+            unavailableReason: null | string;
+            actionType: string;
+            /** Format: uuid */
+            targetWorkOrderId: null | string;
+            /** Format: int64 */
+            targetWorkOrderVersion: null | number | string;
+            targetWorkOrderNumber: null | string;
+            targetWorkOrderTitle: null | string;
+            noteDraft: null | components["schemas"]["WorkOrderNoteDraft"];
         };
         AlarmDto: {
             /** Format: uuid */
@@ -1801,6 +2445,11 @@ export interface components {
             items: components["schemas"]["AlarmDto"][];
             nextCursor: null | string;
         };
+        AnonymousTypeOfstringAndstringAndboolean: {
+            provider: null | string;
+            model: null | string;
+            externalData: boolean;
+        };
         AnonymousTypeOfstringAndstringAndstring: {
             name: null | string;
             stage: null | string;
@@ -1810,6 +2459,18 @@ export interface components {
             /** Format: int64 */
             version: number | string;
             text: string;
+        };
+        ConfirmActionProposal: {
+            /** Format: int64 */
+            version: number | string;
+            payloadHash: string;
+            idempotencyKey: string;
+        };
+        CreateNoteProposal: {
+            /** Format: uuid */
+            workOrderId: string;
+            /** Format: int64 */
+            workOrderVersion: number | string;
         };
         CreateWorkOrder: {
             /** Format: uuid */
@@ -1822,6 +2483,8 @@ export interface components {
             /** Format: uuid */
             alarmId?: null | string;
             assignedToUserId?: null | string;
+            /** @default false */
+            openImmediately: boolean;
         };
         CsrfToken: {
             token: string;
@@ -1921,6 +2584,30 @@ export interface components {
             /** Format: int64 */
             version: number | string;
         };
+        DocumentEvidence: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            versionId: string;
+            /** Format: int32 */
+            versionNumber: number | string;
+            /** Format: uuid */
+            chunkId: string;
+            /** Format: int32 */
+            ordinal: number | string;
+            title: string;
+            section: string;
+            /** Format: int32 */
+            startLine: number | string;
+            /** Format: int32 */
+            endLine: number | string;
+            text: string;
+            sha256: string;
+            parserVersion: string;
+            /** Format: int32 */
+            score: number | string;
+            citationPath: string;
+        };
         DocumentInput: {
             /** Format: uuid */
             plantId: string;
@@ -1944,6 +2631,10 @@ export interface components {
             items: components["schemas"]["DocumentDto"][];
             nextCursor: null | string;
         };
+        DocumentSearchResult: {
+            items: components["schemas"]["DocumentEvidence"][];
+            warnings: string[];
+        };
         DocumentVersionDto: {
             /** Format: uuid */
             id: string;
@@ -1962,6 +2653,62 @@ export interface components {
             publishedAt: null | string;
             indexStatus: string;
         };
+        EditActionProposal: {
+            /** Format: int64 */
+            version: number | string;
+            draft: components["schemas"]["WorkOrderDraft"];
+        };
+        EditNoteProposal: {
+            /** Format: int64 */
+            version: number | string;
+            draft: components["schemas"]["WorkOrderNoteDraft"];
+        };
+        InvestigationEvidence: {
+            id: string;
+            kind: string;
+            title: string;
+            facts: string[];
+            sha256: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            /** Format: uuid */
+            resourceId: string;
+            /** Format: uuid */
+            versionId?: null | string;
+            /** Format: uuid */
+            chunkId?: null | string;
+        };
+        InvestigationRunDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            alarmId: string;
+            /** Format: uuid */
+            assetId: string;
+            status: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: null | string;
+            /** Format: date-time */
+            completedAt: null | string;
+            provider: string;
+            model: string;
+            simulated: boolean;
+            failureCode: null | string;
+            result: null | components["schemas"]["JsonElement"];
+            evidence: components["schemas"]["InvestigationEvidence"][];
+            warnings: string[];
+            /** Format: int32 */
+            modelRounds: number | string;
+            /** Format: int32 */
+            toolCalls: number | string;
+            /** Format: int32 */
+            inputTokens: number | string;
+            /** Format: int32 */
+            outputTokens: number | string;
+        };
+        JsonElement: unknown;
         LoginInput: {
             userName: string;
             password: string;
@@ -2056,6 +2803,70 @@ export interface components {
             /** @default Periodic */
             samplingMode: string;
         };
+        OverviewAlarm: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assetId: string;
+            assetCode: string;
+            assetName: string;
+            ruleName: string;
+            severity: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            acknowledgedAt: null | string;
+        };
+        OverviewCounts: {
+            /** Format: int32 */
+            activeAlarms: number | string;
+            /** Format: int32 */
+            unacknowledgedAlarms: number | string;
+            /** Format: int32 */
+            openWorkOrders: number | string;
+            /** Format: int32 */
+            dataIssues: number | string;
+        };
+        OverviewDataIssue: {
+            /** Format: uuid */
+            pointId: string;
+            /** Format: uuid */
+            assetId: string;
+            assetCode: string;
+            assetName: string;
+            pointName: string;
+            reason: string;
+            /** Format: date-time */
+            lastReceivedAt: null | string;
+        };
+        OverviewWorkOrder: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assetId: string;
+            assetCode: string;
+            number: string;
+            title: string;
+            priority: string;
+            status: string;
+            assignedTo: null | string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        PlantOverview: {
+            /** Format: uuid */
+            plantId: string;
+            /** Format: date-time */
+            checkedAt: string;
+            counts: components["schemas"]["OverviewCounts"];
+            alarms: components["schemas"]["OverviewAlarm"][];
+            /** Format: int32 */
+            matchingAlarms: number | string;
+            workOrders: components["schemas"]["OverviewWorkOrder"][];
+            /** Format: int32 */
+            matchingWorkOrders: number | string;
+            dataIssues: components["schemas"]["OverviewDataIssue"][];
+        };
         PointInput: {
             code: string;
             name: string;
@@ -2138,6 +2949,10 @@ export interface components {
             isFresh: boolean;
             isTrusted: boolean;
         };
+        RejectActionProposal: {
+            /** Format: int64 */
+            version: number | string;
+        };
         RuleDto: {
             /** Format: uuid */
             id: string;
@@ -2217,6 +3032,25 @@ export interface components {
             /** Format: int64 */
             version: number | string;
             opcUa?: null | components["schemas"]["OpcUaConnectionInput"];
+            health?: null | components["schemas"]["SourceHealth"];
+        };
+        SourceHealth: {
+            /** Format: uuid */
+            dataSourceId: string;
+            /** Format: int64 */
+            sourceVersion: number | string;
+            state: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            lastKeepAliveAt: null | string;
+            /** Format: date-time */
+            lastReceivedAt: null | string;
+            /** Format: int32 */
+            reconnectCount: number | string;
+            failureCode: null | string;
+            /** @default true */
+            isCurrent: boolean;
         };
         SourceInput: {
             name: string;
@@ -2237,6 +3071,8 @@ export interface components {
             status: string;
             reason?: null | string;
             resolution?: null | string;
+            /** @default false */
+            closeAfterCompletion: boolean;
         };
         TrendBucket: {
             /** Format: date-time */
@@ -2318,6 +3154,13 @@ export interface components {
             /** Format: int64 */
             version?: number | string;
         };
+        WorkOrderDraft: {
+            title: string;
+            description: string;
+            /** @default Medium */
+            priority: string;
+            assignedToUserId?: null | string;
+        };
         WorkOrderNote: {
             /** Format: uuid */
             id?: string;
@@ -2325,9 +3168,14 @@ export interface components {
             workOrderId?: string;
             text?: string;
             kind?: string;
+            /** Format: uuid */
+            aiProposalId?: null | string;
             actorUserId?: string;
             /** Format: date-time */
             occurredAt?: string;
+        };
+        WorkOrderNoteDraft: {
+            text: string;
         };
         WorkOrderPage: {
             items: components["schemas"]["WorkOrder"][];

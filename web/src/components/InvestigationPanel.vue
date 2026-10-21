@@ -1,8 +1,14 @@
 <script setup lang="ts">
+import SidePanel from './SidePanel.vue'
+import ActionProposalPanel from './ActionProposalPanel.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { request } from '../api'
 
 const props = defineProps<{ alarmId: string }>()
+const proposalPanel = ref<InstanceType<typeof ActionProposalPanel>>()
+const proposalBusy = computed(() => !!proposalPanel.value?.busy)
+const proposalDirty = computed(() => !!proposalPanel.value?.dirty)
+defineExpose({ busy: proposalBusy, dirty: proposalDirty })
 type Evidence = { id: string; kind: string; title: string; facts: string[]; retrievedAt: string }
 type Statement = { text: string; evidenceIds: string[] }
 type Answer = {
@@ -14,6 +20,7 @@ type Answer = {
 }
 type Run = {
   id: string
+  assetId: string
   status: string
   createdAt: string
   completedAt: string | null
@@ -162,10 +169,14 @@ onUnmounted(() => {
         <h3>让判断回到证据。</h3>
       </div>
       <div class="actions">
-        <button :disabled="busy || !capabilities || !!active" @click="start">
+        <el-button
+          :disabled="busy || proposalBusy || proposalDirty || !capabilities || !!active"
+          @click="start"
+          type="primary"
+        >
           {{ active ? '正在调查…' : '开始只读调查' }}
-        </button>
-        <button v-if="active" class="secondary" :disabled="busy" @click="cancel">取消调查</button>
+        </el-button>
+        <el-button v-if="active" :disabled="busy" @click="cancel">取消调查</el-button>
       </div>
     </div>
     <p class="path-note">
@@ -178,15 +189,22 @@ onUnmounted(() => {
       }}
       调查只读取资料；告警确认、维修与创建工单仍由人员操作。
     </p>
-    <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
-    <label v-if="runs.length"
-      >我的调查记录
-      <select v-model="selectedId" @change="choose">
-        <option v-for="run in runs" :key="run.id" :value="run.id">
-          {{ at(run.createdAt) }} · {{ labels[run.status] ?? run.status }}
-        </option>
-      </select>
-    </label>
+    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+    <el-form-item v-if="runs.length" label="我的调查记录"
+      ><el-select
+        filterable
+        v-model="selectedId"
+        :disabled="proposalBusy || proposalDirty"
+        @change="choose"
+      >
+        <el-option
+          v-for="run in runs"
+          :key="run.id"
+          :value="run.id"
+          :label="at(run.createdAt) + ' · ' + (labels[run.status] ?? run.status)"
+        />
+      </el-select>
+    </el-form-item>
     <p v-else class="path-note">尚无调查记录。开始后可在此查看进度与引用。</p>
     <template v-if="selected">
       <p class="investigation-status" role="status">
@@ -227,14 +245,15 @@ onUnmounted(() => {
             class="investigation-statement"
           >
             <p>{{ item.text }}</p>
-            <button
+            <el-button
               v-for="id in item.evidenceIds"
               :key="id"
               class="secondary citation"
               @click="expand(id)"
+              type="primary"
             >
               查看证据 {{ id }}
-            </button>
+            </el-button>
           </div>
         </article>
         <article>
@@ -252,14 +271,15 @@ onUnmounted(() => {
               }}</small
             >
             <div>
-              <button
+              <el-button
                 v-for="id in item.evidenceIds"
                 :key="id"
                 class="secondary citation"
                 @click="expand(id)"
+                type="primary"
               >
                 查看依据 {{ id }}
-              </button>
+              </el-button>
             </div>
           </div>
         </article>
@@ -271,14 +291,15 @@ onUnmounted(() => {
             class="investigation-statement"
           >
             <p>{{ item.text }}</p>
-            <button
+            <el-button
               v-for="id in item.evidenceIds"
               :key="id"
               class="secondary citation"
               @click="expand(id)"
+              type="primary"
             >
               查看依据 {{ id }}
-            </button>
+            </el-button>
           </div>
         </article>
         <article>
@@ -291,30 +312,50 @@ onUnmounted(() => {
           </p>
         </article>
       </div>
+      <ActionProposalPanel
+        v-if="['Succeeded', 'Invalidated'].includes(selected.status)"
+        :key="selected.id"
+        ref="proposalPanel"
+        :run-id="selected.id"
+        :asset-id="selected.assetId"
+        :available="selected.status === 'Succeeded'"
+        @evidence="expand"
+      />
       <details v-if="selected.evidence.length">
         <summary>本次已获取的证据（{{ selected.evidence.length }}）</summary>
         <div class="actions">
-          <button
+          <el-button
             v-for="item in selected.evidence"
             :key="item.id"
             class="secondary citation"
             @click="expand(item.id)"
+            type="primary"
           >
             {{ item.id }} · {{ item.title }}
-          </button>
+          </el-button>
         </div>
       </details>
       <p v-if="evidenceError" class="error-banner" role="alert">{{ evidenceError }}</p>
-      <aside v-if="expanded" class="investigation-evidence" aria-live="polite">
-        <div class="section-title">
-          <h4>{{ expanded.id }} · {{ expanded.title }}</h4>
-          <button class="secondary" @click="expanded = null">收起</button>
-        </div>
-        <p class="path-note">
-          取数时间 {{ at(expanded.retrievedAt) }} · 本次展开已重新检查读取权限
-        </p>
-        <p v-for="(fact, index) in expanded.facts" :key="index" class="evidence-text">{{ fact }}</p>
-      </aside>
+      <SidePanel
+        v-if="expanded"
+        mode="dialog"
+        :title="expanded.id + ' · ' + expanded.title"
+        subtitle="AI 调查 / 授权证据"
+        @close="expanded = null"
+      >
+        <aside class="investigation-evidence">
+          <div class="section-title">
+            <h4>{{ expanded.id }} · {{ expanded.title }}</h4>
+            <el-button @click="expanded = null">收起</el-button>
+          </div>
+          <p class="path-note">
+            取数时间 {{ at(expanded.retrievedAt) }} · 本次展开已重新检查读取权限
+          </p>
+          <p v-for="(fact, index) in expanded.facts" :key="index" class="evidence-text">
+            {{ fact }}
+          </p>
+        </aside>
+      </SidePanel>
     </template>
   </section>
 </template>

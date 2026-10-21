@@ -38,6 +38,90 @@ public sealed class WorkOrderTests
     public void StateRules(string from, string to, string? reason, string? result, bool allowed) => Assert.Equal(allowed, WorkOrderState.Validate(from, to, reason, result) == null);
 
     [DatabaseFact]
+    public async Task QuickLifecyclePreservesBothTransitionsAndAudit()
+    {
+        await using var session = new AssetManagementTests.Session();
+        await session.Initialize("MaintenanceEngineer");
+        await session.Login();
+        var response = await session.Client.PostAsJsonAsync("/api/v1/work-orders",
+            new CreateWorkOrder(Pump, "Quick maintenance", OpenImmediately: true));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var workOrder = (await response.Content.ReadFromJsonAsync<WorkOrder>())!;
+        Assert.Equal("Open", workOrder.Status);
+        Assert.Equal(2, workOrder.Version);
+        workOrder = await Move(session, workOrder, "InProgress");
+        response = await session.Client.PostAsJsonAsync($"/api/v1/work-orders/{workOrder.Id}/transition",
+            new TransitionWorkOrder(workOrder.Version, "Completed", Resolution: "  Alignment verified  ", CloseAfterCompletion: true));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var closed = (await response.Content.ReadFromJsonAsync<WorkOrder>())!;
+        Assert.Equal("Closed", closed.Status);
+        Assert.Equal(workOrder.Version + 2, closed.Version);
+        Assert.Equal("Alignment verified", closed.Resolution);
+        Assert.NotNull(closed.CompletedAt);
+        Assert.NotNull(closed.ClosedAt);
+        await using var scope = session.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        var audits = await db.AuditLogs.Where(x => x.ResourceId == closed.Id).ToListAsync();
+        Assert.Equal(5, audits.Count);
+        Assert.Contains(audits, x => x.Action == "Create" && System.Text.Json.JsonSerializer.Deserialize<WorkOrder>(x.After!)!.Status == "Draft");
+        Assert.Contains(audits, x => x.Action == "Transition" && System.Text.Json.JsonSerializer.Deserialize<WorkOrder>(x.After!)!.Status == "Completed");
+        Assert.Contains(audits, x => x.Action == "Transition" && System.Text.Json.JsonSerializer.Deserialize<WorkOrder>(x.After!)!.Status == "Closed");
+    }
+
+    [DatabaseFact]
+    public async Task QuickCompletionRejectsInvalidStateEmptyResultAndDuplicateVersion()
+    {
+        await using var session = new AssetManagementTests.Session();
+        await session.Initialize();
+        await session.Login();
+        var workOrder = await Create(session);
+        var path = $"/api/v1/work-orders/{workOrder.Id}/transition";
+        Assert.Equal(HttpStatusCode.BadRequest, (await session.Client.PostAsJsonAsync(path,
+            new TransitionWorkOrder(workOrder.Version, "Open", CloseAfterCompletion: true))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await session.Client.PostAsJsonAsync(path,
+            new TransitionWorkOrder(workOrder.Version, "Completed", Resolution: "Done", CloseAfterCompletion: true))).StatusCode);
+        workOrder = await Move(session, workOrder, "Open");
+        workOrder = await Move(session, workOrder, "InProgress");
+        Assert.Equal(HttpStatusCode.BadRequest, (await session.Client.PostAsJsonAsync(path,
+            new TransitionWorkOrder(workOrder.Version, "Completed", Resolution: " ", CloseAfterCompletion: true))).StatusCode);
+        var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => session.Client.PostAsJsonAsync(path,
+            new TransitionWorkOrder(workOrder.Version, "Completed", Resolution: "Verified", CloseAfterCompletion: true))));
+        Assert.Single(results, x => x.StatusCode == HttpStatusCode.OK);
+        Assert.Single(results, x => x.StatusCode == HttpStatusCode.Conflict);
+        var current = (await session.Client.GetFromJsonAsync<WorkOrder>($"/api/v1/work-orders/{workOrder.Id}"))!;
+        Assert.Equal("Closed", current.Status);
+        Assert.Equal(workOrder.Version + 2, current.Version);
+    }
+
+    [DatabaseFact]
+    public async Task QuickActionsRollBackBothStatesAndAuditsOnFailure()
+    {
+        await using var session = new AssetManagementTests.Session();
+        await session.Initialize();
+        await session.Login();
+        var workOrder = await Create(session);
+        workOrder = await Move(session, workOrder, "Open");
+        workOrder = await Move(session, workOrder, "InProgress");
+        var title = "Rollback quick create " + Guid.NewGuid();
+        session.Failure.Enabled = true;
+        Assert.Equal(HttpStatusCode.InternalServerError, (await session.Client.PostAsJsonAsync("/api/v1/work-orders",
+            new CreateWorkOrder(Pump, title, OpenImmediately: true))).StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, (await session.Client.PostAsJsonAsync($"/api/v1/work-orders/{workOrder.Id}/transition",
+            new TransitionWorkOrder(workOrder.Version, "Completed", Resolution: "Done", CloseAfterCompletion: true))).StatusCode);
+        session.Failure.Enabled = false;
+        await using var scope = session.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        var persisted = await db.WorkOrders.AsNoTracking().SingleAsync(x => x.Id == workOrder.Id);
+        Assert.Equal("InProgress", persisted.Status);
+        Assert.Equal(workOrder.Version, persisted.Version);
+        Assert.Null(persisted.CompletedAt);
+        Assert.Null(persisted.ClosedAt);
+        Assert.Null(persisted.Resolution);
+        Assert.False(await db.WorkOrders.AnyAsync(x => x.Title == title));
+        Assert.Equal(3, await db.AuditLogs.CountAsync(x => x.ResourceId == workOrder.Id));
+    }
+
+    [DatabaseFact]
     public async Task PaginationHandlesEqualTimestampsAndRejectsInvalidCursors()
     {
         await using var session = new AssetManagementTests.Session();

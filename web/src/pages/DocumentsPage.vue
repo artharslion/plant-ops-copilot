@@ -23,11 +23,15 @@ onMounted(async () => {
       <p class="intro">发布资料、追溯版本与管理读取范围。设备专属资料可在设备详情上传。</p>
     </div>
   </section>
-  <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
-  <label
-    >工厂<select v-model="plantId">
-      <option v-for="p in plants" :key="p.id" :value="p.id">{{ p.name }}</option>
-    </select></label
+  <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+  <el-form-item label="工厂"
+    ><el-select filterable v-model="plantId">
+      <el-option
+        v-for="p in plants"
+        :key="p.id"
+        :value="p.id"
+        :label="p.name"
+      /> </el-select></el-form-item
   ><DocumentPanel
     v-if="plantId"
     :key="plantId"

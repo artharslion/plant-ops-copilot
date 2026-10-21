@@ -103,6 +103,7 @@ onMounted(() =>
     await loadPoints()
   }),
 )
+defineExpose({ busy })
 </script>
 <template>
   <section class="editor-panel">
@@ -120,76 +121,89 @@ onMounted(() =>
     </p>
     <p v-if="notice" role="status" class="success-banner">{{ notice }}</p>
     <div class="directory-form">
-      <label
-        >规则设备<select v-model="assetId" :disabled="busy" @change="run(loadPoints)">
-          <option v-if="!assets.length" value="">无可配置设备</option>
-          <option v-for="a in assets" :key="a.id" :value="a.id">{{ a.code }} · {{ a.name }}</option>
-        </select></label
-      ><label
-        >规则点位<select v-model="pointId" :disabled="busy" @change="run(loadRules)">
-          <option v-if="!points.length" value="">暂无点位</option>
-          <option v-for="p in points" :key="p.id" :value="p.id">
-            {{ p.code }} / {{ p.canonicalUnit }}{{ p.enabled ? '' : '（停用）' }}
-          </option>
-        </select></label
-      ><label class="wide"
-        >编辑规则<select v-model="selectedId" :disabled="busy" @change="chooseRule">
-          <option value="">新增高阈值规则</option>
-          <option v-for="r in rules" :key="r.id" :value="r.id">
-            {{ r.name }} · v{{ r.version }}{{ r.enabled ? '' : ' · 停用'
-            }}{{ r.hasActiveAlarm ? ' · 有活动告警' : '' }}
-          </option>
-        </select></label
-      >
+      <el-form-item label="规则设备"
+        ><el-select filterable v-model="assetId" :disabled="busy" @change="run(loadPoints)">
+          <el-option v-if="!assets.length" value="" label="无可配置设备" />
+          <el-option
+            v-for="a in assets"
+            :key="a.id"
+            :value="a.id"
+            :label="a.code + ' · ' + a.name"
+          /> </el-select></el-form-item
+      ><el-form-item label="规则点位"
+        ><el-select filterable v-model="pointId" :disabled="busy" @change="run(loadRules)">
+          <el-option v-if="!points.length" value="" label="暂无点位" />
+          <el-option
+            v-for="p in points"
+            :key="p.id"
+            :value="p.id"
+            :label="p.code + ' / ' + p.canonicalUnit + (p.enabled ? '' : '（停用）')"
+          /> </el-select></el-form-item
+      ><el-form-item class="wide" label="编辑规则"
+        ><el-select filterable v-model="selectedId" :disabled="busy" @change="chooseRule">
+          <el-option value="" label="新增高阈值规则" />
+          <el-option
+            v-for="r in rules"
+            :key="r.id"
+            :value="r.id"
+            :label="
+              r.name +
+              ' · v' +
+              r.version +
+              (r.enabled ? '' : ' · 停用') +
+              (r.hasActiveAlarm ? ' · 有活动告警' : '')
+            "
+          /> </el-select
+      ></el-form-item>
     </div>
     <p v-if="blocked" class="error-banner">
       这条规则存在活动告警，当前不能修改或停用。人工确认不会恢复告警；需要可信低值满足恢复条件。
     </p>
-    <form @submit.prevent="save">
+    <el-form label-position="top" @submit.prevent="save">
       <fieldset class="directory-form rule-fields" :disabled="busy || blocked || !pointId">
-        <label class="wide">规则名称<input v-model="input.name" required maxlength="200" /></label
-        ><label
-          >触发阈值<input
+        <el-form-item class="wide" label="规则名称"
+          ><el-input v-model="input.name" required maxlength="200" /></el-form-item
+        ><el-form-item label="触发阈值"
+          ><el-input
             v-model.number="input.raiseAbove"
             type="number"
             step="any"
-            required /></label
-        ><label
-          >恢复阈值<input
+            required /></el-form-item
+        ><el-form-item label="恢复阈值"
+          ><el-input
             v-model.number="input.clearBelow"
             type="number"
             step="any"
-            required /></label
-        ><label
-          >触发持续（毫秒）<input
+            required /></el-form-item
+        ><el-form-item label="触发持续（毫秒）"
+          ><el-input
             v-model.number="input.raiseForMs"
             type="number"
             min="0"
             max="300000"
-            required /></label
-        ><label
-          >恢复持续（毫秒）<input
+            required /></el-form-item
+        ><el-form-item label="恢复持续（毫秒）"
+          ><el-input
             v-model.number="input.clearForMs"
             type="number"
             min="0"
             max="300000"
-            required /></label
-        ><label
-          >最大样本间隔（毫秒）<input
+            required /></el-form-item
+        ><el-form-item label="最大样本间隔（毫秒）"
+          ><el-input
             v-model.number="input.maxSampleGapMs"
             type="number"
             min="1"
             max="300000"
-            required /></label
-        ><label
-          >严重程度<select v-model="input.severity">
-            <option value="Low">Low / 低</option>
-            <option value="Medium">Medium / 中</option>
-            <option value="High">High / 高</option>
-          </select></label
-        ><label class="check-label"><input v-model="input.enabled" type="checkbox" />规则启用</label
-        ><button>保存告警规则</button>
+            required /></el-form-item
+        ><el-form-item label="严重程度"
+          ><el-select filterable v-model="input.severity">
+            <el-option value="Low" label="Low / 低" />
+            <el-option value="Medium" label="Medium / 中" />
+            <el-option value="High" label="High / 高" /> </el-select></el-form-item
+        ><el-checkbox class="check-label" v-model="input.enabled">规则启用</el-checkbox
+        ><el-button native-type="submit" type="primary">保存告警规则</el-button>
       </fieldset>
-    </form>
+    </el-form>
   </section>
 </template>

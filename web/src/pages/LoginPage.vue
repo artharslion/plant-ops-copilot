@@ -37,31 +37,33 @@ async function login() {
       <div class="login-path">工厂 <span>→</span> 位置 <span>→</span> 设备</div>
       <p class="path-note">本地演示使用虚构工厂与设备。</p>
     </div>
-    <form class="login-card" @submit.prevent="login">
+    <el-form label-position="top" class="login-card" @submit.prevent="login">
       <p class="eyebrow">LOCAL ACCOUNT</p>
       <h2>登录工作台</h2>
-      <label
-        >用户名<input
+      <el-form-item label="用户名"
+        ><el-input
           v-model="userName"
           name="username"
           autocomplete="username"
           required
           maxlength="256"
-      /></label>
-      <label
-        >密码<input
+      /></el-form-item>
+      <el-form-item label="密码"
+        ><el-input
           v-model="password"
           name="password"
           type="password"
           autocomplete="current-password"
           required
           maxlength="1024"
-      /></label>
+      /></el-form-item>
       <p v-if="error || session.error" class="error-banner" role="alert">
         {{ error || session.error }}
       </p>
-      <button :disabled="busy">{{ busy ? '正在登录…' : '登录' }}</button>
+      <el-button :disabled="busy" native-type="submit" type="primary">{{
+        busy ? '正在登录…' : '登录'
+      }}</el-button>
       <p class="path-note">演示账号与密码请使用本地配置中的信息。</p>
-    </form>
+    </el-form>
   </section>
 </template>

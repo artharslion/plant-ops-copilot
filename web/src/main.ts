@@ -2,6 +2,30 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+import {
+  ElAlert,
+  ElButton,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElDialog,
+  ElDrawer,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElLoading,
+  ElOption,
+  ElSelect,
+  ElSkeleton,
+  ElStep,
+  ElSteps,
+  ElTable,
+  ElTableColumn,
+  ElTabPane,
+  ElTabs,
+  ElTag,
+  ElTree,
+} from 'element-plus'
+import 'element-plus/dist/index.css'
 import OverviewPage from './pages/OverviewPage.vue'
 import LoginPage from './pages/LoginPage.vue'
 import AssetDirectoryPage from './pages/AssetDirectoryPage.vue'
@@ -16,6 +40,18 @@ const router = createRouter({
     { path: '/', component: OverviewPage },
     { path: '/login', component: LoginPage },
     { path: '/assets', component: AssetDirectoryPage },
+    {
+      path: '/assets/:assetId/work-orders/:orderId',
+      redirect: (to) => ({
+        path: '/assets',
+        query: {
+          ...to.query,
+          assetId: String(to.params.assetId),
+          tab: 'orders',
+          workOrderId: String(to.params.orderId),
+        },
+      }),
+    },
     { path: '/alarms', component: AlarmsPage },
     { path: '/documents', component: DocumentsPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -23,7 +59,12 @@ const router = createRouter({
 })
 const pinia = createPinia()
 router.beforeEach(async (to) => {
-  if (!['/assets', '/alarms', '/documents'].includes(to.path)) return
+  if (
+    !['/assets', '/alarms', '/documents'].some(
+      (path) => to.path === path || to.path.startsWith(`${path}/`),
+    )
+  )
+    return
   const session = useSession(pinia)
   try {
     await session.load()
@@ -32,4 +73,28 @@ router.beforeEach(async (to) => {
   }
   if (!session.user) return '/login'
 })
-createApp(App).use(pinia).use(router).mount('#app')
+const app = createApp(App).use(pinia).use(router)
+for (const component of [
+  ElAlert,
+  ElButton,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElDialog,
+  ElDrawer,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElOption,
+  ElSelect,
+  ElSkeleton,
+  ElStep,
+  ElSteps,
+  ElTable,
+  ElTableColumn,
+  ElTabPane,
+  ElTabs,
+  ElTag,
+  ElTree,
+])
+  app.use(component)
+app.use(ElLoading).mount('#app')

@@ -1,0 +1,932 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { createRenderer, nextTick, reactive } from 'vue'
+import ts from 'typescript'
+
+// Exercise the actual component setup and lifecycle without a browser or new dependencies.
+const cache = new URL('../node_modules/.cache/', import.meta.url)
+await fs.mkdir(cache, { recursive: true })
+await fs.writeFile(
+  new URL('panel-mocks.mjs', cache),
+  `
+export const useRouter = () => ({ push: async (to) => globalThis.panelHarness.navigation.push(to), replace: async (to) => globalThis.panelHarness.navigation.push(to) })
+export const useRoute = () => globalThis.panelHarness.route
+export const useWorkOrderDrawer = () => globalThis.panelHarness.drawer
+export const useLeaveProtection = (dirty, busy) => { globalThis.panelHarness.protection = { dirty, busy } }
+export const request = (...args) => globalThis.panelHarness.request(...args)
+export const downloadDocument = () => {}
+export class ApiError extends Error { constructor(status) { super('denied'); this.status = status } }
+export const useSession = () => ({ user: { roles: ['Admin'] } })
+export const subscribePlantEvents = (callback) => {
+  globalThis.panelHarness.notify = callback
+  return () => globalThis.panelHarness.onUnsubscribe?.()
+}
+`,
+)
+const components = {}
+for (const name of [
+  'WorkOrderPanel',
+  'DocumentPanel',
+  'MeasurementPanel',
+  'SidePanel',
+  'DirectoryEditor',
+  'ActionProposalPanel',
+  'WorkOrderDrawer',
+]) {
+  const source = await fs.readFile(
+    new URL(`../src/components/${name}.vue`, import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(source)
+  let script = compileScript(descriptor, { id: name }).content
+  script = script
+    .replace(/import (\w+) from ['"].*\.vue['"]/g, 'const $1 = {}')
+    .replace(/from ['"]vue-router['"]/g, "from './panel-mocks.mjs'")
+    .replace(/from ['"]\.\.\/composables\/useLeaveProtection['"]/g, "from './panel-mocks.mjs'")
+    .replace(
+      /from ['"]\.\.\/(api|realtime|stores\/(session|workOrderDrawer))['"]/g,
+      "from './panel-mocks.mjs'",
+    )
+  const output = ts.transpileModule(script, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  const path = new URL(`panel-${name}.mjs`, cache)
+  await fs.writeFile(path, output)
+  const component = (await import(path.href)).default
+  component.render = () => null
+  components[name] = component
+}
+const renderer = createRenderer({
+  createComment: () => ({}),
+  insert() {},
+  remove() {},
+  parentNode() {},
+  nextSibling() {},
+})
+const flush = async () => {
+  await new Promise((resolve) => setImmediate(resolve))
+  await nextTick()
+}
+async function mount(t, name, props, request) {
+  globalThis.panelHarness = {
+    request,
+    navigation: [],
+    route: reactive({ path: '/alarms', fullPath: '/alarms', query: {} }),
+    drawer: reactive({
+      target: null,
+      open(target) {
+        this.target = target
+      },
+      close() {
+        this.target = null
+      },
+    }),
+  }
+  const app = renderer.createApp(components[name], props)
+  t.after(() => app.unmount())
+  app.mount({})
+  await flush()
+  return app._instance.setupState
+}
+const order = { id: 'order-1', number: 'WO-1', status: 'InProgress', version: 1, resolution: null }
+
+const proposal = () => ({
+  id: 'proposal-1',
+  aiRunId: 'run-1',
+  plantId: 'plant',
+  assetId: 'asset',
+  alarmId: 'alarm',
+  assetName: 'Pump',
+  status: 'Pending',
+  version: 1,
+  payloadHash: 'a'.repeat(64),
+  expiresAt: '2099-10-20T12:00:00Z',
+  draft: {
+    title: 'Check vibration',
+    description: 'Unverified hypothesis; Simulation; [E1]',
+    priority: 'Medium',
+    assignedToUserId: null,
+  },
+  investigation: { simulated: true, model: 'fake', warnings: ['gap'], evidence: [] },
+  resultEntityId: null,
+})
+
+test('note proposal binds selected order/version, saves only note text, and receipt opens the order drawer', async (t) => {
+  const writes = []
+  let stored
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', assetId: 'asset', available: true },
+    async (path, method = 'GET', body) => {
+      if (path.startsWith('/work-orders?'))
+        return {
+          items: [
+            { ...order, title: 'Inspect pump' },
+            { ...order, id: 'closed', status: 'Closed' },
+          ],
+          nextCursor: null,
+        }
+      if (method === 'GET')
+        return path.endsWith('maintenance-users') ? [] : stored ? [structuredClone(stored)] : []
+      writes.push({ path, method, body: structuredClone(body) })
+      if (path.endsWith('/note-proposals'))
+        stored = {
+          ...proposal(),
+          actionType: 'AppendWorkOrderNote',
+          draft: null,
+          noteDraft: { text: 'Investigation\n\n[E1] Check alignment' },
+          targetWorkOrderId: body.workOrderId,
+          targetWorkOrderVersion: body.workOrderVersion,
+          targetWorkOrderNumber: 'WO-1',
+          targetWorkOrderTitle: 'Inspect pump',
+        }
+      if (method === 'PATCH')
+        stored = {
+          ...stored,
+          version: 2,
+          payloadHash: 'b'.repeat(64),
+          noteDraft: structuredClone(body.draft),
+        }
+      if (path.endsWith('/execute'))
+        stored = { ...stored, status: 'Executed', resultEntityId: 'note-1' }
+      return structuredClone(stored)
+    },
+  )
+  await state.loadTargets()
+  assert.equal(state.targets.length, 1)
+  state.targetId = 'order-1'
+  await state.create('AppendWorkOrderNote')
+  assert.deepEqual(writes[0].body, { workOrderId: 'order-1', workOrderVersion: 1 })
+  assert.equal(state.form.description, 'Investigation\n\n[E1] Check alignment')
+  state.form.description = 'Human verified\n\n[E1] Check alignment'
+  await state.execute()
+  assert.equal(writes.length, 1)
+  await state.save()
+  assert.equal(writes[1].path, '/action-proposals/proposal-1/note')
+  assert.deepEqual(writes[1].body, { version: 1, draft: { text: state.form.description } })
+  assert.equal(state.review, true)
+  await state.execute()
+  assert.equal(writes[2].body.payloadHash, 'b'.repeat(64))
+  state.openReceipt()
+  assert.deepEqual(
+    { ...globalThis.panelHarness.drawer.target },
+    { assetId: 'asset', orderId: 'order-1' },
+  )
+  assert.equal(state.proposal.resultEntityId, 'note-1')
+  assert.equal(
+    writes.some((write) => write.path === '/work-orders' || write.path.endsWith('/notes')),
+    false,
+  )
+})
+
+test('changed target invalidation removes note text and confirmation; unknown execution recovers same note receipt', async (t) => {
+  let stored = {
+    ...proposal(),
+    actionType: 'AppendWorkOrderNote',
+    draft: null,
+    noteDraft: { text: 'Unverified check\n[E1]' },
+    targetWorkOrderId: 'order-1',
+    targetWorkOrderVersion: 1,
+  }
+  let executions = 0
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', available: true },
+    async (path, method = 'GET', body) => {
+      if (method === 'GET')
+        return path.endsWith('maintenance-users') ? [] : [structuredClone(stored)]
+      if (method === 'PATCH')
+        return structuredClone(
+          (stored = { ...stored, version: 2, noteDraft: structuredClone(body.draft) }),
+        )
+      executions++
+      stored = { ...stored, status: 'Executed', resultEntityId: 'original-note' }
+      throw new Error('Response lost')
+    },
+  )
+  await state.save()
+  await state.execute()
+  assert.equal(state.uncertain, true)
+  await state.read()
+  await state.execute()
+  assert.equal(executions, 1)
+  assert.equal(state.proposal.resultEntityId, 'original-note')
+  stored = { ...stored, status: 'Invalidated', version: 3, noteDraft: null, investigation: null }
+  await state.read()
+  assert.equal(state.form.description, '')
+  assert.equal(state.review, false)
+  assert.equal(state.editable, false)
+})
+
+test('proposal creation and saving never execute until full confirmation; changed input cancels approval', async (t) => {
+  let stored = proposal()
+  const writes = []
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', available: true },
+    async (path, method = 'GET', body) => {
+      if (method === 'GET') return path.endsWith('maintenance-users') ? [] : []
+      writes.push({
+        path,
+        method,
+        body: body === undefined ? undefined : JSON.parse(JSON.stringify(body)),
+      })
+      if (method === 'PATCH')
+        stored = {
+          ...stored,
+          version: 2,
+          payloadHash: 'b'.repeat(64),
+          draft: JSON.parse(JSON.stringify(body.draft)),
+        }
+      if (path.endsWith('/execute'))
+        stored = { ...stored, status: 'Executed', resultEntityId: 'work-order' }
+      return structuredClone(stored)
+    },
+  )
+  await state.create()
+  await state.execute()
+  assert.equal(writes.length, 1)
+  state.form.title = 'Human edited task'
+  await state.save()
+  assert.equal(state.review, true)
+  assert.equal(writes.length, 2)
+  state.form.title = 'Changed after review'
+  await state.execute()
+  assert.equal(writes.length, 2)
+  state.form.title = 'Human edited task'
+  await state.execute()
+  assert.equal(writes.length, 3)
+  assert.equal(writes[2].body.payloadHash, 'b'.repeat(64))
+  assert.equal(writes[2].body.version, 2)
+  assert.equal(writes[2].body.draft, undefined)
+  assert.equal(state.proposal.resultEntityId, 'work-order')
+})
+
+test('proposal polling preserves unsaved text and requires a new review after another session edits', async (t) => {
+  let stored = proposal()
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', available: true },
+    async (path) => (path.endsWith('maintenance-users') ? [] : [structuredClone(stored)]),
+  )
+  state.form.title = 'Unsaved local text'
+  await state.read(true)
+  assert.equal(state.form.title, 'Unsaved local text')
+  state.review = true
+  stored = {
+    ...stored,
+    version: 2,
+    payloadHash: 'b'.repeat(64),
+    draft: { ...stored.draft, title: 'Other session title' },
+  }
+  await state.read(true)
+  assert.equal(state.form.title, 'Unsaved local text')
+  assert.equal(state.changed, true)
+  assert.equal(state.review, false)
+  assert.equal(state.editable, false)
+  state.accept(stored, true)
+  assert.equal(state.form.title, 'Other session title')
+  assert.equal(state.dirty, false)
+  assert.equal(state.review, false)
+})
+
+test('unknown execution result is recovered from the same proposal and never automatically executed again', async (t) => {
+  let stored = proposal()
+  let executions = 0
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', available: true },
+    async (path, method = 'GET') => {
+      if (method === 'GET')
+        return path.endsWith('maintenance-users') ? [] : [structuredClone(stored)]
+      executions++
+      stored = { ...stored, status: 'Executed', resultEntityId: 'only-work-order' }
+      throw new Error('response lost after commit')
+    },
+  )
+  state.review = true
+  await state.execute()
+  assert.equal(state.uncertain, true)
+  assert.equal(state.review, false)
+  await state.execute()
+  assert.equal(executions, 1)
+  await state.read()
+  assert.equal(state.proposal.resultEntityId, 'only-work-order')
+  assert.equal(state.uncertain, false)
+  assert.equal(executions, 1)
+})
+
+test('invalidated or unreadable proposal removes old draft and confirmation even with local edits', async (t) => {
+  let stored = proposal()
+  let denied = false
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', available: true },
+    async (path) => {
+      if (denied) throw new Error('revoked')
+      return path.endsWith('maintenance-users') ? [] : [structuredClone(stored)]
+    },
+  )
+  state.form.title = 'Unsaved secret text'
+  state.review = true
+  stored = { ...stored, status: 'Invalidated', draft: null, investigation: null }
+  await state.read(true)
+  assert.equal(state.form.title, '')
+  assert.equal(state.proposal.draft, null)
+  assert.equal(state.review, false)
+  denied = true
+  await state.read(true)
+  assert.equal(state.proposal, null)
+  assert.equal(state.items.length, 0)
+})
+
+test('failed execution recovery cannot be replaced with a new proposal', async (t) => {
+  let disconnected = false
+  let posts = 0
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run-1', available: true },
+    async (path, method = 'GET') => {
+      if (method !== 'GET') {
+        posts++
+        disconnected = true
+        throw new Error('response lost')
+      }
+      if (disconnected) throw new Error('still offline')
+      return path.endsWith('maintenance-users') ? [] : [proposal()]
+    },
+  )
+  state.review = true
+  await state.execute()
+  await state.read()
+  assert.equal(state.proposal, null)
+  assert.equal(state.uncertain, true)
+  await state.create()
+  assert.equal(posts, 1)
+  assert.equal(state.selectedId, 'proposal-1')
+})
+
+test('work order background check preserves form, selection, notes and busy state', async (t) => {
+  let current = { ...order }
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant' },
+    async (path) => {
+      if (path.includes('?')) return { items: [order], nextCursor: null }
+      if (path.endsWith('/notes')) return [{ id: 'note-1', text: 'existing note' }]
+      return current
+    },
+  )
+  await state.select(order)
+  state.note = 'unsaved maintenance input'
+  state.reason = 'keep reason'
+  const selected = state.selected
+  const notes = state.notes
+  current = { ...order, version: 2 }
+  const pending = state.refreshState()
+  assert.equal(state.busy, false)
+  assert.equal(state.selected, selected)
+  await pending
+  assert.equal(state.selected, selected)
+  assert.equal(state.notes, notes)
+  assert.equal(state.note, 'unsaved maintenance input')
+  assert.equal(state.reason, 'keep reason')
+  assert.equal(state.changed, true)
+  assert.equal(state.dirty, true)
+})
+
+test('quick create defaults to open and draft remains an explicit option', async (t) => {
+  const writes = []
+  let current = { ...order, status: 'Open', version: 2 }
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant' },
+    async (path, method, body) => {
+      if (method === 'POST') {
+        writes.push({ path, body })
+        return current
+      }
+      if (path.includes('?')) return { items: [current], nextCursor: null }
+      if (path.endsWith('/notes')) return []
+      return current
+    },
+  )
+  state.creating = true
+  state.title = 'Inspect pump'
+  await state.create()
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].path, '/work-orders')
+  assert.equal(writes[0].body.openImmediately, true)
+  assert.equal(state.selected.status, 'Open')
+  assert.equal(state.stepIndex, 1)
+  assert.equal(state.primaryAction.label, '开始执行')
+  current = { ...order, status: 'Draft' }
+  state.creating = true
+  state.title = 'Plan later'
+  await state.create(false)
+  assert.equal(writes.length, 2)
+  assert.equal(writes[1].body.openImmediately, false)
+  assert.equal(state.selected.status, 'Draft')
+  assert.equal(state.stepIndex, 0)
+})
+
+test('complete and close uses one command; review option preserves Completed', async (t) => {
+  const writes = []
+  let current = { ...order }
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant' },
+    async (path, method, body) => {
+      if (method === 'POST') {
+        writes.push(body)
+        current = {
+          ...current,
+          status: body.closeAfterCompletion ? 'Closed' : 'Completed',
+          resolution: body.resolution,
+          version: current.version + 1,
+        }
+        return current
+      }
+      if (path.includes('?')) return { items: [current], nextCursor: null }
+      if (path.endsWith('/notes')) return []
+      return current
+    },
+  )
+  await state.select(current)
+  state.resolution = 'Verified normal vibration'
+  await state.mutate('Completed', true)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].closeAfterCompletion, true)
+  assert.equal(state.selected.status, 'Closed')
+  assert.equal(state.primaryAction, undefined)
+  assert.equal(state.stepIndex, 2)
+  current = { ...order }
+  await state.select(current)
+  state.resolution = 'Awaiting review'
+  await state.mutate('Completed')
+  assert.equal(writes[1].closeAfterCompletion, false)
+  assert.equal(state.selected.status, 'Completed')
+  assert.equal(state.primaryAction.label, '复核并关闭')
+})
+
+test('failed completion keeps the entered result and never retries automatically', async (t) => {
+  let writes = 0
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant' },
+    async (path, method) => {
+      if (method === 'POST') {
+        writes++
+        throw new Error('Connection lost')
+      }
+      if (path.includes('?')) return { items: [order], nextCursor: null }
+      if (path.endsWith('/notes')) return []
+      return order
+    },
+  )
+  await state.select(order)
+  state.resolution = 'Keep this result'
+  await state.mutate('Completed', true)
+  assert.equal(writes, 1)
+  assert.equal(state.selected.status, 'InProgress')
+  assert.equal(state.resolution, 'Keep this result')
+  assert.equal(state.error, 'Connection lost')
+  assert.equal(state.busy, false)
+})
+
+test('hidden work-order section and open creation form do not poll', async (t) => {
+  let calls = 0
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant', active: false },
+    async () => {
+      calls++
+      return { items: [], nextCursor: null }
+    },
+  )
+  const initial = calls
+  await state.refreshState()
+  assert.equal(calls, initial)
+  state.creating = true
+  state.title = 'keep draft'
+  await state.refreshState()
+  assert.equal(calls, initial)
+  assert.equal(state.title, 'keep draft')
+})
+
+test('document background response cannot overwrite metadata being edited', async (t) => {
+  const doc = {
+    id: 'doc-1',
+    title: 'Original',
+    category: 'Maintenance',
+    visibility: 'PlantReaders',
+    allowedRoles: [],
+    version: 1,
+  }
+  let delayed = false
+  let resolveDetail
+  const state = await mount(t, 'DocumentPanel', { plantId: 'plant' }, async (path) => {
+    if (path.includes('?')) return { items: [doc], nextCursor: null }
+    if (path.endsWith('/versions')) return []
+    if (delayed)
+      return new Promise((resolve) => {
+        resolveDetail = resolve
+      })
+    return doc
+  })
+  await state.select(doc)
+  delayed = true
+  const pending = state.refreshState()
+  state.editMetadata()
+  state.title = 'Unsaved title'
+  resolveDetail({ ...doc, title: 'Remote title', version: 2 })
+  await pending
+  assert.equal(state.title, 'Unsaved title')
+  assert.equal(state.selected.version, 1)
+  assert.equal(state.metadataDirty, true)
+  assert.equal(state.busy, false)
+})
+
+test('measurement deep link selects the requested abnormal point instead of the default vibration point', async (t) => {
+  const paths = []
+  const state = await mount(
+    t,
+    'MeasurementPanel',
+    {
+      assetId: 'asset',
+      plantId: 'plant',
+      admin: false,
+      archived: false,
+      initialPointId: 'temperature',
+    },
+    async (path) => {
+      paths.push(path)
+      return path.endsWith('/measurement-points')
+        ? [
+            { id: 'vibration', code: 'VIBRATION_RMS' },
+            { id: 'temperature', code: 'TEMPERATURE' },
+          ]
+        : null
+    },
+  )
+  assert.equal(state.pointId, 'temperature')
+  assert.ok(paths.some((path) => path.includes('pointId=temperature')))
+})
+
+test('measurement background refresh never disables controls', async (t) => {
+  let resolvePoints
+  let delayed = false
+  const state = await mount(
+    t,
+    'MeasurementPanel',
+    { assetId: 'asset', plantId: 'plant', admin: false, archived: false },
+    async (path) => {
+      if (delayed && path.endsWith('/measurement-points'))
+        return new Promise((resolve) => {
+          resolvePoints = resolve
+        })
+      return []
+    },
+  )
+  delayed = true
+  const pending = state.refresh(true)
+  assert.equal(state.busy, false)
+  resolvePoints([])
+  await pending
+  assert.equal(state.busy, false)
+})
+
+test('OPC UA connection health stays separate from observation freshness and hides expired connection claims', async (t) => {
+  let health = { state: 'Connected', isCurrent: true, reconnectCount: 1 }
+  const state = await mount(
+    t,
+    'MeasurementPanel',
+    {
+      assetId: 'asset',
+      plantId: 'plant',
+      admin: false,
+      archived: false,
+    },
+    async (path) => {
+      if (path.endsWith('/measurement-points'))
+        return [
+          {
+            id: 'p1',
+            dataSourceId: 'source',
+            sourceKind: 'OpcUa',
+            latestObserved: { isFresh: false },
+          },
+        ]
+      if (path.endsWith('/data-sources')) return [{ id: 'source', enabled: true, health }]
+      return null
+    },
+  )
+  assert.equal(state.connectionState(), '已连接')
+  assert.equal(state.point.latestObserved.isFresh, false)
+  health = { ...health, state: 'Reconnecting' }
+  await state.refresh()
+  assert.equal(state.connectionState(), '断线重连中')
+  health = { ...health, state: 'Connected', isCurrent: false }
+  await state.refresh()
+  assert.match(state.connectionState(), /状态未确认/)
+})
+
+test('dirty panel requests discard confirmation and busy panel cannot close', async (t) => {
+  let closes = 0
+  const dirty = await mount(
+    t,
+    'SidePanel',
+    { title: 'Edit', dirty: true, onClose: () => closes++ },
+    async () => {},
+  )
+  dirty.close()
+  assert.equal(dirty.confirmClose, true)
+  assert.equal(closes, 0)
+  const busy = await mount(
+    t,
+    'SidePanel',
+    { title: 'Saving', busy: true, onClose: () => closes++ },
+    async () => {},
+  )
+  busy.close()
+  assert.equal(busy.confirmClose, false)
+  assert.equal(closes, 0)
+  busy.discardAndClose()
+  assert.equal(closes, 0)
+  dirty.discardAndClose()
+  assert.equal(dirty.confirmClose, false)
+  assert.equal(closes, 1)
+})
+
+test('work order entry opens a drawer with alarm association and preserves the current page', async (t) => {
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant', initialAlarmId: 'alarm' },
+    async () => ({ items: [], nextCursor: null }),
+  )
+  state.openOrder('new')
+  assert.deepEqual(globalThis.panelHarness.drawer.target, {
+    assetId: 'asset',
+    orderId: 'new',
+    alarmId: 'alarm',
+  })
+  assert.deepEqual(globalThis.panelHarness.navigation, [])
+})
+
+test('direct create route loads choices, preselects alarm and protects typed input', async (t) => {
+  const state = await mount(
+    t,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant', detailId: 'new', initialAlarmId: 'alarm' },
+    async (path) => {
+      if (path.endsWith('/maintenance-users')) return [{ id: 'user', displayName: 'Engineer' }]
+      if (path.startsWith('/alarms?')) return { items: [{ id: 'alarm' }] }
+      return { items: [], nextCursor: null }
+    },
+  )
+  assert.equal(state.creating, true)
+  assert.equal(state.alarmId, 'alarm')
+  state.title = 'Keep entered task'
+  assert.equal(globalThis.panelHarness.protection.dirty(), true)
+  const calls = []
+  globalThis.panelHarness.request = async (...args) => calls.push(args)
+  state.createForm = {
+    validate: async () => {
+      throw new Error('invalid')
+    },
+  }
+  await state.create()
+  assert.equal(calls.length, 0)
+  assert.equal(state.title, 'Keep entered task')
+})
+
+test('directory form rejects invalid fields before saving and preserves concurrency version', async (t) => {
+  const saved = []
+  const state = await mount(
+    t,
+    'DirectoryEditor',
+    {
+      kind: 'assets',
+      record: { id: 'asset', code: 'P-01', name: 'Pump', version: 7 },
+      locations: [],
+      busy: false,
+      onSave: (input) => saved.push(input),
+    },
+    async () => {},
+  )
+  state.formRef = {
+    validate: async () => {
+      throw new Error('missing location')
+    },
+  }
+  await state.submit()
+  assert.equal(saved.length, 0)
+  state.formRef = { validate: async () => true }
+  state.form.locationId = 'location'
+  await state.submit()
+  assert.equal(saved[0].version, 7)
+  assert.equal(saved[0].locationId, 'location')
+  assert.equal(saved[0].installedAt, null)
+})
+
+test('measurement unmount releases its event subscription and refresh timer', async (t) => {
+  const originalInterval = globalThis.setInterval
+  const intervals = []
+  globalThis.setInterval = (...args) => {
+    const timer = originalInterval(...args)
+    intervals.push(timer)
+    return timer
+  }
+  t.after(() => {
+    globalThis.setInterval = originalInterval
+  })
+  let unsubscribed = 0
+  // The same production subscription is closed on component unmount.
+  const originalMock = globalThis.panelHarness
+  const app = renderer.createApp(components.MeasurementPanel, {
+    assetId: 'asset',
+    plantId: 'plant',
+    admin: false,
+    archived: false,
+  })
+  globalThis.panelHarness = { request: async () => [], onUnsubscribe: () => unsubscribed++ }
+  app.mount({})
+  await flush()
+  assert.ok(intervals.length > 0)
+  app.unmount()
+  assert.equal(unsubscribed, 1)
+  assert.ok(intervals.every((timer) => timer._destroyed))
+  globalThis.panelHarness = originalMock
+})
+
+test('route leave guard blocks busy work, respects cancellation and cleans refresh protection', async (t) => {
+  const source = await fs.readFile(
+    new URL('../src/composables/useLeaveProtection.ts', import.meta.url),
+    'utf8',
+  )
+  const compiled = ts
+    .transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    })
+    .outputText.replace(
+      /import .* from 'vue';?/,
+      'const { onMounted, onBeforeUnmount } = globalThis.leaveHarness;',
+    )
+    .replace(
+      /import .* from 'vue-router';?/,
+      'const { onBeforeRouteLeave, onBeforeRouteUpdate, useRouter } = globalThis.leaveHarness;',
+    )
+    .replace(/import .* from 'element-plus';?/, 'const { ElMessageBox } = globalThis.leaveHarness;')
+  const path = new URL('leave-protection-test.mjs', cache)
+  await fs.writeFile(path, compiled)
+  let beforeUnload,
+    removed,
+    cleanup,
+    guard,
+    updateGuard,
+    prompts = 0,
+    cancel = true,
+    globalGuard,
+    removedGuard = false
+  const cleanups = []
+  const originalWindow = globalThis.window
+  t.after(() => {
+    globalThis.window = originalWindow
+  })
+  globalThis.window = {
+    addEventListener: (_, callback) => {
+      beforeUnload = callback
+    },
+    removeEventListener: (_, callback) => {
+      removed = callback
+    },
+  }
+  globalThis.leaveHarness = {
+    onMounted: (callback) => callback(),
+    onBeforeUnmount: (callback) => {
+      cleanups.push(callback)
+      cleanup = () => cleanups.forEach((item) => item())
+    },
+    onBeforeRouteLeave: (callback) => {
+      guard = callback
+    },
+    onBeforeRouteUpdate: (callback) => {
+      updateGuard = callback
+    },
+    useRouter: () => ({
+      beforeEach: (callback) => {
+        globalGuard = callback
+        return () => {
+          removedGuard = true
+        }
+      },
+    }),
+    ElMessageBox: {
+      confirm: async () => {
+        prompts++
+        if (cancel) throw new Error('cancel')
+      },
+    },
+  }
+  const { useLeaveProtection } = await import(path.href)
+  let dirty = false,
+    busy = false
+  useLeaveProtection(
+    () => dirty,
+    () => busy,
+  )
+  assert.equal(await guard(), true)
+  assert.equal(prompts, 0)
+  busy = true
+  assert.equal(await guard(), false)
+  assert.equal(prompts, 0)
+  busy = false
+  dirty = true
+  assert.equal(await guard(), false)
+  cancel = false
+  assert.equal(await updateGuard(), true)
+  let prevented = false
+  beforeUnload({
+    preventDefault: () => {
+      prevented = true
+    },
+  })
+  assert.equal(prevented, true)
+  cleanup()
+  assert.equal(removed, beforeUnload)
+  useLeaveProtection(
+    () => dirty,
+    () => busy,
+    true,
+  )
+  cancel = true
+  assert.equal(await globalGuard(), false)
+  cancel = false
+  assert.equal(await globalGuard(), true)
+  busy = true
+  assert.equal(await globalGuard(), false)
+  cleanup()
+  assert.equal(removedGuard, true)
+})
+
+test('global work-order drawer loads authorized context, keeps the origin and cleans legacy query on close', async (t) => {
+  const state = await mount(t, 'WorkOrderDrawer', {}, async (path) =>
+    path.startsWith('/assets/')
+      ? { id: 'asset', plantId: 'plant', name: 'Pump', code: 'P-101' }
+      : { id: 'plant', name: 'North' },
+  )
+  state.drawer.open({ assetId: 'asset', orderId: 'order' })
+  await flush()
+  assert.equal(state.asset.id, 'asset')
+  assert.equal(state.plant.id, 'plant')
+  assert.deepEqual(globalThis.panelHarness.navigation, [])
+  await state.created('created-order')
+  assert.equal(state.drawer.target.orderId, 'created-order')
+  await state.close()
+  assert.equal(state.drawer.target, null)
+  assert.deepEqual(globalThis.panelHarness.navigation, [])
+  globalThis.panelHarness.route.path = '/assets'
+  globalThis.panelHarness.route.fullPath = '/assets?workOrderId=order'
+  globalThis.panelHarness.route.query = { assetId: 'asset', tab: 'orders', workOrderId: 'order' }
+  state.drawer.open({ assetId: 'asset', orderId: 'order' })
+  await flush()
+  await state.close()
+  assert.deepEqual(globalThis.panelHarness.navigation, [
+    { path: '/assets', query: { assetId: 'asset', tab: 'orders' } },
+  ])
+})
+
+test('a delayed work-order asset read cannot replace a newer drawer selection', async (t) => {
+  let resolveOld
+  const state = await mount(t, 'WorkOrderDrawer', {}, async (path) => {
+    if (path === '/assets/old')
+      return new Promise((resolve) => {
+        resolveOld = resolve
+      })
+    if (path.startsWith('/assets/')) return { id: 'new', plantId: 'plant' }
+    return { id: 'plant' }
+  })
+  state.drawer.open({ assetId: 'old', orderId: 'old-order' })
+  await flush()
+  state.drawer.open({ assetId: 'new', orderId: 'new-order' })
+  await flush()
+  resolveOld({ id: 'old', plantId: 'plant' })
+  await flush()
+  assert.equal(state.asset.id, 'new')
+  assert.equal(state.drawer.target.orderId, 'new-order')
+})

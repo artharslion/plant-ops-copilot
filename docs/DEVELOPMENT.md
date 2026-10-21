@@ -129,13 +129,13 @@ deploy/.env、appsettings.Local.json 和凭据不会提交。每个终端需要�
 
 终端 Ctrl+C 关闭 Api/Worker/Web；`docker compose -f deploy/compose.yaml stop` 停止数据库并保留数据。密钥、客户端私钥、数据库备份和上传文件不得进入版本库。
 
-维护工单：设备详情下方可创建/处理维护工单并查看维修历史。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。验收见 [工单验证](P1_5_VALIDATION.md)。
+维护工单：设备详情的“维护工单 / 维修历史”标签提供列表，创建及处理进入独立页面。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。验收见 [工单验证](P1_5_VALIDATION.md)。
 
 知识资料：知识资料入口上传工厂资料，设备详情上传设备资料。上传为草稿，发布后授权下载；修改读取角色或撤回立即生效。生产配置 Documents:StorageRoot（持久受控目录，须与数据库一起备份）；Development 默认同用户 LocalApplicationData/PlantOpsCopilot/documents（API/Worker 共用）。API 提供 /hubs/plant-events，只读通知、自动重连与 HTTP 补查。前端去重验证：npm test --prefix web。验收见 [文档与实时通知验证](P1_6_VALIDATION.md)。
 
 ### 完整业务演示与保留配置
 
-登录 admin → North → Utilities → P-101。等模拟高值产生告警，点击“查看此设备的告警”，选择记录并“确认告警”。点击“查看设备并创建关联工单”，关联告警自动带入。填写标题、说明与责任人，保存草稿 → 待执行 → 执行中 → 追加备注 → 填写处理结果 → 已完成 → 已关闭。维修历史显示终态和处理结果；关闭工单不代替告警恢复。engineer 在 South 可完成同一维护流程；operator 可以确认但不能创建工单，viewer 只能读取。
+登录 admin → North → Utilities → P-101。等模拟高值产生告警，点击“查看此设备的告警”，选择记录并“确认告警”。点击“查看设备并创建关联工单”，关联告警自动带入。填写标题、说明与责任人，默认“创建并打开 → 开始执行 → 填写处理结果 → 完成并关闭”。步骤条显示“创建任务 → 执行维护 → 提交结果”，维护备注为可选；也可仅保存草稿，或仅提交完成、交由他人复核关闭。取消及返工在“更多操作”中，需填写原因。维修历史显示终态和处理结果；关闭工单不代替告警恢复。engineer 在 South 可完成同一维护流程；operator 可以确认但不能创建工单，viewer 只能读取。
 
 设备资料中选择原创指南并下载，或上传 TXT/MD/PDF → 保存草稿 → 发布 → 下载；选择读取角色可限制访问。PDF 目前仅验证头尾并保存，不解析或建立索引。无需配置模型或 OPC UA 服务。
 
@@ -157,3 +157,26 @@ node web/scripts/benchmark-p1.mjs
 ## 项目约定
 
 默认范围为单组织、多工厂、单机开发部署。业务来自通用工业资产管理经验，代码、名称、数据、文档、接口和界面独立设计。不得复制 KROHNE/AMADAS 的专有资产，不读取或依赖原项目仓库。公开展示统一使用 Plant Ops Copilot 名称，示例工厂和设备全部虚构。
+
+
+## Element Plus 工作台维护
+
+首页 `/` 是运维工作台。`GET /api/v1/plants/{plantId}/overview` 复用工厂读取授权，在同一数据库快照中返回完整统计与有界列表（默认 5 条，可展开至 50 条）。活动告警与其中未确认的告警分别统计；未关闭工单包含 Draft/Open/InProgress/Completed，`mine=true` 按当前负责人筛选，`workOrderStatus` 筛选状态，均不改变摘要总数。数据异常只统计未归档工厂、设备下的启用测点，区分采集未连接、无观测、数据陈旧与不可信观测；陈旧阈值沿用各测点配置。页面监听工厂事件并每 15 秒补查，失败时清空业务快照，显示不可用而非 0。未登录只显示登录入口。
+
+首页告警入口携带 `plantId`/`alarmId` 打开具体告警及调查区域；异常测点入口携带 `assetId`/`tab=measurements`/`pointId` 定位具体测点。工单沿用已有独立详情路由。系统连接检查收在页脚，业务自动刷新不等于连接检查结果的自动更新。
+
+前端固定使用 Element Plus 2.14.7，版本与 `web/package-lock.json` 一起更新；`main.ts` 仅注册已使用的组件，`App.vue` 统一提供简体中文区域设置。品牌绿色、间距、表格密度与响应式布局在 `style.css` 中维护，避免重新引入自制输入/选择/步骤条。
+
+- 资产入口：`/assets?assetId=<id>`，可附带 `alarmId` 自动选中工单分区；`tab=orders` 用于从工单返回。位置树筛选设备，表格中设备代码按钮也支持键盘打开。
+- 工单入口：`/assets/<assetId>/work-orders/new` 或 `/assets/<assetId>/work-orders/<orderId>`；关联告警保存在 `alarmId` 查询参数。保存后替换为真实工单地址；“返回设备”重新打开该设备的工单标签。原有 `/assets` 静态目录冲突修复继续保留，独立工单路由可直接刷新。
+- 设备详情采用一个宽 Drawer 与五个 Tabs；测量离开即卸载，停止定时器和事件订阅。工单详情后台只比较版本，保留处理结果、备注、选中项及滚动；远端更新后要求重新核对。
+- 知识资料页的资料详情采用 Drawer；在已经打开的设备 Drawer 中，资料详情使用 Dialog，避免连续叠加 Drawer。目录编辑、资料上传/元数据编辑、规则/采集配置及调查引用使用 Dialog。
+- `SidePanel` 统一封装 Drawer/Dialog 的关闭流程，保存中阻止关闭，未保存内容显示确认。`useLeaveProtection` 保护路由离开/参数切换及刷新；刷新/关页提示文字由浏览器决定。创建工单和目录、资料关键字段使用 Form 校验；服务端仍是权限、版本与输入规则的最终校验方。
+- 三步操作不改变后端状态机：默认创建并打开、完成并关闭；显式草稿、仅提交完成、取消、返工、维护备注仍可使用。P4 已实现调查后的工单/备注提案、完整内容确认与幂等执行，见 [创建工单](P4_WORK_ORDER_VALIDATION.md)及[备注验证](P4_NOTE_VALIDATION.md)；完整浏览器审批 E2E 仍待验收。后续能力与维护边界以 [开发计划](../ROADMAP.md) 为准。
+
+验证命令见 [源码规范](CODE_STYLE.md)，本轮证据见 [交互验证记录](UI_INTERACTION_VALIDATION.md)。纯 UI 更新使用下面两条命令，不执行会迁移数据库的初始化脚本：
+
+```powershell
+docker compose --env-file deploy/.env.docker build web
+docker compose --env-file deploy/.env.docker up -d --no-deps web
+```

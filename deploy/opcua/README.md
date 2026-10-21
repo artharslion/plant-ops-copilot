@@ -1,6 +1,8 @@
 # 隔离 OPC UA 实验
 
-应用预配置示例见 `appsettings.example.json`（需由部署端加载），批准范围可使用 NamespaceUri + String IdentifierPrefix 或 Nodes 精确 `Type:Identifier` 列表。API 仍拒绝启用；这不是启动持续采集的配置。当前没有工业凭据解析、浏览命令或证书运维入口，剩余项见 [P2.2 验收](../../docs/P2_2_VALIDATION.md)。
+2026-10-20：[受控本机常驻运行](../../docs/OPCUA_RUNTIME_VALIDATION.md)新增明确开关、精确节点白名单及普通 Worker 入口；`local-runtime.example.json` 仅为部署配置示意，不自动加载。下文 secure selftest/server 仍维持原加密策略；只有独立 `runtime` 验收模式显式使用本机 None。
+
+应用预配置示例见 `appsettings.example.json`（需由部署端加载），停用配置可使用 NamespaceUri + String IdentifierPrefix 或 Nodes 精确 `Type:Identifier` 列表。启用常驻采集另须满足 `local-runtime.example.json` 所示的显式 Development 回环策略及精确节点列表；通用远程或前缀范围不能直接启用。当前没有工业凭据解析、浏览命令或证书运维入口；当前任务归入 [开发计划 P5](../../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)，旧 [P2.2 验收](../../docs/P2_2_VALIDATION.md)仅记录当时范围。
 
 固定 SDK Client/Server **1.5.378.182**，源码 tag 对应 commit `6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b`；.NET SDK 10.0.112 / net10.0。使用官方 Server 库及原创 NodeManager，不复制示例项目、不使用第三方镜像。版本与内容哈希见 spike 的 `packages.lock.json`，许可与通知随此目录保存。
 

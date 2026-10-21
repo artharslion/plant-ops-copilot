@@ -80,6 +80,11 @@ internal static class TelemetryModel
         gap.Property(x => x.Reason).HasMaxLength(64);
         gap.HasOne<MeasurementPoint>().WithMany().HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Restrict);
         gap.HasIndex(x => new { x.PointId, x.From });
+        var health = model.Entity<DataSourceHealth>();
+        health.HasKey(x => x.DataSourceId);
+        health.Property(x => x.State).HasMaxLength(32);
+        health.Property(x => x.FailureCode).HasMaxLength(64);
+        health.HasOne<DataSource>().WithOne().HasForeignKey<DataSourceHealth>(x => x.DataSourceId).OnDelete(DeleteBehavior.Restrict);
         var profile = model.Entity<SamplingProfile>();
         profile.HasKey(x => x.Id);
         profile.HasOne<MeasurementPoint>().WithMany().HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Restrict);
