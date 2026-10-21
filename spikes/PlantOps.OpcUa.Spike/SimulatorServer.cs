@@ -8,10 +8,10 @@ internal sealed record SimulatorOptions(bool ReorderNamespaces = false, bool Con
     string Quality = "Good", string Timestamp = "Normal", bool Overflow = false, bool DenyRead = false,
     int MinimumSamplingMs = 1000);
 
-internal sealed class SimulatorServer(SimulatorOptions? options = null) : StandardServer
+internal sealed class SimulatorServer(SimulatorOptions? options = null, MinimalScenario? scenario = null) : StandardServer
 {
     protected override MasterNodeManager CreateMasterNodeManager(IServerInternal server, ApplicationConfiguration configuration)
-        => new(server, configuration, null, new SimulatorNodes(server, configuration, options ?? new()));
+        => new(server, configuration, null, new SimulatorNodes(server, configuration, options ?? new(), scenario));
 
     protected override ServerProperties LoadServerProperties() => new()
     {
@@ -25,7 +25,7 @@ internal sealed class SimulatorServer(SimulatorOptions? options = null) : Standa
 }
 
 // Original business nodes; no reference-server NodeManager code is copied.
-internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfiguration configuration, SimulatorOptions options)
+internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfiguration configuration, SimulatorOptions options, MinimalScenario? scenario)
     : CustomNodeManager2(server, configuration, options.ReorderNamespaces
         ? ["urn:plant-ops:padding", Program.NamespaceUri] : [Program.NamespaceUri])
 {
@@ -63,6 +63,32 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
                 variables.Add(variable);
             }
             CreateMetadataFixtures(externalReferences);
+            if (scenario != null)
+            {
+                foreach (var point in MinimalScenario.Points)
+                {
+                    var observation = scenario.Generate(Array.IndexOf(MinimalScenario.Points, point));
+                    var ns = Server.NamespaceUris.GetIndexOrAppend(Program.NamespaceUri);
+                    var variable = new BaseDataVariableState(null)
+                    {
+                        NodeId = new NodeId(point.Identifier, ns),
+                        BrowseName = new QualifiedName(point.Identifier, ns),
+                        DisplayName = point.Identifier,
+                        TypeDefinitionId = VariableTypeIds.BaseDataVariableType,
+                        DataType = DataTypeIds.Double,
+                        ValueRank = ValueRanks.Scalar,
+                        AccessLevel = AccessLevels.CurrentRead,
+                        UserAccessLevel = AccessLevels.CurrentRead,
+                        MinimumSamplingInterval = 1000,
+                        Value = observation.Value,
+                        StatusCode = StatusCodes.Good,
+                        Timestamp = observation.SourceTimestamp.UtcDateTime
+                    };
+                    AddUnits(variable, point.UnitId);
+                    Register(variable, externalReferences);
+                    scenarioVariables.Add(variable);
+                }
+            }
             timer = new Timer(_ => UpdateValues(), null, 1000, 1000);
         }
     }
@@ -84,7 +110,7 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
             {
                 NamespaceUri = unitNamespace ?? OpcUaMetadataValidator.UnitNamespace,
                 UnitId = unitId,
-                DisplayName = "mm/s",
+                DisplayName = unitId == 4408652 ? "°C" : "mm/s",
                 Description = "Simulator engineering unit"
             }
         };
@@ -158,6 +184,14 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
     {
         lock (Lock)
         {
+            for (var index = 0; index < scenarioVariables.Count; index++)
+            {
+                var observation = scenario!.Generate(index);
+                var variable = scenarioVariables[index];
+                variable.Value = observation.Value;
+                variable.Timestamp = observation.SourceTimestamp.UtcDateTime;
+                variable.ClearChangeMasks(SystemContext, false);
+            }
             foreach (var variable in variables)
             {
                 var second = (int)(DateTime.UtcNow - startedAt).TotalSeconds % 120;
@@ -185,6 +219,8 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
             }
         }
     }
+
+    private readonly List<BaseDataVariableState> scenarioVariables = [];
 
     protected override void Dispose(bool disposing)
     {
