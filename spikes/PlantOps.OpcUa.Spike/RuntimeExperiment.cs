@@ -55,7 +55,8 @@ internal static class RuntimeExperiment
         var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:PlantOps"] = connection,
-            ["Demo:Password"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) + "a!",
+            ["Demo:Password"] = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_DEMO_PASSWORD")
+                ?? Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) + "a!",
             ["Demo:SeedHistory"] = "false",
             ["Documents:StorageRoot"] = Path.Combine(root, "documents"),
             ["Telemetry:SimulationEnabled"] = "false"

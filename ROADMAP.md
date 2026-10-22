@@ -8,6 +8,8 @@
 
 同日按用户指定，将推荐三点场景源接入 `D:/Repos/industrial-device-simulation-framework`：框架独立进程Server → 现有Adapter/普通Worker/测量规则管道，141条真实协议入库及停服恢复通过；配置、通知/投影时间契约、失败轮和证据见 [IndustrialSim有限验证](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md)。原spike保留作协议回归；未切换当前Docker业务来源。
 
+2026-10-22 按用户授权执行一次隔离Docker + IndustrialSim + 真实LLM测试：容器内三点采集138条及停服恢复通过；唯一真实调查请求返回HTTP502，状态Failed/Unavailable，未自动重试。见 [Docker真实模型记录](docs/DOCKER_REAL_LLM_VALIDATION.md)。这次不计为P6.1或真实模型成功验收，业务Docker配置保持不变。
+
 ## 1. 定位、边界与阶段顺序
 
 核心定位：**基于工业实时数据、告警、设备历史和技术文档，提供有证据、可追溯、受权限约束的 AI 辅助调查。**

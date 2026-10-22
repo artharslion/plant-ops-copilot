@@ -71,6 +71,8 @@ Nginx 保留请求 Host，处理 SignalR 的 Upgrade 头与长连接；上传限
 
 ## 可选真实 AI
 
+隔离的一次性Docker + IndustrialSim + 真实模型测试可使用 `deploy/Test-DockerIndustrialSimLlm.ps1`，需要先构建专用镜像并显式调用，会产生真实模型请求；它不会切换此处工作台的配置。[2026-10-22 实测](DOCKER_REAL_LLM_VALIDATION.md)：协议采集通过，唯一真实请求HTTP502失败，未重试。
+
 默认 `AI_PROVIDER=Fake`，不会请求外部模型。需要真实模型时，在本机 `deploy/.env.docker` 配置：
 
 ```dotenv
