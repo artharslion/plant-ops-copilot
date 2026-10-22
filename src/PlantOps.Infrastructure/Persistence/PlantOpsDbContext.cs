@@ -64,6 +64,8 @@ public sealed class PlantOpsDbContext(DbContextOptions<PlantOpsDbContext> option
 
     public DbSet<PlantOps.Domain.AI.AiRun> AiRuns => Set<PlantOps.Domain.AI.AiRun>();
 
+    public DbSet<PlantOps.Domain.AI.AiRuntimeSetting> AiRuntimeSettings => Set<PlantOps.Domain.AI.AiRuntimeSetting>();
+
     public DbSet<PlantOps.Domain.AI.ActionProposal> ActionProposals => Set<PlantOps.Domain.AI.ActionProposal>();
 
     public DbSet<PlantOps.Domain.Operations.OutboxEvent> OutboxEvents => Set<PlantOps.Domain.Operations.OutboxEvent>();

@@ -31,6 +31,7 @@ import LoginPage from './pages/LoginPage.vue'
 import AssetDirectoryPage from './pages/AssetDirectoryPage.vue'
 import AlarmsPage from './pages/AlarmsPage.vue'
 import DocumentsPage from './pages/DocumentsPage.vue'
+import SettingsPage from './pages/SettingsPage.vue'
 import { useSession } from './stores/session'
 import './style.css'
 
@@ -54,13 +55,14 @@ const router = createRouter({
     },
     { path: '/alarms', component: AlarmsPage },
     { path: '/documents', component: DocumentsPage },
+    { path: '/settings', component: SettingsPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 const pinia = createPinia()
 router.beforeEach(async (to) => {
   if (
-    !['/assets', '/alarms', '/documents'].some(
+    !['/assets', '/alarms', '/documents', '/settings'].some(
       (path) => to.path === path || to.path.startsWith(`${path}/`),
     )
   )

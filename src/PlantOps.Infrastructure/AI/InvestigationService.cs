@@ -18,13 +18,10 @@ namespace PlantOps.Infrastructure.AI;
 
 public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService alarms, IAssetDirectory assets,
     ITelemetryService telemetry, IWorkOrderService maintenance, IDocumentEvidenceService documents,
-    IInvestigationEngine engine, IConfiguration configuration, IServiceScopeFactory scopes, TimeProvider clock) : IInvestigationService
+    IServiceProvider executionServices, IAiSettingsService settings, IAiRunConfiguration runConfiguration,
+    IConfiguration configuration, IServiceScopeFactory scopes, TimeProvider clock) : IInvestigationService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
-    private string Provider => configuration["AI:Provider"] ?? "Fake";
-
-    private string Model => Provider == "Fake" ? "fake" : configuration["AI:Model"] ?? "gpt-6.1-sol";
 
     private static InvestigationEvidence[] Ledger(AiRun run) => JsonSerializer.Deserialize<InvestigationEvidence[]>(run.EvidenceJson, Json) ?? [];
 
@@ -97,6 +94,7 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
     public async Task<InvestigationRunDto> CreateAsync(Actor actor, Guid alarmId, CancellationToken cancellationToken = default)
     {
         var alarm = await alarms.GetAsync(actor, alarmId);
+        var selection = await settings.SelectionAsync(cancellationToken);
         var run = new AiRun
         {
             ActorUserId = actor.UserId,
@@ -105,9 +103,9 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             AssetId = alarm.AssetId,
             AlarmId = alarm.Id,
             CreatedAt = clock.GetUtcNow(),
-            Provider = Provider,
-            Model = Model,
-            Simulated = Provider == "Fake"
+            Provider = selection.Provider,
+            Model = selection.Model,
+            Simulated = selection.Provider == "Fake"
         };
         await AuthorizeAsync(run, [], cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -234,10 +232,7 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
         string? result = null;
         try
         {
-            if (run.Provider != Provider || run.Provider != "Fake" && run.Model != Model)
-            {
-                throw new LlmException(LlmFailure.InvalidConfiguration);
-            }
+            runConfiguration.Select(run.Provider, run.Model);
             async Task Authorize(CancellationToken token)
             {
                 await AuthorizeAsync(run, ledger, token);
@@ -398,7 +393,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 Add("DataQuality", "服务端数据质量与范围提示", run.AlarmId, warnings.Order().ToArray());
             }
             await CheckpointAsync(run, ledger, warnings, budget, active.Token);
-            var output = await engine.ExecuteAsync(ledger, ReadTool, Authorize, budget, active.Token);
+            var output = await executionServices.GetRequiredService<IInvestigationEngine>()
+                .ExecuteAsync(ledger, ReadTool, Authorize, budget, active.Token);
             await Authorize(active.Token);
             result = output.ResultJson;
             run.Model = output.Model;

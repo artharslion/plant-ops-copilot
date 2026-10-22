@@ -10,6 +10,9 @@ public static class DependencyInjection
     public static IServiceCollection AddPlantOpsAi(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<AiOptions>(configuration.GetSection("AI"));
+        services.AddScoped<AiRunConfiguration>(provider => new(provider.GetRequiredService<IOptionsSnapshot<AiOptions>>().Value));
+        services.AddScoped<IAiRunConfiguration>(provider => provider.GetRequiredService<AiRunConfiguration>());
+        services.AddScoped<IOptions<AiOptions>>(provider => provider.GetRequiredService<AiRunConfiguration>());
         services.AddTransient<IInvestigationEngine, InvestigationEngine>();
         services.AddHttpClient<OpenAiCompatibleGateway>(client => client.Timeout = Timeout.InfiniteTimeSpan)
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })

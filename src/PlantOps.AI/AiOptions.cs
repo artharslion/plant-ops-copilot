@@ -4,6 +4,8 @@ namespace PlantOps.AI;
 
 public sealed class AiOptions
 {
+    internal AiOptions Clone() => (AiOptions)MemberwiseClone();
+
     public string Provider { get; set; } = "Fake";
 
     public string BaseUrl { get; set; } = "https://zzone.cc.cd/v1";

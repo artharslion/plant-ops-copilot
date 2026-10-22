@@ -1,5 +1,7 @@
 # AI 模型接入与本地密钥
 
+2026-10-22新增：[工作台AI设置](AI_SETTINGS_VALIDATION.md)。Admin可在8080侧栏“设置”中切换新调查使用模拟AI或服务端已配置的真实LLM，API/Worker共用数据库中的选择，无需每次重启。已有设置记录时优先于AI.Provider；排队/运行中的调查保留创建时模式。密钥仍只通过下面的服务端配置注入，不在页面中填写或显示。
+
 当前增量：独立 `PlantOps.AI` 已提供 Chat Completions 适配、Fake、调用预算和版本化输出；[P3.2 授权资料检索](AI_EVIDENCE_VALIDATION.md) 与 [告警业务调查接入](AI_INVESTIGATION_VALIDATION.md) 已实现。现在告警页经 API/AiRun/Worker 实际调用 Gateway，保存并展示授权证据及校验结果。135项专项/回归通过；早先真实超时记录保留，[IndustrialSim联合演示](INDUSTRIALSIM_AI_VALIDATION.md) 的一次真实业务调查约11.22秒成功。响应稳定性及完整P3质量验收仍未通过。
 
 ## 密钥放哪里

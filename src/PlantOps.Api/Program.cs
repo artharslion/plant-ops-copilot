@@ -113,6 +113,7 @@ app.MapAlarms();
 app.MapWorkOrders();
 app.MapDocuments();
 app.MapInvestigations();
+app.MapAiSettings();
 app.MapActionProposals();
 app.MapHub<PlantEventsHub>("/hubs/plant-events");
 if (app.Environment.IsDevelopment())

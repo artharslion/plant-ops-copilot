@@ -370,6 +370,31 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("PlantOps.Domain.AI.AiRuntimeSetting", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AiRuntimeSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiRuntimeSettings_Singleton", "\"Id\" = 1 AND \"Provider\" IN ('Fake','OpenAiCompatible') AND \"Version\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("PlantOps.Domain.Alarms.Alarm", b =>
                 {
                     b.Property<Guid>("Id")

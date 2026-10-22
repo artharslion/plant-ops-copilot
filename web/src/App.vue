@@ -43,6 +43,9 @@ async function logout() {
         <RouterLink class="nav-item" to="/assets">资产目录 <span>02</span></RouterLink>
         <RouterLink class="nav-item" to="/alarms">告警台 <span>03</span></RouterLink>
         <RouterLink class="nav-item" to="/documents">知识资料 <span>04</span></RouterLink>
+        <RouterLink v-if="session.user?.roles.includes('Admin')" class="nav-item" to="/settings"
+          >设置 <span>05</span></RouterLink
+        >
         <RouterLink v-if="!session.user" class="nav-item" to="/login"
           >登录 <span>→</span></RouterLink
         >

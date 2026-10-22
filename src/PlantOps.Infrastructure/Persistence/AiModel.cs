@@ -11,6 +11,13 @@ internal static class AiModel
 {
     public static void Configure(ModelBuilder model)
     {
+        var settings = model.Entity<AiRuntimeSetting>();
+        settings.HasKey(x => x.Id);
+        settings.Property(x => x.Provider).HasMaxLength(32);
+        settings.Property(x => x.Version).IsConcurrencyToken();
+        settings.ToTable("AiRuntimeSettings", table => table.HasCheckConstraint("CK_AiRuntimeSettings_Singleton",
+            "\"Id\" = 1 AND \"Provider\" IN ('Fake','OpenAiCompatible') AND \"Version\" > 0"));
+
         var run = model.Entity<AiRun>();
         run.HasKey(x => x.Id);
         run.Property(x => x.ActorUserId).HasMaxLength(450);
