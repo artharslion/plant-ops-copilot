@@ -15,6 +15,88 @@ public sealed class InvestigationEngineTests
     private static InvestigationResult Valid() => new("1", InvestigationEngine.SafeSummary, [new(Fact, ["E1"])], [], [], [], [], ["E1"]);
 
     [Fact]
+    public void NumbersRequireAnEntireCitedFactRatherThanMatchingNumericTokens()
+    {
+        var doc = Evidence with
+        {
+            Id = "E2",
+            Kind = "Document",
+            Facts = ["核对 P-101 的 VIBRATION_RMS，单位 mm/s。"]
+        };
+        var result = Valid() with
+        {
+            NextChecks = [new("按资料核对并记录：" + doc.Facts[0], ["E2"], "记录点位语义。", "已核对适用性。", "不适用时交维护人员复核。")],
+            EvidenceIds = ["E1", "E2"]
+        };
+        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, doc]));
+        foreach (var text in new[] { "将 P-101 调整为 12.6 mm/s。", "核对 P-102。", "核对 P-101。", "将阈值改为：" + doc.Facts[0] })
+        {
+            Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { NextChecks = [new(text, ["E2"])] }), [Evidence, doc]));
+        }
+    }
+
+    [Fact]
+    public void HypothesisNeedsSupportingFactLimitationsAndMoreThanQualityWarnings()
+    {
+        var hypothesis = new InvestigationHypothesis("可能需要进一步排查。", "weak", ["E1"], "核对事件期工况记录。", Fact, "缺少同期工况记录。");
+        var result = Valid() with
+        {
+            Hypotheses = [hypothesis]
+        };
+        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { Hypotheses = [hypothesis with { Limitations = null }] }), [Evidence]));
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence with { Kind = "DataQuality" }]));
+    }
+
+    [Fact]
+    public void CurrentNormalFactCannotReplaceTriggerRecoveryAndEventEvidence()
+    {
+        var alarm = Evidence with
+        {
+            Facts = [Fact, "告警已恢复，恢复时间有记录。"]
+        };
+        var eventTrend = Evidence with
+        {
+            Id = "E2",
+            Kind = "EventTrend",
+            Facts = ["事件分钟最小值为 4 mm/s，最大值为 12.6 mm/s。"]
+        };
+        var current = Evidence with
+        {
+            Id = "E3",
+            Kind = "Trend",
+            Facts = ["当前分钟最小值为 4 mm/s，最大值为 4 mm/s。"]
+        };
+        var result = Valid() with
+        {
+            Observations = [new(current.Facts[0], ["E3"])],
+            EvidenceIds = ["E3"]
+        };
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [alarm, eventTrend, current]));
+        result = result with
+        {
+            Observations = [new(Fact, ["E1"]), new(alarm.Facts[1], ["E1"]), new(eventTrend.Facts[0], ["E2"]), new(current.Facts[0], ["E3"])],
+            EvidenceIds = ["E1", "E2", "E3"]
+        };
+        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [alarm, eventTrend, current]));
+    }
+
+    [Fact]
+    public void ChecksNeedRecordAndCompletionEscalationFieldsAndGroundTheirNumbers()
+    {
+        var check = new InvestigationCheck("核对历史事件。", ["E1"], "记录时间和观测。", "资料齐全后交维护人员复核。", "缺少依据时升级。");
+        var result = Valid() with
+        {
+            NextChecks = [check]
+        };
+        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
+        foreach (var invalid in new[] { check with { Record = null }, check with { Completion = "恢复到 4 mm/s 即完成。" }, check with { Escalation = "调整为 99。" } })
+        {
+            Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { NextChecks = [invalid] }), [Evidence]));
+        }
+    }
+
+    [Fact]
     public void OmittedAggregateIsDerivedFromValidatedItemsAndPersistedInPublicContract()
     {
         var json = JsonNode.Parse(InvestigationContract.Serialize(Valid()))!.AsObject();
@@ -177,6 +259,35 @@ public sealed class InvestigationEngineTests
         Assert.Equal("E2", Assert.Single(tool.RootElement.GetProperty("evidence").EnumerateArray()).GetProperty("id").GetString());
         Assert.DoesNotContain(Fact, second.Messages.Single(x => x.Role == LlmRole.Tool).Content!, StringComparison.Ordinal);
         Assert.Equal(added.Facts[0], Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence, added]).Observations).Text);
+    }
+
+    [Fact]
+    public async Task LargeManualKeepsEventRecoveryCurrentFactsAndWholeDocumentChunksWithinBudget()
+    {
+        var evidence = new List<InvestigationEvidence>
+        {
+            Evidence with { Facts = [Fact, "告警已恢复，恢复时间已记录；不代表根因消除。"] },
+            Evidence with { Id = "E2", Kind = "EventTrend", Facts = ["触发事件窗口。", "事件分钟最大值为 12.6 mm/s。"] },
+            Evidence with { Id = "E3", Kind = "RecoveryTrend", Facts = ["恢复事件窗口。", "恢复分钟最小值为 4 mm/s。"] },
+            Evidence with { Id = "E4", Kind = "Trend", Facts = ["独立调查当前窗口。", "当前已完成分钟最大值为 4 mm/s。"] }
+        };
+        evidence.AddRange(Enumerable.Range(5, 6).Select(i => Evidence with { Id = "E" + i, Kind = "Document", Facts = [new string('资', 900) + "完整片段末尾。"] }));
+        var gateway = new InspectingGateway(new FakeLlmGateway());
+        using var budget = new LlmBudget();
+        await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(evidence,
+            (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
+        var input = gateway.LastRequest!.Messages.Single(x => x.Role == LlmRole.User).Content!;
+        using var json = JsonDocument.Parse(input);
+        var sent = json.RootElement.GetProperty("evidence").EnumerateArray().ToArray();
+        foreach (var item in evidence.Take(4))
+        {
+            var projected = sent.Single(x => x.GetProperty("id").GetString() == item.Id);
+            Assert.Equal(item.Facts, projected.GetProperty("facts").EnumerateArray().Select(x => x.GetString()).ToArray());
+        }
+        var docs = sent.Where(x => x.GetProperty("kind").GetString() == "Document").ToArray();
+        Assert.Contains(docs, x => x.GetProperty("omittedFactCount").GetInt32() > 0);
+        Assert.Contains(docs, x => x.GetProperty("facts").EnumerateArray().Any(f => f.GetString()!.EndsWith("完整片段末尾。", StringComparison.Ordinal)));
+        Assert.InRange(budget.ReservedInputTokens, 1, 16000);
     }
 
     private sealed class InspectingGateway(ILlmGateway inner) : ILlmGateway

@@ -14,8 +14,13 @@ type Statement = { text: string; evidenceIds: string[] }
 type Answer = {
   summary: string
   observations: Statement[]
-  hypotheses: (Statement & { support: string; verification: string })[]
-  nextChecks: Statement[]
+  hypotheses: (Statement & {
+    support: string
+    verification: string
+    basis?: string
+    limitations?: string
+  })[]
+  nextChecks: (Statement & { record?: string; completion?: string; escalation?: string })[]
   missingInformation: string[]
 }
 type Run = {
@@ -265,6 +270,8 @@ onUnmounted(() => {
             class="investigation-statement"
           >
             <p>{{ item.text }}</p>
+            <p v-if="item.basis">支持依据：{{ item.basis }}</p>
+            <p v-if="item.limitations">证据不足：{{ item.limitations }}</p>
             <small
               >证据支持：{{ item.support === 'moderate' ? '中等' : '有限' }}。核实方式：{{
                 item.verification
@@ -290,7 +297,10 @@ onUnmounted(() => {
             :key="index"
             class="investigation-statement"
           >
-            <p>{{ item.text }}</p>
+            <p>{{ index + 1 }}. {{ item.text }}</p>
+            <p v-if="item.record">需记录：{{ item.record }}</p>
+            <p v-if="item.completion">完成条件：{{ item.completion }}</p>
+            <p v-if="item.escalation">升级条件：{{ item.escalation }}</p>
             <el-button
               v-for="id in item.evidenceIds"
               :key="id"

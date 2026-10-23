@@ -8,6 +8,7 @@ using PlantOps.Application.AI;
 using PlantOps.Application.Alarms;
 using PlantOps.Application.Assets;
 using PlantOps.Application.Knowledge;
+using PlantOps.Application.Telemetry;
 using PlantOps.Domain.AI;
 using PlantOps.Infrastructure.Identity;
 using PlantOps.Infrastructure.Persistence;
@@ -266,6 +267,59 @@ public sealed class InvestigationServiceTests
         Assert.NotEqual(oldLease, stored.LeaseId);
         Assert.Equal(0, await checkDb.AiRuns.Where(x => x.Id == run.Id && x.LeaseId == oldLease && x.Status == "Running")
             .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, "Failed")));
+    }
+
+    [DatabaseFact]
+    public Task DelayedRecoveredInvestigationKeepsEventAndCurrentWindowsSeparate() => DelayedEvidence(false);
+
+    [DatabaseFact]
+    public Task CleanedRawEventKeepsAlarmSnapshotAndRetainedAggregates() => DelayedEvidence(true);
+
+    private static async Task DelayedEvidence(bool cleanRaw)
+    {
+        var clock = new AlarmTests.Clock();
+        await using var s = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection());
+        await s.Initialize();
+        await s.Login();
+        var (fixture, alarm) = await Alarm(s, clock);
+        await using var scope = s.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        for (var second = 4; second <= 12; second++)
+        {
+            clock.Now = alarm.StartedAt.AddSeconds(second);
+            await scope.ServiceProvider.GetRequiredService<IMeasurementIngestor>().IngestAsync([
+                SamplePolicy.Normalize(fixture.Config, 4, "Good", clock.Now, null, clock.Now, "recovery-" + second)]);
+        }
+        clock.Now = alarm.StartedAt.AddHours(2);
+        await scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>().AggregateAsync();
+        if (cleanRaw)
+        {
+            var date = DateOnly.FromDateTime(alarm.StartedAt.UtcDateTime);
+            await db.MeasurementReadings.Where(x => x.PointId == fixture.Point.Id && x.EffectiveDate == date
+                && x.EffectiveAt >= alarm.StartedAt.AddMinutes(-1) && x.EffectiveAt < alarm.StartedAt.AddMinutes(1)).ExecuteDeleteAsync();
+        }
+        await s.Login();
+        var manual = "# 排查记录\n\n" + new string('资', 160) + "核查事件窗口与恢复时间，不用当前正常观测替代事件过程。";
+        var uploaded = await DocumentTests.Upload(s, new(fixture.Asset.PlantId, fixture.Asset.Id, "事件排查记录"), content: Encoding.UTF8.GetBytes(manual));
+        await DocumentTests.Publish(s, (await uploaded.Content.ReadFromJsonAsync<DocumentDto>())!, 1);
+        var run = await Create(s, alarm.Id);
+        await Process(s);
+        run = (await Get(s, run.Id))!;
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        Assert.Contains(run.Evidence.Single(x => x.Kind == "Alarm").Facts, x => x.Contains("Recovered") && !x.Contains("恢复时间为 未记录"));
+        var eventTrend = run.Evidence.Single(x => x.Kind == "EventTrend");
+        Assert.Contains(eventTrend.Facts, x => x.Contains("最大值为 12.6"));
+        Assert.DoesNotContain(run.Evidence.Single(x => x.Kind == "Trend").Facts, x => x.Contains("最大值为 12.6"));
+        Assert.Contains(run.Evidence.Where(x => x.Kind == "Document").SelectMany(x => x.Facts), x => x.Contains("不用当前正常观测替代事件过程"));
+        if (cleanRaw)
+        {
+            Assert.DoesNotContain(run.Evidence, x => x.Kind == "TriggerReading");
+            Assert.Contains(run.Evidence.Single(x => x.Kind == "EventReadings").Facts, x => x.Contains("不可查询"));
+        }
+        else
+        {
+            Assert.Contains(run.Evidence.Single(x => x.Kind == "EventReadings").Facts, x => x.Contains(alarm.TriggerReadingId.ToString()));
+        }
     }
 
     private sealed class RecordingGateway : ILlmGateway

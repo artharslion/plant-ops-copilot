@@ -58,3 +58,9 @@ Namespace URI 为 `urn:industrial-sim:runtime`，ApplicationUri 为 `urn:industr
 - 本次未调用模型，AiRuns 总数前后均为 11。旧 Simulation 告警/调查保留原来源，不应作为本次协议接入证据。
 
 初次直接加载旧 YAML 的验证未产生预期的持续场景，已通过显式时间平移修正；首次趋势验收请求因客户端时间转换产生非 UTC 窗口被拒绝，修正为 UTC 后通过，失败记录保留在 `scenario-result-attempt1.json`。这两次检查未创建 LLM 请求。
+
+## 调查资料与工单质量
+
+可发布给调查检索的资料为 [P-101 仿真演示手册](INDUSTRIALSIM_P101_DEMO_MANUAL.md)，通过 `deploy/Publish-IndustrialSimManual.ps1` 使用现有授权上传、发布、检索和引用展开机制接入。它包含点位语义、实际规则、只读排查与记录要求及完成/升级条件；不包含本页的场景注入时间线或预设根因，也不构成现场操作授权。重复发布前核对当前配置与适用版本。
+
+事件/恢复与调查当前窗口、质量定位、输出校验、工单草稿及验证边界见 [调查证据质量说明](AI_INVESTIGATION_QUALITY.md)。旧调查保持历史快照；新版本的结构需要重新调查才能生成。真实模型验收需要单独授权，Fake/记录网关与历史只读核对不能替代真实模型验收。

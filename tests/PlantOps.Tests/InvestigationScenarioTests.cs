@@ -193,7 +193,7 @@ public sealed class InvestigationScenarioTests
             {
                 "Alarm" or "DataQuality" => alarm.Id,
                 "TriggerReading" => alarm.TriggerReadingId,
-                "Trend" => fixture.Point.Id,
+                "Trend" or "EventTrend" or "RecoveryTrend" or "EventReadings" or "RecoveryReadings" => fixture.Point.Id,
                 "Asset" or "AlarmHistory" or "Maintenance" => fixture.Asset.Id,
                 "Document" => document!.Id,
                 _ => throw new InvalidOperationException("Unexpected evidence kind.")
@@ -206,7 +206,7 @@ public sealed class InvestigationScenarioTests
         }
         if (scenario is "S01-normal-minute" or "S04-bad-current" or "S05-stale-current" or "S06-ingestion-gap")
         {
-            var trend = Assert.Single(run.Evidence, x => x.Kind == "Trend");
+            var trend = Assert.Single(run.Evidence, x => x.Kind == "EventTrend");
             Assert.Contains(trend.Facts, x => x.Contains("最小值为 4 mm/s，最大值为 12.6 mm/s", StringComparison.Ordinal));
             Assert.Contains(trend.Facts, x => x.Contains("可信样本数为 5", StringComparison.Ordinal));
             Assert.Contains(run.Evidence, x => x.Kind == "TriggerReading" && x.ResourceId == alarm.TriggerReadingId);
@@ -225,7 +225,7 @@ public sealed class InvestigationScenarioTests
         if (scenario == "S06-ingestion-gap")
         {
             Assert.Contains(run.Warnings, x => x.Contains("缺口", StringComparison.Ordinal));
-            Assert.Contains(run.Evidence.SelectMany(x => x.Facts), x => x.Contains("缺口标记为 有", StringComparison.Ordinal));
+            Assert.Contains(run.Evidence.SelectMany(x => x.Facts), x => x.Contains("类型：缺口标记", StringComparison.Ordinal));
             Assert.True(await db.IngestionGaps.AnyAsync(x => x.PointId == fixture.Point.Id && x.Reason == "ServerOverflow"));
         }
         if (scenario == "S02-missing-manual")
@@ -282,10 +282,10 @@ public sealed class InvestigationScenarioTests
             using var input = JsonDocument.Parse(LastInput);
             var ledger = input.RootElement.GetProperty("evidence").EnumerateArray().ToArray();
             var observations = ledger.SelectMany(e => e.GetProperty("facts").EnumerateArray()
-                .Take(e.GetProperty("kind").GetString() == "Trend" ? 3 : 1)
-                .Select(f => new InvestigationObservation(f.GetString()!, [e.GetProperty("id").GetString()!]))).ToArray();
+                .Take(e.GetProperty("kind").GetString() is "Alarm" or "EventTrend" or "RecoveryTrend" or "Trend" ? 2 : 1)
+                .Select(f => new InvestigationObservation(f.GetString()!, [e.GetProperty("id").GetString()!]))).Take(8).ToArray();
             var result = new InvestigationResult("1", InvestigationEngine.SafeSummary, observations,
-                [new("可能需要现场进一步核实。", "weak", ["E1"], "请维护人员按授权规程检查。")], [], ["缺少现场检查结果。"], [],
+                [new("可能需要现场进一步核实。", "weak", ["E1"], "请维护人员按授权规程检查。", observations[0].Text, "缺少现场检查结果。")], [], ["缺少现场检查结果。"], [],
                 observations.SelectMany(x => x.EvidenceIds).Distinct().ToArray());
             LlmCompletion completion = new(InvestigationContract.Serialize(result), [], "fake-scenario", null);
             completion = scenario switch

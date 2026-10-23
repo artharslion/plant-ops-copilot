@@ -288,6 +288,12 @@ public sealed class ActionProposalTests
         Assert.Equal("Pending", proposal.Status);
         Assert.Contains("待验证假设", proposal.Draft!.Description);
         Assert.Contains("Simulation", proposal.Draft.Description);
+        Assert.Contains("按序检查与记录", proposal.Draft.Description);
+        Assert.Contains("本项完成条件", proposal.Draft.Description);
+        Assert.Contains("本项升级条件", proposal.Draft.Description);
+        Assert.Contains("需记录：记录对象", proposal.Draft.Description);
+        var sourceWarning = run.Warnings.Single(x => x.StartsWith("历史触发观测来源：", StringComparison.Ordinal));
+        Assert.Equal(1, proposal.Draft.Description.Split(sourceWarning, StringSplitOptions.None).Length - 1);
         Assert.Equal(run.AlarmId, proposal.AlarmId);
         Assert.Equal(run.AssetId, proposal.AssetId);
         await using var scope = session.Factory.Services.CreateAsyncScope();

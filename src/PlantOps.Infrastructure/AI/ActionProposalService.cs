@@ -241,38 +241,54 @@ public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationSe
     private static WorkOrderDraft Template(InvestigationRunDto run)
     {
         var result = run.Result!.Value;
-        var text = new StringBuilder($"调查 {run.Id} · {run.CreatedAt:O}\n模型来源：{(run.Simulated ? "模拟模型结果" : run.Model)}\n以下为调查快照与待核查建议，需现场人员核实。\n");
-        void Statements(string field, string label)
+        var asset = run.Evidence.FirstOrDefault(x => x.Kind == "Asset");
+        var alarm = run.Evidence.FirstOrDefault(x => x.Kind == "Alarm");
+        var text = new StringBuilder($"调查 {run.Id} · {run.CreatedAt:O}\n模型来源：{(run.Simulated ? "模拟模型结果" : run.Model)}\n人工审核草稿；检查结果与现场规程由维护人员核实。\n");
+        text.AppendLine("\n对象与事件摘要");
+        foreach (var item in new[] { asset, alarm }.Where(x => x != null))
         {
-            text.AppendLine($"\n{label}");
-            foreach (var item in result.GetProperty(field).EnumerateArray())
+            foreach (var fact in item!.Facts.Take(2))
             {
-                text.AppendLine(item.GetProperty("text").GetString());
-                text.AppendLine("引用：" + string.Join(", ", item.GetProperty("evidenceIds").EnumerateArray().Select(x => x.GetString())));
-                if (field == "hypotheses")
-                {
-                    text.AppendLine($"支持程度：{item.GetProperty("support").GetString()}；核实方式：{item.GetProperty("verification").GetString()}");
-                }
+                text.AppendLine($"[{item.Id}] {fact}");
             }
         }
-        Statements("observations", "观测事实");
-        Statements("hypotheses", "待验证假设（并非确诊原因）");
-        Statements("nextChecks", "建议核查");
-        text.AppendLine("\n缺失信息");
-        foreach (var item in result.GetProperty("missingInformation").EnumerateArray())
+        text.AppendLine("\n按序检查与记录");
+        var index = 0;
+        foreach (var check in result.GetProperty("nextChecks").EnumerateArray())
         {
-            text.AppendLine(item.GetString());
+            text.AppendLine($"{++index}. {check.GetProperty("text").GetString()}");
+            var ids = check.GetProperty("evidenceIds").EnumerateArray().Select(x => x.GetString()).ToHashSet();
+            text.AppendLine("依据：" + string.Join("；", run.Evidence.Where(x => ids.Contains(x.Id)).Select(x => $"[{x.Id}] {x.Title}")));
+            string Field(string key, string fallback) => check.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()! : fallback;
+            text.AppendLine("需记录：" + Field("record", "检查时间、人员、点位/工况、观察值及单位、质量与来源、支持或排除的证据；资料不适用或未取得时明确记录。"));
+            text.AppendLine("本项完成条件：" + Field("completion", "补全检查证据并由维护工程师复核。"));
+            text.AppendLine("本项升级条件：" + Field("escalation", "证据不足、资料不适用或异常复发时交维护工程师复核。"));
         }
-        text.AppendLine("\n服务端质量与来源提示");
-        foreach (var warning in run.Warnings)
+        if (index == 0)
         {
-            text.AppendLine(warning);
+            text.AppendLine("尚无有依据的检查项；由维护人员补充适用资料并审核后再安排。");
         }
-        foreach (var item in run.Evidence.Where(x => x.Kind == "DataQuality"))
+        text.AppendLine("\n完成与升级条件");
+        text.AppendLine("逐项填写证据及结论，区分历史事件、恢复记录和当前观测；核实资料版本及适用范围。告警恢复本身不等于工单完成或根因消除。");
+        text.AppendLine("事件证据不足、再次异常、观测不可信或资料不适用时，记录缺项并交维护工程师复核；不得凭本草稿执行设备控制、修改阈值或改变告警状态。");
+        var missing = result.GetProperty("missingInformation").EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
+        text.AppendLine("\n待补证据：" + string.Join("；", missing));
+        var quality = run.Evidence.Where(x => x.Kind == "DataQuality").SelectMany(x => x.Facts).Concat(run.Warnings).Distinct(StringComparer.Ordinal).ToArray();
+        if (quality.Length > 0)
         {
-            text.AppendLine($"[{item.Id}] " + string.Join("\n", item.Facts));
+            text.AppendLine("\n质量与来源提示（去重）");
+            foreach (var warning in quality.Take(8))
+            {
+                text.AppendLine(warning);
+            }
+            if (quality.Length > 8)
+            {
+                text.AppendLine("其余提示见完整调查证据台账。");
+            }
         }
-        return Normalize(new("核查告警并验证调查建议", text.ToString()));
+        text.AppendLine($"\n完整事实、待验证假设及全部引用：调查 {run.Id}（工作台调查详情，可展开原始证据）。");
+        return Normalize(new("核查告警事件并记录排查证据", text.ToString()));
     }
 
     public Task<ActionProposalDto> CreateAsync(Actor actor, Guid runId, CancellationToken cancellationToken = default) =>

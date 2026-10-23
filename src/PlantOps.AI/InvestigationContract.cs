@@ -8,10 +8,14 @@ namespace PlantOps.AI;
 
 public sealed record InvestigationObservation(string Text, string[] EvidenceIds);
 
-public sealed record InvestigationHypothesis(string Text, string Support, string[] EvidenceIds, string Verification);
+public sealed record InvestigationHypothesis(string Text, string Support, string[] EvidenceIds, string Verification,
+    string? Basis = null, string? Limitations = null);
+
+public sealed record InvestigationCheck(string Text, string[] EvidenceIds, string? Record = null,
+    string? Completion = null, string? Escalation = null);
 
 public sealed record InvestigationResult(string SchemaVersion, string Summary, InvestigationObservation[] Observations,
-    InvestigationHypothesis[] Hypotheses, InvestigationObservation[] NextChecks, string[] MissingInformation,
+    InvestigationHypothesis[] Hypotheses, InvestigationCheck[] NextChecks, string[] MissingInformation,
     string[] DataWarnings, string[] EvidenceIds = null!);
 
 public static class InvestigationContract
@@ -51,9 +55,9 @@ public static class InvestigationContract
             }
             var result = JsonSerializer.Deserialize<InvestigationResult>(content, Json);
             if (result is null || result.SchemaVersion != "1" || !ValidText(result.Summary)
-                || result.Observations is null || result.Observations.Length > 20
-                || result.Hypotheses is null || result.Hypotheses.Length > 10
-                || result.NextChecks is null || result.NextChecks.Length > 20
+                || result.Observations is null || result.Observations.Length > 8
+                || result.Hypotheses is null || result.Hypotheses.Length > 2
+                || result.NextChecks is null || result.NextChecks.Length > 6
                 || result.MissingInformation is null || result.MissingInformation.Length > 20 || result.MissingInformation.Any(x => !ValidText(x))
                 || result.DataWarnings is null || result.DataWarnings.Length != 0
                 || result.EvidenceIds is null && !deriveMissingReferences || result.EvidenceIds?.Length > 40)
@@ -132,17 +136,17 @@ public static class InvestigationContract
               "properties":{
                 "schemaVersion":{"type":"string","enum":["1"]},
                 "summary":{"type":"string","minLength":1,"maxLength":2000},
-                "observations":{"type":"array","maxItems":20,"items":{
+                "observations":{"type":"array","maxItems":8,"items":{
                   "type":"object","additionalProperties":false,"required":["text","evidenceIds"],
                   "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"evidenceIds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}}}
                 }},
-                "hypotheses":{"type":"array","maxItems":10,"items":{
-                  "type":"object","additionalProperties":false,"required":["text","support","evidenceIds","verification"],
-                  "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"support":{"type":"string","enum":["weak","moderate","strong"]},"evidenceIds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}},"verification":{"type":"string","minLength":1,"maxLength":2000}}
+                "hypotheses":{"type":"array","maxItems":2,"items":{
+                  "type":"object","additionalProperties":false,"required":["text","support","evidenceIds","verification","basis","limitations"],
+                  "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"support":{"type":"string","enum":["weak","moderate","strong"]},"evidenceIds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}},"verification":{"type":"string","minLength":1,"maxLength":2000},"basis":{"type":"string","minLength":1,"maxLength":2000},"limitations":{"type":"string","minLength":1,"maxLength":2000}}
                 }},
-                "nextChecks":{"type":"array","maxItems":20,"items":{
-                  "type":"object","additionalProperties":false,"required":["text","evidenceIds"],
-                  "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"evidenceIds":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}}}
+                "nextChecks":{"type":"array","maxItems":6,"items":{
+                  "type":"object","additionalProperties":false,"required":["text","evidenceIds","record","completion","escalation"],
+                  "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"evidenceIds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}},"record":{"type":"string","minLength":1,"maxLength":500},"completion":{"type":"string","minLength":1,"maxLength":500},"escalation":{"type":"string","minLength":1,"maxLength":500}}
                 }},
                 "missingInformation":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":2000}},
                 "dataWarnings":{"type":"array","maxItems":0,"items":{"type":"string"}}

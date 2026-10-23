@@ -267,7 +267,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             string Time(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
             Add("Alarm", "所选告警的历史快照", run.AlarmId,
                 [$"触发值为 {Number(selectedAlarm.TriggerValue)} {point.CanonicalUnit}，触发时间为 {Time(selectedAlarm.StartedAt)}；这是历史告警快照。",
-                 $"调查取数时告警状态为 {selectedAlarm.State}，人工确认状态为 {(selectedAlarm.AcknowledgedAt.HasValue ? "已确认" : "未确认")}；确认不代表恢复。"]);
+                 $"调查取数时告警状态为 {selectedAlarm.State}，恢复时间为 {(selectedAlarm.RecoveredAt.HasValue ? Time(selectedAlarm.RecoveredAt.Value) : "未记录")}，人工确认状态为 {(selectedAlarm.AcknowledgedAt.HasValue ? "已确认" : "未确认")}；确认不代表恢复，恢复不代表根因已消除。",
+                 $"告警规则历史快照：{selectedAlarm.ThresholdSnapshot}；仅解释本事件，不作为现场操作参数。"]);
             if (!selectedAlarm.CurrentObservationTrusted)
             {
                 warnings.Add("当前观测质量、陈旧或采集配置不可验证，不得用历史触发值判断当前状态或恢复。");
@@ -306,27 +307,43 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                         supplied.Add(Add("Asset", "设备资料", run.AssetId, [$"设备编号为 {asset.Code}，设备名称为 {Excerpt(asset.Name, 100)}，类型为 {asset.AssetType}。"]));
                         break;
                     case "get_recent_measurements":
-                        var to = new DateTimeOffset(capturedAt.UtcDateTime.AddTicks(-(capturedAt.UtcTicks % TimeSpan.TicksPerMinute)), TimeSpan.Zero);
-                        var trend = await telemetry.TrendAsync(actor, run.AssetId, point.Id, to.AddHours(-1), to, "1m");
-                        var facts = new List<string> { $"趋势窗口为 {Time(trend.From)} 至 {Time(trend.To)}，单位为 {trend.Unit}；仅含已完成分钟。" };
-                        var valid = trend.Buckets.Where(x => x.Min.HasValue && x.Max.HasValue).ToArray();
-                        if (valid.Length > 0)
+                        foreach (var window in InvestigationWindows.Create(selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
                         {
-                            facts.Add($"窗口内有值分钟的最小值为 {Number(valid.Min(x => x.Min!.Value))} {trend.Unit}，最大值为 {Number(valid.Max(x => x.Max!.Value))} {trend.Unit}；这不代表当前实时值。");
-                            foreach (var bucket in valid.TakeLast(3))
+                            var trend = await telemetry.TrendAsync(actor, run.AssetId, point.Id, window.From, window.To, "1m");
+                            var facts = new List<string> { $"{window.Label}：点位 {point.Code}，窗口 [{Time(trend.From)}, {Time(trend.To)})，单位 {trend.Unit}；仅含已完成分钟，不能由当前窗口替代事件过程。" };
+                            if (window.Kind != "Trend" && window.To <= (window.Kind == "EventTrend" ? selectedAlarm.StartedAt : selectedAlarm.RecoveredAt))
                             {
-                                facts.Add($"已结束分钟 {Time(bucket.Start)} 至 {Time(bucket.Start.AddMinutes(1))} 的最小值为 {Number(bucket.Min!.Value)} {trend.Unit}，最大值为 {Number(bucket.Max!.Value)} {trend.Unit}，可信样本数为 {bucket.GoodCount}，采样模式为 {bucket.SamplingMode}，缺口标记为 {(bucket.HasGap ? "有" : "无")}；仅代表已入库观测。");
+                                facts.Add("事件所在分钟尚未结束，未列入完成分钟聚合；事件过程请核对原始样本，不能把此窗口当作完整事件。");
                             }
+                            var anchorAt = window.Kind == "Trend" ? window.To.AddTicks(-1)
+                                : window.Kind == "EventTrend" ? selectedAlarm.StartedAt : selectedAlarm.RecoveredAt!.Value;
+                            foreach (var bucket in trend.Buckets.Where(x => x.Min.HasValue && x.Max.HasValue)
+                                .OrderBy(x => x.Start <= anchorAt && x.Start.AddMinutes(1) > anchorAt ? 0 : 1).ThenBy(x => x.Start))
+                            {
+                                facts.Add($"{window.Label}：点位 {point.Code}，已结束分钟 {Time(bucket.Start)} 至 {Time(bucket.Start.AddMinutes(1))} 的最小值为 {Number(bucket.Min!.Value)} {trend.Unit}，最大值为 {Number(bucket.Max!.Value)} {trend.Unit}，可信样本数为 {bucket.GoodCount}，采样模式为 {bucket.SamplingMode}；仅代表已入库观测。");
+                            }
+                            foreach (var warning in InvestigationWindows.Quality(trend, window.Label, point.Code, selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
+                            {
+                                warnings.Add(warning);
+                            }
+                            if (!trend.Buckets.Any(x => x.Min.HasValue))
+                            {
+                                facts.Add($"{window.Label}无可用分钟聚合；可能未聚合、已清理或未入库，不能据此断言设备或通信故障。");
+                            }
+                            supplied.Add(Add(window.Kind, window.Label, point.Id, facts.ToArray()));
                         }
-                        else
+                        // A separate bounded raw window preserves the sub-minute event sequence and provenance.
+                        // Retained aggregates and the alarm snapshot still stand if raw partitions have expired.
+                        foreach (var anchor in new[] { (Kind: "EventReadings", At: selectedAlarm.StartedAt), (Kind: "RecoveryReadings", At: selectedAlarm.RecoveredAt ?? selectedAlarm.StartedAt) }.DistinctBy(x => x.At))
                         {
-                            warnings.Add("最近一小时没有可用分钟测量值，不补造趋势。");
+                            var end = anchor.At.AddMinutes(1) < capturedAt ? anchor.At.AddMinutes(1) : capturedAt;
+                            var raw = await telemetry.TrendAsync(actor, run.AssetId, point.Id, anchor.At.AddMinutes(-1), end, "raw");
+                            var selected = raw.Samples.Take(1).Concat(raw.Samples.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
+                                .Concat(raw.Samples.Where(x => x.EffectiveAt >= anchor.At).Take(1)).Concat(raw.Samples.TakeLast(1)).DistinctBy(x => x.Id);
+                            supplied.Add(Add(anchor.Kind, "事件原始观测（有界节选）", point.Id,
+                                selected.Select(x => $"点位 {point.Code}，样本 {x.Id}，有效时间 {Time(x.EffectiveAt)}，值 {(x.Value.HasValue ? Number(x.Value.Value) : "无值")} {point.CanonicalUnit}，质量 {x.Quality}，时间异常 {x.TimeAnomaly}，前置缺口 {x.GapBefore}，来源 {x.DataSourceId}，映射 {x.SourceMappingId}，映射版本 {x.MappingVersion}，协议 {x.SourceKind}；协议源时间不等于物理采样时间。")
+                                    .DefaultIfEmpty("事件原始观测不可查询；使用历史告警快照和可用分钟聚合，不补造事件样本。").ToArray()));
                         }
-                        if (trend.LeadingGap || trend.TrailingGap || trend.Buckets.Any(x => x.HasGap || x.BadCount > 0 || x.UncertainCount > 0 || x.AnomalyCount > 0))
-                        {
-                            warnings.Add("趋势包含缺口、低质量或时间异常，统计不能证明连续正常运行。");
-                        }
-                        supplied.Add(Add("Trend", "最近一小时分钟趋势", point.Id, facts.ToArray()));
                         break;
                     case "get_recent_alarms":
                         var alarmPage = await alarms.ListAsync(actor, run.PlantId, null, run.AssetId, 100, null);
@@ -352,8 +369,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                         var docs = await documents.SearchAsync(actor, run.AssetId, arguments.GetProperty("query").GetString()!, arguments.GetProperty("limit").GetInt32(), token);
                         foreach (var doc in docs.Items)
                         {
-                            supplied.Add(Add("Document", Excerpt(doc.Title, 100), doc.DocumentId,
-                                ["资料摘录：" + Excerpt(doc.Text, 150)], doc.Sha256, doc.VersionId, doc.ChunkId));
+                            supplied.Add(Add("Document", Excerpt(doc.Title, 100) + $" · 版本 {doc.VersionNumber} · {doc.Section} · 行 {doc.StartLine}–{doc.EndLine}", doc.DocumentId,
+                                [doc.Text], doc.Sha256, doc.VersionId, doc.ChunkId));
                         }
                         foreach (var warning in docs.Warnings)
                         {
@@ -362,10 +379,6 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                         if (docs.Items.Count == 0)
                         {
                             warnings.Add("未检索到匹配的当前已发布授权资料，不能据此猜测规程。");
-                        }
-                        if (docs.Items.Any(x => x.Text.Length > 150))
-                        {
-                            warnings.Add("发送给模型的资料为节选，完整片段需展开引用并由人员核对。");
                         }
                         break;
                     default:
@@ -381,8 +394,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 timeout.CancelAfter(TimeSpan.FromSeconds(5));
                 var args = tool == "search_documents" ? JsonSerializer.SerializeToElement(new
                 {
-                    query = Excerpt(selectedAlarm.AssetCode, 64) + " vibration 振动",
-                    limit = 3
+                    query = Excerpt(selectedAlarm.AssetCode, 64) + " " + Excerpt(point.Code, 48) + " " + Excerpt(point.Quantity, 32) + " 排查 记录 完成",
+                    limit = 6
                 }) : JsonSerializer.SerializeToElement(new
                 {
                 });
