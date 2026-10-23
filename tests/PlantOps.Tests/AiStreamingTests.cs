@@ -144,11 +144,92 @@ public sealed class AiStreamingTests
             MaxRetries = 0
         }), logger);
         await Assert.ThrowsAsync<LlmException>(() => gateway.CompleteAsync(new([new(LlmRole.User, "测试")]), budget));
-        var entry = Assert.Single(logger.Entries);
+        var entry = Assert.Single(logger.Entries, x => x.Contains("AI stream invalid:"));
         Assert.Contains("stage=event-json", entry);
         Assert.Contains("events=1", entry);
         Assert.DoesNotContain(privateText, entry);
         Assert.DoesNotContain("private-test-key", entry);
+    }
+
+    [Fact]
+    public async Task ActiveStreamCanOutliveRequestIdleTimeout()
+    {
+        var chunks = Enumerable.Repeat(Chunk(new
+        {
+            content = "ok"
+        }), 6)
+            .Append(Chunk(new
+            {
+            }, "stop") + Usage + Done).ToArray();
+        using var client = new HttpClient(new TimedHandler(chunks));
+        using var budget = new LlmBudget(new(RunTimeoutSeconds: 5));
+        var logger = new CapturedLogger();
+        var result = await TimedGateway(client, logger).CompleteAsync(new([new(LlmRole.User, "test")]), budget);
+        Assert.Equal(string.Concat(Enumerable.Repeat("ok", 6)), result.Content);
+        Assert.Contains(logger.Entries, x => x.Contains("stage=receiving"));
+        Assert.Contains(logger.Entries, x => x.Contains("stage=validated"));
+        Assert.DoesNotContain(logger.Entries, x => x.Contains("private-test-key"));
+        Assert.Equal(1, budget.Attempts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StreamStillStopsForIdleOrIndependentRunDeadline(bool activeUntilDeadline)
+    {
+        var chunks = activeUntilDeadline
+            ? Enumerable.Repeat(Chunk(new
+            {
+                content = "partial"
+            }), 20).ToArray()
+            : new[] { Chunk(new { content = "partial" }) };
+        using var client = new HttpClient(new TimedHandler(chunks));
+        using var budget = new LlmBudget(new(RunTimeoutSeconds: activeUntilDeadline ? 1 : 5));
+        var logger = new CapturedLogger();
+        var error = await Assert.ThrowsAsync<LlmException>(() => TimedGateway(client, logger)
+            .CompleteAsync(new([new(LlmRole.User, "test")]), budget));
+        Assert.Equal(LlmFailure.Timeout, error.Failure);
+        Assert.Equal(activeUntilDeadline, budget.Deadline.IsCancellationRequested);
+        Assert.Contains(logger.Entries, x => x.Contains("AI stream stopped:") && x.Contains("idleMs="));
+        Assert.DoesNotContain(logger.Entries, x => x.Contains("stage=validated") || x.Contains("partial"));
+        Assert.Equal(1, budget.Attempts);
+    }
+
+    private static OpenAiCompatibleGateway TimedGateway(HttpClient client, CapturedLogger logger) => new(client, Options.Create(new AiOptions
+    {
+        Provider = "OpenAiCompatible",
+        ApiKey = "private-test-key",
+        StreamResponses = true,
+        RequestTimeoutSeconds = 1,
+        RunTimeoutSeconds = 5,
+        MaxRetries = 1
+    }), logger);
+
+    private sealed class TimedHandler(string[] chunks) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var content = new StreamContent(new TimedStream(chunks));
+            content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
+    }
+
+    private sealed class TimedStream(string[] chunks) : MemoryStream
+    {
+        private int next;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (next == chunks.Length)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            await Task.Delay(300, cancellationToken);
+            var bytes = Encoding.UTF8.GetBytes(chunks[next++]);
+            bytes.AsMemory().CopyTo(buffer);
+            return bytes.Length;
+        }
     }
 
     private sealed class CapturedLogger : ILogger<OpenAiCompatibleGateway>

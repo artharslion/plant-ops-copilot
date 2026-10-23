@@ -285,6 +285,7 @@ public sealed class InvestigationServiceTests
         var config = s.Factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
         config["AI:MaxInputTokens"] = "32000";
         config["AI:MaxOutputTokens"] = "6000";
+        config["AI:RunTimeoutSeconds"] = "600";
         var (_, alarm) = await Alarm(s, clock);
         var run = await Create(s, alarm.Id);
         await Process(s);
@@ -294,6 +295,9 @@ public sealed class InvestigationServiceTests
         Assert.Equal(5, run.ToolCalls);
         Assert.Equal(6000, run.OutputTokens); // Fake reports no usage, so the full allowance remains reserved.
         Assert.InRange(run.InputTokens, 1, 32000);
+        await using var scope = s.Factory.Services.CreateAsyncScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id);
+        Assert.Equal(stored.StartedAt!.Value.AddSeconds(630), stored.LeaseUntil);
     }
 
     private static async Task DelayedEvidence(bool cleanRaw)

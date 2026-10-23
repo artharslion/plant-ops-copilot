@@ -283,6 +283,22 @@ public sealed class AiGatewayTests
     }
 
     [Theory]
+    [InlineData(600, true)]
+    [InlineData(601, false)]
+    public void ExtendedRunDeadlineRemainsBounded(int seconds, bool valid)
+    {
+        var options = new AiOptions { Provider = "OpenAiCompatible", ApiKey = Secret, RunTimeoutSeconds = seconds };
+        if (valid)
+        {
+            Assert.NotNull(options.ValidateEndpoint());
+        }
+        else
+        {
+            Assert.Equal(LlmFailure.InvalidConfiguration, Assert.Throws<LlmException>(() => options.ValidateEndpoint()).Failure);
+        }
+    }
+
+    [Theory]
     [InlineData("http://public.example/v1")]
     [InlineData("https://user:password@example.com/v1")]
     [InlineData("https://example.com/v1?key=secret")]

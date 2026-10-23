@@ -10,6 +10,9 @@ x-backend-environment: &backend-environment
   AI__ApiKey: ${AI_API_KEY:-}
   AI__MaxInputTokens: ${AI_MAX_INPUT_TOKENS:-32000}
   AI__MaxOutputTokens: ${AI_MAX_OUTPUT_TOKENS:-6000}
+  AI__StreamResponses: ${AI_STREAM_RESPONSES:-true}
+  AI__RequestTimeoutSeconds: ${AI_REQUEST_TIMEOUT_SECONDS:-120}
+  AI__RunTimeoutSeconds: ${AI_RUN_TIMEOUT_SECONDS:-600}
 
 services:
   database:

@@ -14,7 +14,7 @@ public sealed class LlmBudget : IDisposable
     public LlmBudget(LlmLimits? limits = null, TimeProvider? clock = null)
     {
         this.limits = limits ?? new();
-        if (this.limits.RunTimeoutSeconds is < 1 or > 180 || this.limits.MaxModelRounds is < 1 or > 4
+        if (this.limits.RunTimeoutSeconds is < 1 or > 600 || this.limits.MaxModelRounds is < 1 or > 4
             || this.limits.MaxToolCalls is < 1 or > 8 || this.limits.MaxInputTokens is < 1 or > 32000
             || this.limits.MaxOutputTokens is < 1 or > 6000)
         {

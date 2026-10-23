@@ -193,7 +193,9 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             run.Status = "Running";
             run.StartedAt = now;
             run.LeaseId = Guid.NewGuid();
-            run.LeaseUntil = now.AddSeconds(210); // Longer than the maximum bounded investigation.
+            // A longer configured run must not be reclaimed by another Worker
+            // while its original model request is still active.
+            run.LeaseUntil = now.AddSeconds(Math.Clamp(configuration.GetValue("AI:RunTimeoutSeconds", 180), 1, 600) + 30);
             run.Attempts++;
             run.ResultJson = null;
             run.EvidenceJson = "[]";

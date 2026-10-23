@@ -16,6 +16,8 @@ public sealed class AiOptions
 
     public string? ReasoningEffort { get; set; } = "low";
 
+    // Header/non-stream request timeout; for SSE, renewed on received bytes.
+    // The independent run deadline always bounds the full request and all rounds.
     public int RequestTimeoutSeconds { get; set; } = 120;
 
     public int RunTimeoutSeconds { get; set; } = 180;
@@ -47,6 +49,7 @@ public sealed class AiOptions
             || uri.AbsolutePath.TrimEnd('/').EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(Model) || Model.Length > 200 || Model.Any(char.IsControl)
             || (!string.IsNullOrEmpty(ReasoningEffort) && ReasoningEffort is not ("none" or "minimal" or "low" or "medium" or "high" or "xhigh" or "max"))
+            || RunTimeoutSeconds is < 1 or > 600
             || RequestTimeoutSeconds is < 1 or > 180 || RequestTimeoutSeconds > RunTimeoutSeconds || MaxRetries is < 0 or > 1
             || MaxResponseBytes is < 1024 or > 262144)
         {

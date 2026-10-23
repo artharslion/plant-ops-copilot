@@ -45,7 +45,7 @@ public sealed class AiBudgetTests
     }
 
     [Theory]
-    [InlineData(181, 4, 8, 16000, 2000)]
+    [InlineData(601, 4, 8, 16000, 2000)]
     [InlineData(60, 5, 8, 16000, 2000)]
     [InlineData(60, 4, 9, 16000, 2000)]
     [InlineData(60, 4, 8, 32001, 6000)]
@@ -59,7 +59,7 @@ public sealed class AiBudgetTests
     [Fact]
     public void ExpandedWorkbenchBudgetStillAccountsForAllRoundsAndReportedUsage()
     {
-        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        using var budget = new LlmBudget(new(RunTimeoutSeconds: 600, MaxInputTokens: 32000, MaxOutputTokens: 6000));
         budget.BeginRound();
         budget.ReserveAttempt(16000, 6000);
         budget.ReconcileUsage(new(7977, 1775), 16000, 6000);

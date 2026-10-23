@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
 
@@ -20,7 +21,7 @@ internal sealed class SseCompletionReader
     private int maximumPayloadBytes;
 
     public static async Task<LlmCompletion> ReadAsync(HttpContent http, int maximumBytes, LlmRequest request, CancellationToken ct,
-        ILogger? logger = null)
+        ILogger? logger = null, Action? onActivity = null)
     {
         var reader = new SseCompletionReader { maximumPayloadBytes = maximumBytes };
         // SSE repeats metadata for every token. Bound that framing separately from the assembled response.
@@ -30,6 +31,9 @@ internal sealed class SseCompletionReader
         var data = new StringBuilder();
         var buffer = new byte[4096];
         var total = 0;
+        var elapsed = Stopwatch.StartNew();
+        long lastActivityMs = 0;
+        long lastLogMs = 0;
         try
         {
             reader.phase = "content-type";
@@ -57,6 +61,16 @@ internal sealed class SseCompletionReader
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
                 total += read;
+                // Transport liveness is separate from a completed, validated answer.
+                // Even comment/heartbeat bytes renew the idle timer, never the run deadline.
+                onActivity?.Invoke();
+                lastActivityMs = elapsed.ElapsedMilliseconds;
+                if (total == read || lastActivityMs - lastLogMs >= 15000)
+                {
+                    logger?.LogInformation("AI stream activity: stage=receiving; elapsedMs={ElapsedMs}; bytes={Bytes}; events={Events}; payloadBytes={PayloadBytes}",
+                        lastActivityMs, total, reader.events, reader.payloadBytes);
+                    lastLogMs = lastActivityMs;
+                }
                 for (var i = 0; i < read && !reader.done; i++)
                 {
                     if (buffer[i] != (byte)'\n')
@@ -119,7 +133,16 @@ internal sealed class SseCompletionReader
                 throw new LlmException(LlmFailure.InvalidResponse);
             }
             reader.phase = "completion-validation";
-            return ChatCompletionsProtocol.Parse(bytes, request);
+            var completion = ChatCompletionsProtocol.Parse(bytes, request);
+            logger?.LogInformation("AI stream activity: stage=validated; elapsedMs={ElapsedMs}; bytes={Bytes}; events={Events}; payloadBytes={PayloadBytes}; usage={HasUsage}",
+                elapsed.ElapsedMilliseconds, total, reader.events, reader.payloadBytes, reader.usage.HasValue);
+            return completion;
+        }
+        catch (OperationCanceledException)
+        {
+            logger?.LogWarning("AI stream stopped: stage={Stage}; elapsedMs={ElapsedMs}; idleMs={IdleMs}; bytes={Bytes}; events={Events}; payloadBytes={PayloadBytes}",
+                reader.phase, elapsed.ElapsedMilliseconds, elapsed.ElapsedMilliseconds - lastActivityMs, total, reader.events, reader.payloadBytes);
+            throw;
         }
         catch (LlmException exception)
         {

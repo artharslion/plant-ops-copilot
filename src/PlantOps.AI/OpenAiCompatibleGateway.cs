@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
@@ -34,6 +35,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
             timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
             var receivedHeaders = false;
+            var elapsed = Stopwatch.StartNew();
             try
             {
                 using var outgoing = new HttpRequestMessage(HttpMethod.Post, endpoint);
@@ -48,8 +50,15 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                         (int)response.StatusCode, attempt + 1, response.Headers.Contains("cf-ray"), response.Headers.Contains("Via"));
                     throw new LlmException(Classify(response.StatusCode));
                 }
+                logger?.LogInformation("AI transport: stage=response-headers; stream={Stream}; elapsedMs={ElapsedMs}; attempt={Attempt}",
+                    options.StreamResponses, elapsed.ElapsedMilliseconds, attempt + 1);
+                if (options.StreamResponses)
+                {
+                    timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
+                }
                 var result = options.StreamResponses
-                    ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token, logger)
+                    ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token, logger,
+                        () => timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds)))
                     : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
                 cancellationToken.ThrowIfCancellationRequested();
                 budget.CheckDeadline();
@@ -68,8 +77,8 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (OperationCanceledException)
             {
-                logger?.LogWarning("AI transport ended: stage=cancel-or-timeout; headers={Headers}; cancelled={Cancelled}; attempt={Attempt}",
-                    receivedHeaders, cancellationToken.IsCancellationRequested, attempt + 1);
+                logger?.LogWarning("AI transport ended: stage=cancel-or-timeout; headers={Headers}; cancelled={Cancelled}; runDeadline={RunDeadline}; elapsedMs={ElapsedMs}; attempt={Attempt}",
+                    receivedHeaders, cancellationToken.IsCancellationRequested, budget.Deadline.IsCancellationRequested, elapsed.ElapsedMilliseconds, attempt + 1);
                 if (cancellationToken.IsCancellationRequested)
                 {
                     throw new OperationCanceledException(cancellationToken);
