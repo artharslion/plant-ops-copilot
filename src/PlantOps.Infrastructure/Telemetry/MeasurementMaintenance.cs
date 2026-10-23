@@ -63,8 +63,12 @@ public sealed class MeasurementMaintenance(PlantOpsDbContext db, TimeProvider cl
                 (r."Quality" = 'Good' AND r."NumericValue" IS NOT NULL AND NOT r."TimeAnomaly"
                   AND (coalesce(r."RawStatusCode",0) & 3200) <> 1152) AS trusted
               FROM "DirtyMeasurementMinutes" d JOIN "MeasurementPoints" p ON p."Id" = d."PointId"
-              JOIN "MeasurementReadings" r ON r."PointId" = d."PointId" AND r."EffectiveDate" = (d."BucketStart" AT TIME ZONE 'UTC')::date
-                AND r."EffectiveAt" >= d."BucketStart" AND r."EffectiveAt" < d."BucketStart" + interval '1 minute'
+              CROSS JOIN LATERAL (
+                SELECT r.* FROM "MeasurementReadings" r
+                WHERE r."PointId" = d."PointId" AND r."EffectiveDate" = (d."BucketStart" AT TIME ZONE 'UTC')::date
+                  AND r."EffectiveAt" >= d."BucketStart" AND r."EffectiveAt" < d."BucketStart" + interval '1 minute'
+                OFFSET 0
+              ) r
               WHERE d."BucketStart" < {end}
             ), stats AS (
               SELECT "PointId", "BucketStart", min("NumericValue") FILTER (WHERE trusted) AS minimum,
@@ -86,16 +90,20 @@ public sealed class MeasurementMaintenance(PlantOpsDbContext db, TimeProvider cl
             """, cancellationToken);
         // OPC UA coverage must use recorded server revisions, never current point requests.
         // Unknown or change-driven intervals cannot establish a physical sample count.
-        var protocolMinutes = await (from dirty in db.DirtyMeasurementMinutes
-                                     join reading in db.MeasurementReadings on dirty.PointId equals reading.PointId
-                                     where dirty.BucketStart < end && reading.SourceKind == "OpcUa"
-                                         && reading.EffectiveDate == DateOnly.FromDateTime(dirty.BucketStart.UtcDateTime)
-                                         && reading.EffectiveAt >= dirty.BucketStart && reading.EffectiveAt < dirty.BucketStart.AddMinutes(1)
-                                     select new
-                                     {
-                                         dirty.PointId,
-                                         dirty.BucketStart
-                                     }).Distinct().ToListAsync(cancellationToken);
+        // Keep both raw lookups parameterized by one dirty point/minute. OFFSET 0
+        // prevents PostgreSQL flattening the lateral lookup into a history-wide
+        // hash join while the shared ingestion/maintenance lock is held.
+        var protocolMinutes = await db.DirtyMeasurementMinutes.FromSqlInterpolated($"""
+            SELECT d.* FROM "DirtyMeasurementMinutes" d
+            CROSS JOIN LATERAL (
+              SELECT 1 FROM "MeasurementReadings" r
+              WHERE r."PointId" = d."PointId" AND r."EffectiveDate" = (d."BucketStart" AT TIME ZONE 'UTC')::date
+                AND r."EffectiveAt" >= d."BucketStart" AND r."EffectiveAt" < d."BucketStart" + interval '1 minute'
+                AND r."SourceKind" = 'OpcUa'
+              LIMIT 1 OFFSET 0
+            ) r
+            WHERE d."BucketStart" < {end}
+            """).AsNoTracking().ToListAsync(cancellationToken);
         foreach (var protocolMinute in protocolMinutes)
         {
             var minute = await db.MeasurementMinutes.SingleAsync(x => x.PointId == protocolMinute.PointId
