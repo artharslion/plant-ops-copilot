@@ -204,7 +204,7 @@ public sealed class InvestigationEngineTests
     public async Task ToolRoundTripUsesFixedAllowlistAndReauthorizes()
     {
         var gateway = new FakeLlmGateway([
-            new(null, [new("call1", "search_documents", """{"query":"vibration","limit":1}""")], "fake", null),
+            new(null, [new("call1", "search_documents", """{"query":"vibration","limit":1}""")], "fake", new(100, 20)),
             new(InvestigationContract.Serialize(Valid()), [], "fake", null)
         ]);
         using var budget = new LlmBudget();
@@ -244,7 +244,7 @@ public sealed class InvestigationEngineTests
             EvidenceIds = ["E2"]
         };
         var gateway = new InspectingGateway(new FakeLlmGateway([
-            new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", null),
+            new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", new(100, 20)),
             new(InvestigationContract.Serialize(valid), [], "fake", null)
         ]));
         using var budget = new LlmBudget();
@@ -252,6 +252,7 @@ public sealed class InvestigationEngineTests
             (_, _, _) => Task.FromResult(new InvestigationToolResult([Evidence, added], ["新的范围提示。"])),
             _ => Task.CompletedTask, budget, CancellationToken.None);
         var second = Assert.IsType<LlmRequest>(gateway.LastRequest);
+        Assert.Equal(1980, second.MaxOutputTokens);
         var initial = second.Messages.Single(x => x.Role == LlmRole.User).Content!;
         Assert.Contains("触发值", initial, StringComparison.Ordinal);
         using var tool = JsonDocument.Parse(second.Messages.Single(x => x.Role == LlmRole.Tool).Content!);
@@ -290,8 +291,29 @@ public sealed class InvestigationEngineTests
         Assert.InRange(budget.ReservedInputTokens, 1, 16000);
     }
 
+    [Fact]
+    public async Task UnknownUsageExhaustsReservedAllowanceWithoutSendingAnotherModelRequest()
+    {
+        var gateway = new InspectingGateway(new FakeLlmGateway([
+            new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", null)
+        ]));
+        using var budget = new LlmBudget();
+        var exception = await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions()))
+            .ExecuteAsync([Evidence], (_, _, _) => Task.FromResult(new InvestigationToolResult([], [])),
+                _ => Task.CompletedTask, budget, CancellationToken.None));
+        Assert.Equal(LlmFailure.BudgetExceeded, exception.Failure);
+        Assert.Equal(1, gateway.Calls);
+        Assert.Equal(1, budget.ModelRounds);
+        Assert.Equal(2000, budget.ReservedOutputTokens);
+    }
+
     private sealed class InspectingGateway(ILlmGateway inner) : ILlmGateway
     {
+        public int Calls
+        {
+            get; private set;
+        }
+
         public LlmRequest? LastRequest
         {
             get; private set;
@@ -299,6 +321,7 @@ public sealed class InvestigationEngineTests
 
         public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
         {
+            Calls++;
             LastRequest = request;
             return inner.CompleteAsync(request, budget, cancellationToken);
         }

@@ -15,8 +15,8 @@ public sealed class LlmBudget : IDisposable
     {
         this.limits = limits ?? new();
         if (this.limits.RunTimeoutSeconds is < 1 or > 180 || this.limits.MaxModelRounds is < 1 or > 4
-            || this.limits.MaxToolCalls is < 1 or > 8 || this.limits.MaxInputTokens is < 1 or > 16000
-            || this.limits.MaxOutputTokens is < 1 or > 2000)
+            || this.limits.MaxToolCalls is < 1 or > 8 || this.limits.MaxInputTokens is < 1 or > 32000
+            || this.limits.MaxOutputTokens is < 1 or > 6000)
         {
             throw new LlmException(LlmFailure.InvalidConfiguration);
         }

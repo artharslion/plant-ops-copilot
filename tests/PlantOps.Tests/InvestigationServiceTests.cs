@@ -275,6 +275,27 @@ public sealed class InvestigationServiceTests
     [DatabaseFact]
     public Task CleanedRawEventKeepsAlarmSnapshotAndRetainedAggregates() => DelayedEvidence(true);
 
+    [DatabaseFact]
+    public async Task ExpandedConfiguredBudgetReachesGatewayAndKeepsTheRunBounded()
+    {
+        var clock = new AlarmTests.Clock();
+        await using var s = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection());
+        await s.Initialize();
+        await s.Login();
+        var config = s.Factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+        config["AI:MaxInputTokens"] = "32000";
+        config["AI:MaxOutputTokens"] = "6000";
+        var (_, alarm) = await Alarm(s, clock);
+        var run = await Create(s, alarm.Id);
+        await Process(s);
+        run = (await Get(s, run.Id))!;
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        Assert.Equal(1, run.ModelRounds);
+        Assert.Equal(5, run.ToolCalls);
+        Assert.Equal(6000, run.OutputTokens); // Fake reports no usage, so the full allowance remains reserved.
+        Assert.InRange(run.InputTokens, 1, 32000);
+    }
+
     private static async Task DelayedEvidence(bool cleanRaw)
     {
         var clock = new AlarmTests.Clock();

@@ -48,12 +48,28 @@ public sealed class AiBudgetTests
     [InlineData(181, 4, 8, 16000, 2000)]
     [InlineData(60, 5, 8, 16000, 2000)]
     [InlineData(60, 4, 9, 16000, 2000)]
-    [InlineData(60, 4, 8, 16001, 2000)]
-    [InlineData(60, 4, 8, 16000, 2001)]
+    [InlineData(60, 4, 8, 32001, 6000)]
+    [InlineData(60, 4, 8, 32000, 6001)]
     public void RejectsLimitsBeyondDemoCeilings(int seconds, int rounds, int tools, int input, int output)
     {
         Assert.Equal(LlmFailure.InvalidConfiguration,
             Assert.Throws<LlmException>(() => new LlmBudget(new(seconds, rounds, tools, input, output))).Failure);
+    }
+
+    [Fact]
+    public void ExpandedWorkbenchBudgetStillAccountsForAllRoundsAndReportedUsage()
+    {
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        budget.BeginRound();
+        budget.ReserveAttempt(16000, 6000);
+        budget.ReconcileUsage(new(7977, 1775), 16000, 6000);
+        Assert.Equal(4225, budget.RemainingOutputTokens);
+        budget.BeginRound();
+        budget.ReserveAttempt(16000, 4225);
+        budget.ReconcileUsage(new(16000, 4225), 16000, 4225);
+        Assert.Equal(23977, budget.ReservedInputTokens);
+        Assert.Equal(6000, budget.ReservedOutputTokens);
+        Assert.Equal(LlmFailure.BudgetExceeded, Assert.Throws<LlmException>(() => budget.ReserveAttempt(1, 1)).Failure);
     }
 
     [Fact]

@@ -36,6 +36,10 @@ type Run = {
   result: Answer | null
   evidence: Evidence[]
   warnings: string[]
+  modelRounds?: number
+  toolCalls?: number
+  inputTokens?: number
+  outputTokens?: number
 }
 const runs = ref<Run[]>([]),
   selectedId = ref(''),
@@ -66,6 +70,7 @@ const failures: Record<string, string> = {
   Unavailable: '模型服务暂时不可用，请稍后重试。',
   Timeout: '调查超时，未生成可靠结果。',
   BudgetExceeded: '本次调查已达到调用或内容上限，请查阅已有证据。',
+  Truncated: '模型响应达到输出上限且内容不完整，未展示结论，请查阅已有证据。',
   InvalidResponse: '模型输出未通过事实或引用校验，未展示该答案。',
   InvalidRequest: '模型提出了不允许的工具调用，调查已停止。',
   AuthorizationChanged: '调查期间读取权限或资料已变化，请重新核查。',
@@ -236,6 +241,11 @@ onUnmounted(() => {
         role="alert"
       >
         {{ failures[selected.failureCode] ?? '调查未完成，请核查已有证据后重试。' }}
+      </p>
+      <p v-if="selected.status === 'Failed' && selected.modelRounds != null" class="path-note">
+        调用记录：模型 {{ selected.modelRounds }} 轮，读取 {{ selected.toolCalls }} 次； 输入
+        {{ selected.inputTokens }}、输出
+        {{ selected.outputTokens }} tokens（未报告用量时为预留值）。
       </p>
       <ul v-if="selected.warnings.length" class="investigation-warnings">
         <li v-for="warning in selected.warnings" :key="warning">{{ warning }}</li>

@@ -52,9 +52,11 @@ public sealed class AiGatewayTests
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             if (++calls == 1)
             {
+                Assert.Equal(2000, body.RootElement.GetProperty("max_completion_tokens").GetInt32());
                 return Response("""{"model":"gpt-6.1-sol","choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"trend","type":"function","function":{"name":"get_recent_measurements","arguments":"{}"}}]}}],"usage":{"prompt_tokens":8036,"completion_tokens":15}}""");
             }
             Assert.Equal(2, calls);
+            Assert.Equal(1985, body.RootElement.GetProperty("max_completion_tokens").GetInt32());
             var reply = body.RootElement.GetProperty("messages").EnumerateArray().Single(x => x.GetProperty("role").GetString() == "tool");
             using var content = JsonDocument.Parse(reply.GetProperty("content").GetString()!);
             Assert.Empty(content.RootElement.GetProperty("evidence").EnumerateArray());
@@ -82,6 +84,55 @@ public sealed class AiGatewayTests
         Assert.Equal(6, budget.ToolCalls);
         Assert.False(result.Simulated);
         Assert.Equal(fact, Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, evidence).Observations).Text);
+    }
+
+    [Theory]
+    [InlineData(2000, 1775, true)]
+    [InlineData(2000, 2000, true)]
+    [InlineData(2000, 2001, false)]
+    [InlineData(900, 900, true)]
+    [InlineData(900, 901, false)]
+    [InlineData(6000, 1775, true)]
+    [InlineData(6000, 4500, true)]
+    [InlineData(6000, 6000, true)]
+    [InlineData(6000, 6001, false)]
+    public async Task InvestigationUsesRemainingRunAllowanceAndStillRejectsReportedExcess(int limit, int reported, bool accepted)
+    {
+        const string fact = "历史告警触发值为 12.6 mm/s。";
+        var evidence = new InvestigationEvidence("E1", "Alarm", "历史快照", [fact], new string('a', 64), DateTimeOffset.UtcNow, Guid.NewGuid());
+        var answer = InvestigationContract.Serialize(new("1", InvestigationEngine.SafeSummary, [new(fact, ["E1"])], [], [], [], [], ["E1"]));
+        using var handler = new Handler(async (request, ct) =>
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            Assert.Equal(limit, body.RootElement.GetProperty("max_completion_tokens").GetInt32());
+            return Response(JsonSerializer.Serialize(new
+            {
+                model = "gpt-6.1-sol",
+                choices = new[] { new { finish_reason = "stop", message = new { role = "assistant", content = answer } } },
+                usage = new
+                {
+                    prompt_tokens = 7977,
+                    completion_tokens = reported
+                }
+            }));
+        });
+        using var client = new HttpClient(handler);
+        using var budget = new LlmBudget(new(MaxOutputTokens: limit));
+        var engine = new InvestigationEngine(Gateway(client), Options.Create(new AiOptions { Provider = "OpenAiCompatible" }));
+        Task<InvestigationExecutionResult> Execute() => engine.ExecuteAsync([evidence], (_, _, _) => throw new InvalidOperationException(),
+            _ => Task.CompletedTask, budget, CancellationToken.None);
+        if (accepted)
+        {
+            Assert.NotNull((await Execute()).ResultJson);
+        }
+        else
+        {
+            Assert.Equal(LlmFailure.BudgetExceeded, (await Assert.ThrowsAsync<LlmException>(Execute)).Failure);
+        }
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(1, budget.ModelRounds);
+        Assert.Equal(7977, budget.ReservedInputTokens);
+        Assert.Equal(reported, budget.ReservedOutputTokens);
     }
 
     [Fact]

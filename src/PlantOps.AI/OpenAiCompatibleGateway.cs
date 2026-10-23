@@ -21,7 +21,16 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
         for (var attempt = 0; ; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            budget.ReserveAttempt(inputReservation, request.MaxOutputTokens);
+            try
+            {
+                budget.ReserveAttempt(inputReservation, request.MaxOutputTokens);
+            }
+            catch (LlmException exception) when (exception.Failure == LlmFailure.BudgetExceeded)
+            {
+                logger?.LogWarning("AI budget rejected: stage=attempt-reservation; inputReservation={InputReservation}; outputAllowance={OutputAllowance}; reservedInput={ReservedInput}; reservedOutput={ReservedOutput}; rounds={Rounds}; tools={Tools}",
+                    inputReservation, request.MaxOutputTokens, budget.ReservedInputTokens, budget.ReservedOutputTokens, budget.ModelRounds, budget.ToolCalls);
+                throw;
+            }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
             timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
             var receivedHeaders = false;
@@ -44,7 +53,16 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                     : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
                 cancellationToken.ThrowIfCancellationRequested();
                 budget.CheckDeadline();
-                budget.ReconcileUsage(result.Usage, inputReservation, request.MaxOutputTokens);
+                try
+                {
+                    budget.ReconcileUsage(result.Usage, inputReservation, request.MaxOutputTokens);
+                }
+                catch (LlmException exception) when (exception.Failure == LlmFailure.BudgetExceeded)
+                {
+                    logger?.LogWarning("AI budget rejected: stage=usage-reconciliation; outputAllowance={OutputAllowance}; reportedInput={ReportedInput}; reportedOutput={ReportedOutput}; rounds={Rounds}; tools={Tools}",
+                        request.MaxOutputTokens, result.Usage?.InputTokens, result.Usage?.OutputTokens, budget.ModelRounds, budget.ToolCalls);
+                    throw;
+                }
                 budget.RecordToolCalls(result.ToolCalls.Count);
                 return result;
             }

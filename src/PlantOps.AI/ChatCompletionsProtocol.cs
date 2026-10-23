@@ -16,7 +16,7 @@ internal static partial class ChatCompletionsProtocol
     public static byte[] Serialize(LlmRequest request, string model, string? reasoningEffort = null, bool stream = false)
     {
         var tools = request.Tools ?? [];
-        if (request.Messages.Count is < 1 or > 32 || request.MaxOutputTokens is < 1 or > 2000
+        if (request.Messages.Count is < 1 or > 32 || request.MaxOutputTokens is < 1 or > 6000
             || tools.Count > 5 || tools.Any(x => !Identifier().IsMatch(x.Name) || x.Parameters.ValueKind != JsonValueKind.Object)
             || tools.Select(x => x.Name).Distinct(StringComparer.Ordinal).Count() != tools.Count
             || (request.RequiredTool is not null && (request.DisableToolCalls || !tools.Any(x => x.Name == request.RequiredTool)))
