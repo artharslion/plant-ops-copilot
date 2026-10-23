@@ -1,0 +1,58 @@
+# Run together with the repository-root compose.yaml; paths resolve from that file.
+# The simulator shares ONLY the Worker's network namespace, preserving the
+# existing Development loopback-only OPC UA policy and exact server identity.
+x-opcua-environment: &opcua-environment
+  OpcUa__LocalRuntimeEnabled: "true"
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Url: opc.tcp://127.0.0.1:48481
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__ApplicationUri: urn:industrial-sim:server
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__NamespaceUri: urn:industrial-sim:runtime
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__0: String:plantops-p101/vibration
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__1: String:plantops-p101/temperature
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__2: String:plantops-p101/referenceTemperature
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__CertificateRoot: /tmp/plantops-opcua
+
+services:
+  api:
+    environment:
+      <<: *opcua-environment
+  worker:
+    environment:
+      <<: *opcua-environment
+    ports:
+      - "127.0.0.1:8081:8081"
+  industrial-sim:
+    image: industrial-sim:plantops-workbench
+    build:
+      context: ${INDUSTRIALSIM_ROOT:-../industrial-device-simulation-framework}
+      dockerfile: Dockerfile
+    network_mode: service:worker
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8081
+      INDUSTRIALSIM_DEVICE_CONFIG: /app/config/device.yaml
+      ConnectionStrings__IndustrialSim: Data Source=/app/data/industrial-sim.db
+      Auth__Mode: Disabled
+    volumes:
+      - ${INDUSTRIALSIM_ROOT:-../industrial-device-simulation-framework}/examples/devices/plantops-three-point.yaml:/app/config/device.yaml:ro
+      - ${INDUSTRIALSIM_ROOT:-../industrial-device-simulation-framework}/examples/scenarios:/app/config/scenarios:ro
+      - industrial-sim-data:/app/data
+    depends_on:
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/8081
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          IFS= read -r status <&3
+          [[ "$$status" == *" 200 "* ]]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  industrial-sim-data:

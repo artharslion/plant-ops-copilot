@@ -71,6 +71,8 @@ Nginx 保留请求 Host，处理 SignalR 的 Upgrade 头与长连接；上传限
 
 ## 可选真实 AI
 
+可选的常驻 IndustrialSim OPC UA 来源使用额外 Compose YAML，启动与场景说明见 [IndustrialSim 工作台接入](INDUSTRIALSIM_WORKBENCH.md)。启用后后续启动/更新需保留该 Compose 文件。
+
 当前版本可由Admin在侧栏“设置”中切换新调查模式，见 [设置与部署验证](AI_SETTINGS_VALIDATION.md)。先向API/Worker注入下面的服务端连接信息；可以保留 `AI_PROVIDER=Fake`，然后从页面手动启用真实LLM。已有设置记录时页面选择优先于环境变量的缺省Provider，改变配置后仍须重建容器以加载新的密钥/模型；单纯切换模式不需要重启。
 
 隔离的一次性Docker + IndustrialSim + 真实模型测试可使用 `deploy/Test-DockerIndustrialSimLlm.ps1`，需要先构建专用镜像并显式调用，会产生真实模型请求；它不会切换此处工作台的配置。[2026-10-22 实测](DOCKER_REAL_LLM_VALIDATION.md)：协议采集通过，唯一真实请求HTTP502失败，未重试。
