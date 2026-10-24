@@ -20,6 +20,8 @@ IndustrialSim 与 Worker 共享网络空间，OPC UA 仅绑定该空间的 `127.
 
 后续启动、更新和重建必须继续带上这两个 Compose 文件。Worker 被重建时，应同时重建/重启 `industrial-sim`，以更新共享的网络空间；不要只单独重建 Worker。
 
+该工作台覆盖配置为 API/Worker 的外部域名解析指定 DNS `1.1.1.1`，可通过 `WORKBENCH_DNS_SERVER` 换为环境允许的解析服务器；Docker 内部服务名仍由内置 DNS 处理。2026-10-24 排查中，宿主机默认 DNS 与继承它的容器解析超时，公共 DNS 的独立查询通过；因此需要该容器级配置。它不修改 Windows 网络设置；企业网络应设置其批准的 DNS。DNS 故障发生在收到模型响应之前，开启流式也不能解决域名解析失败。
+
 ## 点位与场景
 
 | 工作台点位 | IndustrialSim String 节点 | 单位 |

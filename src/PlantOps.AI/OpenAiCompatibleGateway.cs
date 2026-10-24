@@ -19,6 +19,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
         // UTF-8 bytes plus framing estimates visible input. Reported relay overhead is reconciled below.
         var inputReservation = checked(body.Length + 256);
         budget.BeginRound();
+        LlmFailure? retryFailure = null;
         for (var attempt = 0; ; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -28,6 +29,14 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (LlmException exception) when (exception.Failure == LlmFailure.BudgetExceeded)
             {
+                if (retryFailure.HasValue)
+                {
+                    // Unknown usage keeps its reservation. If that leaves no room
+                    // for a retry, preserve the original service/transport failure.
+                    logger?.LogWarning("AI retry suppressed: stage=attempt-reservation; failure={Failure}; attempt={Attempt}",
+                        retryFailure.Value, attempt + 1);
+                    throw new LlmException(retryFailure.Value);
+                }
                 logger?.LogWarning("AI budget rejected: stage=attempt-reservation; inputReservation={InputReservation}; outputAllowance={OutputAllowance}; reservedInput={ReservedInput}; reservedOutput={ReservedOutput}; rounds={Rounds}; tools={Tools}",
                     inputReservation, request.MaxOutputTokens, budget.ReservedInputTokens, budget.ReservedOutputTokens, budget.ModelRounds, budget.ToolCalls);
                 throw;
@@ -87,6 +96,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (HttpRequestException ex)
             {
+                retryFailure = LlmFailure.Unavailable;
                 logger?.LogWarning("AI transport failed: stage=http-transport; error={Error}; socket={Socket}; headers={Headers}; attempt={Attempt}",
                     ex.HttpRequestError, ex.InnerException is System.Net.Sockets.SocketException socket ? socket.SocketErrorCode.ToString() : "none",
                     receivedHeaders, attempt + 1);
@@ -97,6 +107,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (IOException)
             {
+                retryFailure = LlmFailure.Unavailable;
                 logger?.LogWarning("AI transport failed: stage=io; headers={Headers}; attempt={Attempt}", receivedHeaders, attempt + 1);
                 if (attempt >= options.MaxRetries)
                 {
@@ -105,6 +116,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (LlmException ex) when (attempt < options.MaxRetries && ex.Failure is LlmFailure.Unavailable or LlmFailure.RateLimited)
             {
+                retryFailure = ex.Failure;
                 // Do not repeat invalid schemas, auth failures, refusals or truncated responses.
             }
             using var backoff = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);

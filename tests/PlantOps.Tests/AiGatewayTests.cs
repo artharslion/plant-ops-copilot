@@ -202,10 +202,12 @@ public sealed class AiGatewayTests
         Assert.Equal(503, budget.ReservedOutputTokens);
     }
 
-    [Fact]
-    public async Task RetryCannotExceedBudgetOrSendAnExtraRequest()
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, LlmFailure.Unavailable)]
+    [InlineData(HttpStatusCode.TooManyRequests, LlmFailure.RateLimited)]
+    public async Task RetryCannotExceedBudgetOrHideOriginalFailure(HttpStatusCode status, LlmFailure failure)
     {
-        using var handler = new Handler((_, _) => Task.FromResult(Response("busy", HttpStatusCode.ServiceUnavailable)));
+        using var handler = new Handler((_, _) => Task.FromResult(Response("busy", status)));
         using var client = new HttpClient(handler);
         using var budget = new LlmBudget(new(MaxOutputTokens: 500));
         var exception = await Assert.ThrowsAsync<LlmException>(() => Gateway(client,
@@ -215,8 +217,44 @@ public sealed class AiGatewayTests
                 ApiKey = Secret,
                 MaxRetries = 1
             }).CompleteAsync(Request, budget));
-        Assert.Equal(LlmFailure.BudgetExceeded, exception.Failure);
+        Assert.Equal(failure, exception.Failure);
         Assert.Equal(1, handler.Calls);
+        Assert.Equal(1, budget.Attempts);
+        Assert.Equal(500, budget.ReservedOutputTokens);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransportFailureWithFullOutputReservationRemainsUnavailable(bool ioFailure)
+    {
+        using var handler = new Handler((_, _) =>
+        {
+            if (ioFailure)
+            {
+                throw new IOException("private transport error");
+            }
+            throw new HttpRequestException(HttpRequestError.NameResolutionError, "private DNS error");
+        });
+        using var client = new HttpClient(handler);
+        using var budget = new LlmBudget(new(MaxOutputTokens: 6000));
+        var exception = await Assert.ThrowsAsync<LlmException>(() => Gateway(client,
+            new()
+            {
+                Provider = "OpenAiCompatible",
+                ApiKey = Secret,
+                MaxRetries = 1
+            })
+            .CompleteAsync(Request with
+            {
+                MaxOutputTokens = 6000
+            }, budget));
+        Assert.Equal(LlmFailure.Unavailable, exception.Failure);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(1, budget.Attempts);
+        Assert.Equal(6000, budget.ReservedOutputTokens);
+        Assert.DoesNotContain("private", exception.ToString());
+        Assert.Null(exception.InnerException);
     }
 
     [Fact]

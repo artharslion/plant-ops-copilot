@@ -13,9 +13,13 @@ x-opcua-environment: &opcua-environment
 
 services:
   api:
+    dns:
+      - ${WORKBENCH_DNS_SERVER:-1.1.1.1}
     environment:
       <<: *opcua-environment
   worker:
+    dns:
+      - ${WORKBENCH_DNS_SERVER:-1.1.1.1}
     environment:
       <<: *opcua-environment
     ports:
