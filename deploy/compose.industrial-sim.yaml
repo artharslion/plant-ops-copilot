@@ -17,11 +17,14 @@ services:
       - ${WORKBENCH_DNS_SERVER:-1.1.1.1}
     environment:
       <<: *opcua-environment
+      # This IPv4-only Docker network has no IPv6 default route.
+      DOTNET_SYSTEM_NET_DISABLEIPV6: "1"
   worker:
     dns:
       - ${WORKBENCH_DNS_SERVER:-1.1.1.1}
     environment:
       <<: *opcua-environment
+      DOTNET_SYSTEM_NET_DISABLEIPV6: "1"
     ports:
       - "127.0.0.1:8081:8081"
   industrial-sim:
