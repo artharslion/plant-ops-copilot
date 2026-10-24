@@ -20,11 +20,13 @@ IndustrialSim 与 Worker 共享网络空间，OPC UA 仅绑定该空间的 `127.
 
 后续启动、更新和重建必须继续带上这两个 Compose 文件。Worker 被重建时，应同时重建/重启 `industrial-sim`，以更新共享的网络空间；不要只单独重建 Worker。
 
-该工作台覆盖配置为 API/Worker 的外部域名解析指定 DNS `1.1.1.1`，可通过 `WORKBENCH_DNS_SERVER` 换为环境允许的解析服务器；Docker 内部服务名仍由内置 DNS 处理。2026-10-24 排查中，宿主机默认 DNS 与继承它的容器解析超时，公共 DNS 的独立查询通过；因此需要该容器级配置。它不修改 Windows 网络设置；企业网络应设置其批准的 DNS。DNS 故障发生在收到模型响应之前，开启流式也不能解决域名解析失败。
+该工作台覆盖配置为 API/Worker 的外部域名解析指定 DNS `1.1.1.1` 和备用 `8.8.8.8`，可通过 `WORKBENCH_DNS_SERVER` / `WORKBENCH_DNS_FALLBACK` 换为环境允许的解析服务器；Docker 内部服务名仍由内置 DNS 处理。2026-10-24 排查中，宿主机默认 DNS 与继承它的容器解析超时，公共 DNS 的独立查询通过；因此需要该容器级配置。它不修改 Windows 网络设置；企业网络应设置其批准的 DNS。DNS 故障发生在收到模型响应之前，开启流式也不能解决域名解析失败。
 
 API/Worker 同时设置 `DOTNET_SYSTEM_NET_DISABLEIPV6=1`：当前 Docker 网络只有 IPv4 默认路由，中转域名返回的 AAAA 地址直接连接会失败。2026-10-24 的后续调查 `51f56f69-e765-4897-9898-17c73b676b61` 在收到响应头前报 `ConnectionError/NetworkUnreachable`。同容器 .NET HttpClient 首页 GET 复现同样错误，而仅检查 OpenSSL TLS 握手曾经成功；禁用 IPv6 后，.NET 域名解析仅返回 IPv4，首页及未认证 API GET 可以收到响应。此设置仅限这套工作台容器；未来网络具备 IPv6 路由时应重新验证。首页 200、未认证 API 的 401/404 仅验证传输和路由，不证明真实模型推理或流式生成成功。
 
 更新后另以 Worker 现有配置进行只读模型目录鉴权验证：`GET /v1/models` 返回 200，当前配置模型存在；未发送模型生成 POST。验证记录为 `artifacts/investigation-quality/network-probe/worker-ipv4-verification.txt`。调查总数前后均为 17，无活动调查；这次验证不能替代真实调查输出验收。
+
+后续调查 `86ac7a33-fb14-4457-81fe-5f540460e7b0` 再次暴露单一公共 DNS 的间歇性 `TryAgain`；IPv4 设置已生效，说明前面的单次连通测试不能作为持续可靠性验收。AI HTTP 连接工厂现对 DNS `TryAgain` 最多查询三次（间隔 300/600 ms），连接阶段总计最多 20 秒且仍受调用/调查取消期限约束；其他 DNS 错误不在该层重试。重试发生在向 HttpClient 返回已连接的传输流之前，不会重放 HTTP/模型请求，不释放未知用量预留，不绕过 TLS、重定向和 Cookie 限制。真实网络连续新建 12 次连接时，捕获 4 次临时 DNS 失败并全部恢复，12 次匿名目录请求均收到 401，最后鉴权目录请求为 200；95 项相关测试通过，其中本地 HTTP 服务验证“两次临时 DNS 失败后恰好一次模型 POST、一次预算预留”。真实生成结果仍需另行验收。
 
 ## 点位与场景
 

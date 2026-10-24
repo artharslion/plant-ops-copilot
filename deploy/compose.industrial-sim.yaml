@@ -15,6 +15,7 @@ services:
   api:
     dns:
       - ${WORKBENCH_DNS_SERVER:-1.1.1.1}
+      - ${WORKBENCH_DNS_FALLBACK:-8.8.8.8}
     environment:
       <<: *opcua-environment
       # This IPv4-only Docker network has no IPv6 default route.
@@ -22,6 +23,7 @@ services:
   worker:
     dns:
       - ${WORKBENCH_DNS_SERVER:-1.1.1.1}
+      - ${WORKBENCH_DNS_FALLBACK:-8.8.8.8}
     environment:
       <<: *opcua-environment
       DOTNET_SYSTEM_NET_DISABLEIPV6: "1"
