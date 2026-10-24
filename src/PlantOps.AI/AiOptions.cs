@@ -22,6 +22,11 @@ public sealed class AiOptions
 
     public int RunTimeoutSeconds { get; set; } = 180;
 
+    public bool ServerRenderedFacts
+    {
+        get; set;
+    }
+
     public bool StreamResponses
     {
         get; set;

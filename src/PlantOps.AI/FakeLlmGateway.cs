@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PlantOps.Application.AI;
 
 namespace PlantOps.AI;
@@ -38,7 +39,9 @@ public sealed class FakeLlmGateway : ILlmGateway
                 var item = input.RootElement.GetProperty("evidence").EnumerateArray().First();
                 var id = item.GetProperty("id").GetString()!;
                 var fact = item.GetProperty("facts")[0].GetString()!;
-                var observations = input.RootElement.GetProperty("evidence").EnumerateArray().SelectMany(e =>
+                var observations = input.RootElement.TryGetProperty("requiredObservations", out var required)
+                    ? required.Deserialize<InvestigationObservation[]>(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!
+                    : input.RootElement.GetProperty("evidence").EnumerateArray().SelectMany(e =>
                 {
                     var kind = e.GetProperty("kind").GetString();
                     var facts = e.GetProperty("facts").EnumerateArray().Select(x => x.GetString()!).ToArray();
@@ -47,8 +50,10 @@ public sealed class FakeLlmGateway : ILlmGateway
                             ? facts.Where(x => x.Contains("最小值为", StringComparison.Ordinal)).Take(1) : [];
                     return selected.Select(x => new InvestigationObservation(x, [e.GetProperty("id").GetString()!]));
                 }).ToArray();
+                var serverFacts = input.RootElement.TryGetProperty("factRendering", out var rendering) && rendering.GetString() == "server";
+                observations = serverFacts ? [] : observations.Length == 0 ? [new(fact, [id])] : observations;
                 businessContent = InvestigationContract.Serialize(new("1", InvestigationEngine.SafeSummary,
-                    observations.Length == 0 ? [new(fact, [id])] : observations, [], [new("核对告警历史快照与事件期观测。", [id],
+                    observations, [], [new("核对告警历史快照与事件期观测。", [id],
                         "记录对象、触发与恢复时间、事件窗口证据及无法取得的记录。", "已逐项记录可查证据及缺项，并经维护人员复核。", "证据不足或异常复发时交维护工程师复核。")],
                     ["模拟结果，尚无真实模型诊断或现场检查。"], [], observations.SelectMany(x => x.EvidenceIds).Append(id).Distinct().ToArray()));
             }

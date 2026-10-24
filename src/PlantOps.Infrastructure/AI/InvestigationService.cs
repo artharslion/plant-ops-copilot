@@ -320,7 +320,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                             var anchorAt = window.Kind == "Trend" ? window.To.AddTicks(-1)
                                 : window.Kind == "EventTrend" ? selectedAlarm.StartedAt : selectedAlarm.RecoveredAt!.Value;
                             foreach (var bucket in trend.Buckets.Where(x => x.Min.HasValue && x.Max.HasValue)
-                                .OrderBy(x => x.Start <= anchorAt && x.Start.AddMinutes(1) > anchorAt ? 0 : 1).ThenBy(x => x.Start))
+                                .OrderBy(x => x.Start <= anchorAt && x.Start.AddMinutes(1) > anchorAt ? 0 : 1)
+                                .ThenBy(x => window.Kind == "Trend" ? -x.Start.UtcTicks : x.Start.UtcTicks))
                             {
                                 facts.Add($"{window.Label}：点位 {point.Code}，已结束分钟 {Time(bucket.Start)} 至 {Time(bucket.Start.AddMinutes(1))} 的最小值为 {Number(bucket.Min!.Value)} {trend.Unit}，最大值为 {Number(bucket.Max!.Value)} {trend.Unit}，可信样本数为 {bucket.GoodCount}，采样模式为 {bucket.SamplingMode}；仅代表已入库观测。");
                             }
@@ -340,8 +341,9 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                         {
                             var end = anchor.At.AddMinutes(1) < capturedAt ? anchor.At.AddMinutes(1) : capturedAt;
                             var raw = await telemetry.TrendAsync(actor, run.AssetId, point.Id, anchor.At.AddMinutes(-1), end, "raw");
-                            var selected = raw.Samples.Take(1).Concat(raw.Samples.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
-                                .Concat(raw.Samples.Where(x => x.EffectiveAt >= anchor.At).Take(1)).Concat(raw.Samples.TakeLast(1)).DistinctBy(x => x.Id);
+                            var selected = raw.Samples.Where(x => x.EffectiveAt >= anchor.At).Take(1)
+                                .Concat(raw.Samples.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
+                                .Concat(raw.Samples.Take(1)).Concat(raw.Samples.TakeLast(1)).DistinctBy(x => x.Id);
                             supplied.Add(Add(anchor.Kind, "事件原始观测（有界节选）", point.Id,
                                 selected.Select(x => $"点位 {point.Code}，样本 {x.Id}，有效时间 {Time(x.EffectiveAt)}，值 {(x.Value.HasValue ? Number(x.Value.Value) : "无值")} {point.CanonicalUnit}，质量 {x.Quality}，时间异常 {x.TimeAnomaly}，前置缺口 {x.GapBefore}，来源 {x.DataSourceId}，映射 {x.SourceMappingId}，映射版本 {x.MappingVersion}，协议 {x.SourceKind}；协议源时间不等于物理采样时间。")
                                     .DefaultIfEmpty("事件原始观测不可查询；使用历史告警快照和可用分钟聚合，不补造事件样本。").ToArray()));
@@ -403,6 +405,7 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 });
                 await ReadTool(tool, args, timeout.Token);
             }
+            warnings.Add("调查取数范围：自动趋势仅覆盖所选告警点位，未自动提供关联测点同期趋势；如需对照应经授权补查，不能将未提供理解为不存在数据。");
             if (warnings.Count > 0)
             {
                 Add("DataQuality", "服务端数据质量与范围提示", run.AlarmId, warnings.Order().ToArray());

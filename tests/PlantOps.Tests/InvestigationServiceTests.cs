@@ -286,6 +286,7 @@ public sealed class InvestigationServiceTests
         config["AI:MaxInputTokens"] = "32000";
         config["AI:MaxOutputTokens"] = "6000";
         config["AI:RunTimeoutSeconds"] = "600";
+        config["AI:ServerRenderedFacts"] = "true";
         var (_, alarm) = await Alarm(s, clock);
         var run = await Create(s, alarm.Id);
         await Process(s);
@@ -315,7 +316,15 @@ public sealed class InvestigationServiceTests
             await scope.ServiceProvider.GetRequiredService<IMeasurementIngestor>().IngestAsync([
                 SamplePolicy.Normalize(fixture.Config, 4, "Good", clock.Now, null, clock.Now, "recovery-" + second)]);
         }
-        clock.Now = alarm.StartedAt.AddHours(2);
+        var currentAt = alarm.StartedAt.AddHours(2);
+        var currentMinute = new DateTimeOffset(currentAt.Year, currentAt.Month, currentAt.Day, currentAt.Hour, currentAt.Minute, 0, TimeSpan.Zero);
+        foreach (var (offset, value) in new[] { (-3, 5d), (-2, 6d) })
+        {
+            clock.Now = currentMinute.AddMinutes(offset).AddSeconds(10);
+            await scope.ServiceProvider.GetRequiredService<IMeasurementIngestor>().IngestAsync([
+                SamplePolicy.Normalize(fixture.Config, value, "Good", clock.Now, null, clock.Now, "current-" + offset)]);
+        }
+        clock.Now = currentAt;
         await scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>().AggregateAsync();
         if (cleanRaw)
         {
@@ -335,6 +344,7 @@ public sealed class InvestigationServiceTests
         var eventTrend = run.Evidence.Single(x => x.Kind == "EventTrend");
         Assert.Contains(eventTrend.Facts, x => x.Contains("最大值为 12.6"));
         Assert.DoesNotContain(run.Evidence.Single(x => x.Kind == "Trend").Facts, x => x.Contains("最大值为 12.6"));
+        Assert.Contains("最大值为 6", run.Evidence.Single(x => x.Kind == "Trend").Facts.First(x => x.Contains("最小值为")));
         Assert.Contains(run.Evidence.Where(x => x.Kind == "Document").SelectMany(x => x.Facts), x => x.Contains("不用当前正常观测替代事件过程"));
         if (cleanRaw)
         {
@@ -343,7 +353,7 @@ public sealed class InvestigationServiceTests
         }
         else
         {
-            Assert.Contains(run.Evidence.Single(x => x.Kind == "EventReadings").Facts, x => x.Contains(alarm.TriggerReadingId.ToString()));
+            Assert.Contains(alarm.TriggerReadingId.ToString(), run.Evidence.Single(x => x.Kind == "EventReadings").Facts[0]);
         }
     }
 

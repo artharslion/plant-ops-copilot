@@ -52,6 +52,8 @@ public sealed class LlmBudget : IDisposable
 
     public int RemainingOutputTokens => limits.MaxOutputTokens - ReservedOutputTokens;
 
+    public int RemainingInputTokens => limits.MaxInputTokens - ReservedInputTokens;
+
     public void BeginRound()
     {
         CheckDeadline();

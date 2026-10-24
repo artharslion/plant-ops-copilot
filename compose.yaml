@@ -13,6 +13,7 @@ x-backend-environment: &backend-environment
   AI__StreamResponses: ${AI_STREAM_RESPONSES:-true}
   AI__RequestTimeoutSeconds: ${AI_REQUEST_TIMEOUT_SECONDS:-120}
   AI__RunTimeoutSeconds: ${AI_RUN_TIMEOUT_SECONDS:-600}
+  AI__ServerRenderedFacts: ${AI_SERVER_RENDERED_FACTS:-true}
 
 services:
   database:

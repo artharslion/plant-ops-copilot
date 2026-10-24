@@ -51,6 +51,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 outgoing.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
                 outgoing.Content = new ByteArrayContent(body);
                 outgoing.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                logger?.LogInformation("AI request dispatched: round={Round}; attempt={Attempt}; stream={Stream}", budget.ModelRounds, attempt + 1, options.StreamResponses);
                 using var response = await client.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
                 receivedHeaders = true;
                 if (!response.IsSuccessStatusCode)
