@@ -85,6 +85,33 @@ public sealed class InvestigationQualityTests
         Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, Raw]));
     }
 
+    [Theory]
+    [InlineData("若原始观测缺失，由维护工程师复核保留范围。")]
+    [InlineData("如果缺少原始样本，则交维护工程师复核。")]
+    [InlineData("如维护记录缺失，交维护工程师核查授权范围。")]
+    [InlineData("一旦原始数据不可查询则交维护工程师核对保留范围。")]
+    [InlineData("当原始观测缺失时，交维护工程师核查。")]
+    public void ConditionalEscalationDoesNotAssertThatExistingEvidenceIsMissing(string escalation)
+    {
+        var check = new InvestigationCheck("核查事件。", ["E1"], "记录来源和时间。", "全部对应关系核对且差异已记录后完成。", escalation);
+        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        {
+            NextChecks = [check]
+        }), [Alarm, Raw, Maintenance]));
+    }
+
+    [Theory]
+    [InlineData("原始观测缺失，交维护工程师复核。")]
+    [InlineData("维护记录缺失，交维护工程师复核。")]
+    [InlineData("若出现异常，原始观测缺失，交维护工程师复核。")]
+    [InlineData("若原始观测缺失，交维护工程师复核；现有原始观测缺失。")]
+    [InlineData("若原始观测缺失，交维护工程师复核。维护记录缺失。")]
+    public void EscalationStillRejectsContradictoryAssertionsOutsideTheConditionalAntecedent(string escalation)
+    {
+        var check = new InvestigationCheck("核查事件。", ["E1"], "记录来源和时间。", "全部对应关系核对且差异已记录后完成。", escalation);
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { NextChecks = [check] }), [Alarm, Raw, Maintenance]));
+    }
+
     [Fact]
     public void ManualAloneCannotSupportAnEventCauseHypothesis()
     {

@@ -12,7 +12,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
     public const string SafeSummary = "调查已完成；结论仍需现场验证。";
-    public const string PromptVersion = "investigation-extractive-v7";
+    public const string PromptVersion = "investigation-extractive-v7.1";
     private const string Instructions = "\nChinese. If factRendering=server, return observations=[] and summary EXACTLY 调查已完成；结论仍需现场验证。 The server renders authoritative observations and factual summary; do not copy them into the response. If factRendering=model, observations must equal requiredObservations EXACTLY without paraphrasing. Current normal never replaces the event. "
         + "Summary copies up to three observation sentences joined with newline: trigger, recovery, separate current; or exactly: 调查已完成；结论仍需现场验证。 "
         + "Hypotheses OPTIONAL; default [] unless an observed fact distinguishes a cause. Restating a short vibration excursion, a manual alone, or missing data is NOT a cause hypothesis. Prefix 可能/待验证, weak/moderate; basis must COPY ONE ENTIRE requiredObservation text character-for-character, never summarize several facts; limitations=what cannot be concluded; verification=discriminating read-only check. "
@@ -119,6 +119,16 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         }
         void CheckAvailability(string text, string field, int index)
         {
+            if (field == "check-escalation")
+            {
+                // An escalation antecedent describes a contingency, not the
+                // current evidence. Remove only the explicitly delimited
+                // antecedent; assertions in its consequence or later clauses
+                // must still be checked against the full ledger.
+                text = Regex.Replace(text,
+                    @"(^|[。；;\r\n])\s*(?:如果|若|如|当|一旦)[^，,。；;\r\n]*?(?:，|,|则|就)",
+                    "$1", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+            }
             bool Match(string pattern) => Regex.IsMatch(text, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
             // An input omission is not a missing measurement. Check against the
             // full authorized ledger, never just the model's packed projection.
