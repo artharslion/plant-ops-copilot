@@ -8,6 +8,10 @@
 
 前端构建、lint、格式及 37 项组件测试通过，包含概览只采用服务端标签、旧调查不追认新结论、工单编辑保护；既有 SignalR 注解和大包提示保留。在不连接业务服务的固定样例页面中，实际浏览器验证默认折叠、展开执行条件、引用弹窗及维护入口，截图保存在 `artifacts/ui/investigation-compact-20261026/default-preview.png`。更新仅发布 Web 页面，部署前后记录 API/Worker/数据库/模拟器容器身份，未调用真实模型或创建业务工单。
 
+### 同日配色修正
+
+调查底色误用了组件库默认的偏蓝 `--el-fill-color-extra-light`。已恢复现有 `style.css` 的灰绿底 `#f3f5f1`，边框和辅助文字复用 `--line`、`--muted`。构建和格式检查通过，固定样例截图保存为 `artifacts/ui/investigation-compact-20261026/palette-corrected-preview.png`；发布仅更新 Web，核对实际 CSS 及后端容器身份不变。
+
 ## 首轮实现范围
 
 - 资产详情采用固定在视口右侧的面板，分为概览、测量、工单、历史及资料；列表保留原位置，各层独立滚动。

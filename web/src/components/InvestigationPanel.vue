@@ -592,8 +592,8 @@ onUnmounted(() => {
 .investigation-panel {
   margin-top: 24px;
   padding: 20px;
-  background: var(--el-fill-color-extra-light);
-  border: 1px solid var(--el-border-color-light);
+  background: #f3f5f1;
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 .investigation-panel .section-title h3 {
@@ -604,11 +604,11 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 4px 12px;
   padding-block: 12px;
-  border-block: 1px solid var(--el-border-color-light);
+  border-block: 1px solid var(--line);
 }
 .investigation-status span {
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 .investigation-overview {
   padding: 4px 0 12px;
@@ -637,7 +637,7 @@ onUnmounted(() => {
   padding: 4px 0 12px 4px;
 }
 .next-checks > li::marker {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
   font-weight: 600;
 }
 .next-checks p {
@@ -655,7 +655,7 @@ onUnmounted(() => {
 .investigation-disclosure {
   margin-top: 12px;
   padding: 12px 16px;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--el-bg-color);
 }
@@ -676,7 +676,7 @@ onUnmounted(() => {
   margin-left: 8px;
   font-size: 12px;
   font-weight: 400;
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 .investigation-disclosure[open] > summary {
   margin-bottom: 12px;
@@ -714,7 +714,7 @@ onUnmounted(() => {
 .investigation-evidence {
   padding: 16px;
   background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--line);
 }
 .evidence-text {
   white-space: pre-wrap;
