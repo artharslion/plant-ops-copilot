@@ -135,6 +135,20 @@ const reasonLabels: Record<string, string> = {
 function reasons(point: PointStatus) {
   return point.reasons.map((reason) => reasonLabels[reason] ?? reason).join('；')
 }
+const overview = computed(() => {
+  const assessment = selected.value?.assessment
+  if (!assessment) return selected.value?.result ? '调查结果已生成，请结合证据核查。' : ''
+  return (
+    {
+      Present: '已发现超阈值证据，原因仍需核查。',
+      NotFound: '本次检查范围内未发现超阈值证据。',
+      Insufficient: '当前证据不足，暂不能判断设备是否异常。',
+    }[assessment.anomalyEvidence] ?? '请结合取证范围核查。'
+  )
+})
+function guardWorkflowCollapse(event: MouseEvent) {
+  if (proposalBusy.value || proposalDirty.value) event.preventDefault()
+}
 const usageNote = computed(() => {
   const record = selected.value?.runRecord
   const usage = record?.usage
@@ -265,8 +279,7 @@ onUnmounted(() => {
   <section class="investigation-panel" aria-label="告警只读调查">
     <div class="section-title">
       <div>
-        <p class="eyebrow">INVESTIGATION / EVIDENCE</p>
-        <h3>让判断回到证据。</h3>
+        <h3>AI 调查</h3>
       </div>
       <div class="actions">
         <el-button
@@ -332,109 +345,127 @@ onUnmounted(() => {
       >
         {{ failures[selected.failureCode] ?? '调查未完成，请核查已有证据后重试。' }}
       </p>
-      <p v-if="selected.modelRounds != null" class="path-note">
-        调用记录：模型 {{ selected.modelRounds }} 轮，读取 {{ selected.toolCalls }} 次；预算核算输入
-        {{ selected.inputTokens }}、输出 {{ selected.outputTokens }} tokens（含未确认预留）。{{
-          usageNote
-        }}
-      </p>
-      <ul v-if="selected.warnings.length" class="investigation-warnings">
-        <li v-for="warning in selected.warnings" :key="warning">{{ warning }}</li>
-      </ul>
-      <article v-if="selected.assessment" aria-label="数据可信度与异常证据">
-        <h4>
-          当前数据可信度：{{ trustLabels[selected.assessment.dataTrust] ?? '不可验证' }} ·
-          当前设备异常证据：{{ anomalyLabels[selected.assessment.anomalyEvidence] ?? '证据不足' }}
-        </h4>
-        <p class="path-note">
-          截至
-          {{ at(selected.assessment.asOf) }}
-          的取证快照，不代表页面此刻状态。仅限下列测点与启用阈值；未检查启用测点
-          {{ selected.assessment.uninspectedPointCount }}
-          个。历史窗口单列；这些判断不确认根因、持续超限或设备安全。
-        </p>
-        <div
-          v-for="(point, index) in selected.assessment.points"
-          :key="point.pointId"
-          class="investigation-statement"
-        >
-          <p>
-            <strong>{{ point.code }}</strong
-            >：{{ trustLabels[point.currentTrust] ?? '不可验证' }}／异常证据{{
-              anomalyLabels[point.currentAnomaly] ?? '证据不足'
-            }}；观测 {{ point.observation?.value ?? '无值' }} {{ point.unit }}，质量
-            {{ point.observation?.quality ?? '未知' }}。
-          </p>
-          <p class="path-note">
-            {{ reasons(point) }}。来源 {{ point.sourceKind ?? '未知' }}；来源健康
-            {{ point.health?.state ?? '未知'
-            }}{{ point.health && !point.health.isCurrent ? '（记录已过期或版本不一致）' : '' }}。
-          </p>
-          <p v-if="point.observation" class="path-note">
-            有效时间 {{ at(point.observation.effectiveAt) }}；接收时间
-            {{ at(point.observation.receivedAt) }}；时间来源
-            {{ point.observation.timestampOrigin }}。
-          </p>
-          <details v-if="point.windows.length">
-            <summary>历史及完成分钟窗口的质量与覆盖</summary>
-            <p class="path-note">
-              分钟投影未保留逐样本的完整来源版本，因此有值窗口仍仅为部分核实，不能据此认定连续趋势。
-            </p>
-            <p v-for="window in point.windows" :key="window.kind" class="path-note">
-              {{ at(window.from) }} 至 {{ at(window.to) }}：{{
-                trustLabels[window.trust] ?? '不可验证'
-              }}；可信 {{ window.goodCount }}，Bad {{ window.badCount }}，Uncertain
-              {{ window.uncertainCount }}；{{ window.hasGap ? '存在缺口' : '未记录缺口' }}；查询时间
-              {{ at(window.retrievedAt) }}。仅代表已入库完成分钟。
-            </p>
-          </details>
-          <el-button
-            v-if="selected.assessment.evidenceIds[index]"
-            type="primary"
-            class="secondary citation"
-            @click="expand(selected.assessment.evidenceIds[index]!)"
-            >查看测点依据 {{ selected.assessment.evidenceIds[index] }}</el-button
-          >
+      <article v-if="overview" class="investigation-overview" aria-label="调查概览">
+        <h4>{{ overview }}</h4>
+        <div v-if="selected.assessment" class="assessment-tags">
+          <el-tag :type="selected.assessment.dataTrust === 'Trusted' ? 'success' : 'warning'">
+            数据{{ trustLabels[selected.assessment.dataTrust] ?? '不可验证' }}
+          </el-tag>
+          <el-tag :type="selected.assessment.anomalyEvidence === 'Present' ? 'danger' : 'info'">
+            异常证据：{{ anomalyLabels[selected.assessment.anomalyEvidence] ?? '证据不足' }}
+          </el-tag>
         </div>
+        <p v-if="selected.assessment" class="path-note">
+          截至 {{ at(selected.assessment.asOf) }} · 已检查
+          {{ selected.assessment.points.length }} 个测点<span
+            v-if="selected.assessment.uninspectedPointCount"
+            >，另有 {{ selected.assessment.uninspectedPointCount }} 个启用测点未检查</span
+          >。
+          <span v-if="selected.assessment.dataTrust !== 'Trusted'"
+            >部分测点或覆盖范围尚未核实。</span
+          >
+          这是取证快照，不代表此刻状态，也不确认根因或设备安全。
+        </p>
+        <p v-else class="path-note">旧调查未记录双维度判断，请核对下方原始事实与限制。</p>
+        <p v-if="selected.warnings.length" class="path-note">
+          含 {{ selected.warnings.length }} 项数据或范围提示，可在“事实、依据与限制”中核对。
+        </p>
       </article>
-      <div v-if="selected.result" class="investigation-columns">
-        <article>
-          <h4>有据可查的事实</h4>
-          <p v-if="!selected.result.observations.length">本次未生成事实结论。</p>
+      <article v-if="selected.result" class="investigation-next" aria-label="下一步核查">
+        <h4>下一步核查</h4>
+        <p v-if="!selected.result.nextChecks.length" class="path-note">
+          暂无有依据的核查建议，请先查看证据与缺项。
+        </p>
+        <ol class="next-checks">
+          <li v-for="(item, index) in selected.result.nextChecks" :key="index">
+            <p>{{ item.text }}</p>
+            <details class="check-details">
+              <summary>查看依据与执行条件</summary>
+              <p v-if="item.record">需记录：{{ item.record }}</p>
+              <p v-if="item.completion">完成条件：{{ item.completion }}</p>
+              <p v-if="item.escalation">升级条件：{{ item.escalation }}</p>
+              <el-button
+                v-for="id in item.evidenceIds"
+                :key="id"
+                link
+                type="primary"
+                class="citation"
+                @click="expand(id)"
+                >查看依据 {{ id }}</el-button
+              >
+            </details>
+          </li>
+        </ol>
+      </article>
+      <details class="investigation-disclosure" :key="selected.id + ':evidence'">
+        <summary>
+          事实、依据与限制
+          <span class="disclosure-count">{{ selected.evidence.length }} 项证据</span>
+        </summary>
+        <article v-if="selected.assessment" aria-label="数据可信度与异常证据">
+          <h4>测点与时间窗口</h4>
+          <p class="path-note">
+            截至
+            {{ at(selected.assessment.asOf) }}
+            的取证快照，不代表页面此刻状态。仅限下列测点与启用阈值；未检查启用测点
+            {{ selected.assessment.uninspectedPointCount }}
+            个。历史窗口单列；这些判断不确认根因、持续超限或设备安全。
+          </p>
           <div
-            v-for="(item, index) in selected.result.observations"
-            :key="index"
+            v-for="(point, index) in selected.assessment.points"
+            :key="point.pointId"
             class="investigation-statement"
           >
-            <p>{{ item.text }}</p>
+            <p>
+              <strong>{{ point.code }}</strong
+              >：{{ trustLabels[point.currentTrust] ?? '不可验证' }}／异常判断：{{
+                anomalyLabels[point.currentAnomaly] ?? '证据不足'
+              }}；观测 {{ point.observation?.value ?? '无值' }} {{ point.unit }}，质量
+              {{ point.observation?.quality ?? '未知' }}。
+            </p>
+            <p class="path-note">
+              {{ reasons(point) }}。来源 {{ point.sourceKind ?? '未知' }}；来源健康
+              {{ point.health?.state ?? '未知'
+              }}{{ point.health && !point.health.isCurrent ? '（记录已过期或版本不一致）' : '' }}。
+            </p>
+            <p v-if="point.observation" class="path-note">
+              有效时间 {{ at(point.observation.effectiveAt) }}；接收时间
+              {{ at(point.observation.receivedAt) }}；时间来源
+              {{ point.observation.timestampOrigin }}。
+            </p>
+            <details v-if="point.windows.length">
+              <summary>历史及完成分钟窗口的质量与覆盖</summary>
+              <p class="path-note">
+                分钟投影未保留逐样本的完整来源版本，因此有值窗口仍仅为部分核实，不能据此认定连续趋势。
+              </p>
+              <p v-for="window in point.windows" :key="window.kind" class="path-note">
+                {{ at(window.from) }} 至 {{ at(window.to) }}：{{
+                  trustLabels[window.trust] ?? '不可验证'
+                }}；可信 {{ window.goodCount }}，Bad {{ window.badCount }}，Uncertain
+                {{ window.uncertainCount }}；{{
+                  window.hasGap ? '存在缺口' : '未记录缺口'
+                }}；查询时间 {{ at(window.retrievedAt) }}。仅代表已入库完成分钟。
+              </p>
+            </details>
             <el-button
-              v-for="id in item.evidenceIds"
-              :key="id"
-              class="secondary citation"
-              @click="expand(id)"
+              v-if="selected.assessment.evidenceIds[index]"
               type="primary"
+              class="secondary citation"
+              @click="expand(selected.assessment.evidenceIds[index]!)"
+              >查看测点依据 {{ selected.assessment.evidenceIds[index] }}</el-button
             >
-              查看证据 {{ id }}
-            </el-button>
           </div>
         </article>
-        <article>
-          <h4>待验证假设</h4>
-          <p v-if="!selected.result.hypotheses.length">证据不足，暂不推断原因。</p>
-          <div
-            v-for="(item, index) in selected.result.hypotheses"
-            :key="index"
-            class="investigation-statement"
-          >
-            <p>{{ item.text }}</p>
-            <p v-if="item.basis">支持依据：{{ item.basis }}</p>
-            <p v-if="item.limitations">证据不足：{{ item.limitations }}</p>
-            <small
-              >证据支持：{{ item.support === 'moderate' ? '中等' : '有限' }}。核实方式：{{
-                item.verification
-              }}</small
+        <div v-if="selected.result" class="investigation-columns">
+          <article>
+            <h4>有据可查的事实</h4>
+            <p v-if="!selected.result.observations.length">本次未生成事实结论。</p>
+            <div
+              v-for="(item, index) in selected.result.observations"
+              :key="index"
+              class="investigation-statement"
             >
-            <div>
+              <p>{{ item.text }}</p>
               <el-button
                 v-for="id in item.evidenceIds"
                 :key="id"
@@ -442,65 +473,95 @@ onUnmounted(() => {
                 @click="expand(id)"
                 type="primary"
               >
-                查看依据 {{ id }}
+                查看证据 {{ id }}
               </el-button>
             </div>
-          </div>
+          </article>
+          <article v-if="selected.result.hypotheses.length">
+            <h4>待验证假设</h4>
+            <div
+              v-for="(item, index) in selected.result.hypotheses"
+              :key="index"
+              class="investigation-statement"
+            >
+              <p>{{ item.text }}</p>
+              <p v-if="item.basis">支持依据：{{ item.basis }}</p>
+              <p v-if="item.limitations">证据不足：{{ item.limitations }}</p>
+              <small
+                >证据支持：{{ item.support === 'moderate' ? '中等' : '有限' }}。核实方式：{{
+                  item.verification
+                }}</small
+              >
+              <div>
+                <el-button
+                  v-for="id in item.evidenceIds"
+                  :key="id"
+                  class="secondary citation"
+                  @click="expand(id)"
+                  type="primary"
+                >
+                  查看依据 {{ id }}
+                </el-button>
+              </div>
+            </div>
+          </article>
+          <article v-if="selected.result.missingInformation.length">
+            <h4>仍缺少的信息</h4>
+            <ul>
+              <li v-for="item in selected.result.missingInformation" :key="item">{{ item }}</li>
+            </ul>
+          </article>
+        </div>
+        <article v-if="selected.warnings.length">
+          <h4>数据与范围提示</h4>
+          <ul class="investigation-warnings">
+            <li v-for="warning in selected.warnings" :key="warning">{{ warning }}</li>
+          </ul>
         </article>
-        <article>
-          <h4>建议核查</h4>
-          <div
-            v-for="(item, index) in selected.result.nextChecks"
-            :key="index"
-            class="investigation-statement"
-          >
-            <p>{{ index + 1 }}. {{ item.text }}</p>
-            <p v-if="item.record">需记录：{{ item.record }}</p>
-            <p v-if="item.completion">完成条件：{{ item.completion }}</p>
-            <p v-if="item.escalation">升级条件：{{ item.escalation }}</p>
+        <details v-if="selected.evidence.length">
+          <summary>本次已获取的证据（{{ selected.evidence.length }}）</summary>
+          <div class="actions">
             <el-button
-              v-for="id in item.evidenceIds"
-              :key="id"
+              v-for="item in selected.evidence"
+              :key="item.id"
               class="secondary citation"
-              @click="expand(id)"
+              @click="expand(item.id)"
               type="primary"
             >
-              查看依据 {{ id }}
+              {{ item.id }} · {{ item.title }}
             </el-button>
           </div>
-        </article>
-        <article>
-          <h4>仍缺少的信息</h4>
-          <ul>
-            <li v-for="item in selected.result.missingInformation" :key="item">{{ item }}</li>
-          </ul>
-          <p v-if="!selected.result.missingInformation.length">
-            仍需现场人员核查，不能据此确认根因或设备安全。
+        </details>
+        <details v-if="selected.modelRounds != null" class="run-details">
+          <summary>调用与用量记录</summary>
+          <p class="path-note">
+            模型 {{ selected.modelRounds }} 轮，读取 {{ selected.toolCalls }} 次；预算核算输入
+            {{ selected.inputTokens }}、输出 {{ selected.outputTokens }} tokens（含未确认预留）。{{
+              usageNote
+            }}
           </p>
-        </article>
-      </div>
-      <ActionProposalPanel
+        </details>
+      </details>
+      <details
         v-if="['Succeeded', 'Invalidated'].includes(selected.status)"
-        :key="selected.id"
-        ref="proposalPanel"
-        :run-id="selected.id"
-        :asset-id="selected.assetId"
-        :available="selected.status === 'Succeeded'"
-        @evidence="expand"
-      />
-      <details v-if="selected.evidence.length">
-        <summary>本次已获取的证据（{{ selected.evidence.length }}）</summary>
-        <div class="actions">
-          <el-button
-            v-for="item in selected.evidence"
-            :key="item.id"
-            class="secondary citation"
-            @click="expand(item.id)"
-            type="primary"
-          >
-            {{ item.id }} · {{ item.title }}
-          </el-button>
-        </div>
+        class="investigation-disclosure maintenance-disclosure"
+        :key="selected.id + ':maintenance'"
+      >
+        <summary @click="guardWorkflowCollapse">
+          安排维护
+          <span class="disclosure-count">{{
+            proposalDirty ? '有未保存内容' : proposalBusy ? '处理中' : '整理工单或追加备注'
+          }}</span>
+        </summary>
+        <ActionProposalPanel
+          v-if="['Succeeded', 'Invalidated'].includes(selected.status)"
+          :key="selected.id"
+          ref="proposalPanel"
+          :run-id="selected.id"
+          :asset-id="selected.assetId"
+          :available="selected.status === 'Succeeded'"
+          @evidence="expand"
+        />
       </details>
       <p v-if="evidenceError" class="error-banner" role="alert">{{ evidenceError }}</p>
       <SidePanel
@@ -529,64 +590,149 @@ onUnmounted(() => {
 
 <style scoped>
 .investigation-panel {
-  margin-top: 2rem;
-  padding: 1.5rem;
-  background: #f4f5ef;
-  border: 1px solid #d4d9cc;
-  border-top: 3px solid #53623c;
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
 }
-.investigation-panel details .actions {
-  flex-wrap: wrap;
+.investigation-panel .section-title h3 {
+  margin: 0;
 }
 .investigation-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1.5rem;
-  padding-block: 0.9rem;
-  border-block: 1px solid #d4d9cc;
+  gap: 4px 12px;
+  padding-block: 12px;
+  border-block: 1px solid var(--el-border-color-light);
 }
 .investigation-status span {
-  font-size: 0.85rem;
-  color: #62685b;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.investigation-overview {
+  padding: 4px 0 12px;
+}
+.investigation-overview h4 {
+  margin: 8px 0 12px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.assessment-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.investigation-next {
+  padding-block: 4px 12px;
+}
+.investigation-next h4 {
+  margin: 8px 0;
+}
+.next-checks {
+  margin: 0;
+  padding-left: 24px;
+}
+.next-checks > li {
+  padding: 4px 0 12px 4px;
+}
+.next-checks > li::marker {
+  color: var(--el-text-color-secondary);
+  font-weight: 600;
+}
+.next-checks p {
+  margin: 4px 0 8px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.check-details {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+.check-details summary {
+  color: var(--el-color-primary);
+}
+.investigation-disclosure {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  background: var(--el-bg-color);
+}
+.investigation-disclosure > summary {
+  font-weight: 600;
+  line-height: 1.7;
+}
+.investigation-panel summary {
+  cursor: pointer;
+  padding-block: 4px;
+}
+.investigation-panel summary:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+.disclosure-count {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+}
+.investigation-disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+.investigation-disclosure article + article {
+  margin-top: 20px;
 }
 .investigation-warnings {
-  padding: 1rem 1rem 1rem 2rem;
-  background: #fff8df;
-  border-left: 3px solid #b78b26;
+  padding-left: 20px;
+  line-height: 1.7;
+  font-size: 13px;
+}
+.investigation-warnings li + li {
+  margin-top: 8px;
 }
 .investigation-columns {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
 }
 .investigation-columns article {
   min-width: 0;
 }
 .investigation-statement {
-  padding-bottom: 1rem;
+  padding-bottom: 12px;
   overflow-wrap: anywhere;
 }
 .citation {
-  font-size: 0.8rem;
-  padding: 0.4rem 0.65rem;
-  margin: 0.2rem 0.35rem 0.2rem 0;
+  font-size: 13px;
+  margin: 4px 8px 4px 0;
+}
+.run-details {
+  margin-top: 16px;
 }
 .investigation-evidence {
-  padding: 1rem;
-  margin-top: 1rem;
-  background: white;
-  border: 1px solid #d4d9cc;
+  padding: 16px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
 }
 .evidence-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.investigation-panel details .actions {
+  flex-wrap: wrap;
+}
 @media (max-width: 760px) {
-  .investigation-columns {
-    grid-template-columns: 1fr;
-  }
   .investigation-panel {
-    padding: 1rem;
+    padding: 16px;
+  }
+  .investigation-disclosure {
+    padding: 10px 12px;
+  }
+  .disclosure-count {
+    display: block;
+    margin-left: 18px;
   }
 }
 </style>

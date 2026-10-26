@@ -93,6 +93,49 @@ async function mount(t, name, props, request) {
 }
 const order = { id: 'order-1', number: 'WO-1', status: 'InProgress', version: 1, resolution: null }
 
+test('compact investigation overview follows server assessment and keeps legacy conclusions unclassified', async (t) => {
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
+    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  state.runs = [
+    {
+      id: 'run-1',
+      warnings: ['保留完整提示'],
+      result: { summary: '原始摘要' },
+      assessment: { anomalyEvidence: 'Present' },
+    },
+  ]
+  state.selectedId = 'run-1'
+  assert.match(state.overview, /超阈值证据.*仍需核查/)
+  state.runs[0].assessment.anomalyEvidence = 'NotFound'
+  assert.match(state.overview, /本次检查范围内未发现/)
+  state.runs[0].assessment.anomalyEvidence = 'Insufficient'
+  assert.match(state.overview, /证据不足/)
+  state.runs[0].assessment = null
+  assert.match(state.overview, /结合证据核查/)
+  assert.equal(state.runs[0].result.summary, '原始摘要')
+  assert.deepEqual(state.runs[0].warnings, ['保留完整提示'])
+})
+
+test('maintenance disclosure cannot hide busy work or unsaved proposal input', async (t) => {
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
+    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  let blocked = 0
+  const event = {
+    preventDefault() {
+      blocked++
+    },
+  }
+  state.proposalPanel = { busy: false, dirty: true }
+  state.guardWorkflowCollapse(event)
+  state.proposalPanel = { busy: true, dirty: false }
+  state.guardWorkflowCollapse(event)
+  state.proposalPanel = { busy: false, dirty: false }
+  state.guardWorkflowCollapse(event)
+  assert.equal(blocked, 2)
+})
+
 test('investigation keeps server point labels and opens their frozen evidence; legacy remains unclassified', async (t) => {
   const calls = []
   const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
