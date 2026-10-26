@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace PlantOps.Application.AI;
 
 public sealed record LlmLimits(int RunTimeoutSeconds = 180, int MaxModelRounds = 4, int MaxToolCalls = 8,
@@ -24,6 +26,54 @@ public sealed class LlmBudget : IDisposable
     }
 
     public CancellationToken Deadline => deadline.Token;
+
+    public LlmLimits Limits => limits;
+
+    public long ActualInputTokens
+    {
+        get; private set;
+    }
+
+    public long ActualOutputTokens
+    {
+        get; private set;
+    }
+
+    public int ReportedUsageAttempts
+    {
+        get; private set;
+    }
+
+    public int UnknownUsageAttempts => Attempts - ReportedUsageAttempts;
+
+    public long UnknownInputReservation
+    {
+        get; private set;
+    }
+
+    public long UnknownOutputReservation
+    {
+        get; private set;
+    }
+
+    public string PromptVersion { get; private set; } = "unknown";
+
+    public List<JsonElement> Requests { get; } = [];
+
+    public Func<CancellationToken, Task>? CheckpointAsync
+    {
+        get; set;
+    }
+
+    public async Task RecordRequestAsync(string promptVersion, JsonElement snapshot, CancellationToken cancellationToken)
+    {
+        PromptVersion = promptVersion;
+        Requests.Add(snapshot.Clone());
+        if (CheckpointAsync != null)
+        {
+            await CheckpointAsync(cancellationToken);
+        }
+    }
 
     public int ModelRounds
     {
@@ -75,6 +125,8 @@ public sealed class LlmBudget : IDisposable
         }
         ReservedInputTokens += inputReservation;
         ReservedOutputTokens += outputTokens;
+        UnknownInputReservation += inputReservation;
+        UnknownOutputReservation += outputTokens;
         pendingReservation = (inputReservation, outputTokens);
         Attempts++;
     }
@@ -83,7 +135,6 @@ public sealed class LlmBudget : IDisposable
     // while preserving conservative reservations for attempts with unknown usage.
     public void ReconcileUsage(LlmUsage? usage, int inputReservation, int outputReservation)
     {
-        CheckDeadline();
         if (pendingReservation != (inputReservation, outputReservation))
         {
             throw new LlmException(LlmFailure.InvalidResponse);
@@ -91,6 +142,7 @@ public sealed class LlmBudget : IDisposable
         if (usage is null)
         {
             pendingReservation = null;
+            CheckDeadline();
             return;
         }
         if (usage.InputTokens < 0 || usage.OutputTokens < 0)
@@ -98,6 +150,11 @@ public sealed class LlmBudget : IDisposable
             throw new LlmException(LlmFailure.InvalidResponse);
         }
         pendingReservation = null;
+        ActualInputTokens += usage.InputTokens;
+        ActualOutputTokens += usage.OutputTokens;
+        ReportedUsageAttempts++;
+        UnknownInputReservation -= inputReservation;
+        UnknownOutputReservation -= outputReservation;
         ReservedInputTokens = (int)Math.Min(int.MaxValue, (long)ReservedInputTokens - inputReservation + usage.InputTokens);
         ReservedOutputTokens = (int)Math.Min(int.MaxValue, (long)ReservedOutputTokens - outputReservation + usage.OutputTokens);
         if (ReservedInputTokens > limits.MaxInputTokens || ReservedOutputTokens > limits.MaxOutputTokens
@@ -106,6 +163,7 @@ public sealed class LlmBudget : IDisposable
             exceeded = true;
             throw new LlmException(LlmFailure.BudgetExceeded, usage);
         }
+        CheckDeadline();
     }
 
     public void RecordToolCalls(int count)

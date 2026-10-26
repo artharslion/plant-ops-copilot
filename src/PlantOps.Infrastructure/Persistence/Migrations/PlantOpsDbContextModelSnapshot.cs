@@ -336,6 +336,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.Property<string>("ResultJson")
                         .HasColumnType("text");
 
+                    b.Property<string>("RunRecordJson")
+                        .HasColumnType("text");
+
                     b.Property<bool>("Simulated")
                         .HasColumnType("boolean");
 

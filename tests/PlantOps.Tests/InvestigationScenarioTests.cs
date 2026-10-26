@@ -281,9 +281,10 @@ public sealed class InvestigationScenarioTests
             LastInput = request.Messages.Single(x => x.Role == LlmRole.User).Content!;
             using var input = JsonDocument.Parse(LastInput);
             var ledger = input.RootElement.GetProperty("evidence").EnumerateArray().ToArray();
-            var observations = ledger.SelectMany(e => e.GetProperty("facts").EnumerateArray()
-                .Take(e.GetProperty("kind").GetString() is "Alarm" or "EventTrend" or "RecoveryTrend" or "Trend" ? 2 : 1)
-                .Select(f => new InvestigationObservation(f.GetString()!, [e.GetProperty("id").GetString()!]))).Take(8).ToArray();
+            // Match the current protected fact contract; the adversarial cases below
+            // still deliberately replace values, references or tool calls.
+            var observations = input.RootElement.GetProperty("requiredObservations")
+                .Deserialize<InvestigationObservation[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             var result = new InvestigationResult("1", InvestigationEngine.SafeSummary, observations,
                 [new("可能需要现场进一步核实。", "weak", ["E1"], "请维护人员按授权规程检查。", observations[0].Text, "缺少现场检查结果。")], [], ["缺少现场检查结果。"], [],
                 observations.SelectMany(x => x.EvidenceIds).Distinct().ToArray());

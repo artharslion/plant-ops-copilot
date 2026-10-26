@@ -105,6 +105,12 @@ public sealed class AiBudgetTests
         budget.ReserveAttempt(6964, 900);
         Assert.Equal(16000, budget.ReservedInputTokens);
         Assert.Equal(3, budget.Attempts);
+        Assert.Equal(8036, budget.ActualInputTokens);
+        Assert.Equal(15, budget.ActualOutputTokens);
+        Assert.Equal(1, budget.ReportedUsageAttempts);
+        Assert.Equal(2, budget.UnknownUsageAttempts);
+        Assert.Equal(7964, budget.UnknownInputReservation);
+        Assert.Equal(1000, budget.UnknownOutputReservation);
     }
 
     [Fact]
@@ -115,6 +121,9 @@ public sealed class AiBudgetTests
         budget.ReconcileUsage(null, 100, 50);
         Assert.Equal(100, budget.ReservedInputTokens);
         Assert.Equal(50, budget.ReservedOutputTokens);
+        Assert.Equal(1, budget.UnknownUsageAttempts);
+        Assert.Equal(0, budget.ActualInputTokens);
+        Assert.Equal(100, budget.UnknownInputReservation);
         Assert.Equal(LlmFailure.InvalidResponse, Assert.Throws<LlmException>(() => budget.ReconcileUsage(new(1, 1), 100, 50)).Failure);
         Assert.Equal(100, budget.ReservedInputTokens);
     }
@@ -143,6 +152,9 @@ public sealed class AiBudgetTests
         var exception = Assert.Throws<LlmException>(() => budget.ReconcileUsage(new(input, output), 10, 10));
         Assert.Equal(LlmFailure.BudgetExceeded, exception.Failure);
         Assert.Equal(new LlmUsage(input, output), exception.Usage);
+        Assert.Equal(input, budget.ActualInputTokens);
+        Assert.Equal(output, budget.ActualOutputTokens);
+        Assert.Equal(0, budget.UnknownUsageAttempts);
         Assert.Equal(LlmFailure.BudgetExceeded, Assert.Throws<LlmException>(budget.BeginRound).Failure);
         Assert.Equal(1, budget.Attempts);
     }

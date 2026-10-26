@@ -18,6 +18,57 @@ public sealed class AiGatewayTests
     private const string Hello = """{"model":"gpt-6.1-sol","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Hello."}}],"usage":{"prompt_tokens":20,"completion_tokens":3}}""";
     private static readonly LlmRequest Request = new([new(LlmRole.System, "Read only."), new(LlmRole.User, "Say hello.")]);
 
+    [Theory]
+    [InlineData("length", LlmFailure.Truncated)]
+    [InlineData("content_filter", LlmFailure.Refused)]
+    public async Task FailedAnswerStillPreservesReportedUsage(string finish, LlmFailure failure)
+    {
+        using var handler = new Handler((_, _) => Task.FromResult(Response(Hello.Replace("\"stop\"", "\"" + finish + "\"", StringComparison.Ordinal))));
+        using var client = new HttpClient(handler);
+        using var budget = new LlmBudget();
+        var exception = await Assert.ThrowsAsync<LlmException>(() => Gateway(client).CompleteAsync(Request, budget));
+        Assert.Equal(failure, exception.Failure);
+        Assert.Equal(new LlmUsage(20, 3), exception.Usage);
+        Assert.Equal(20, budget.ActualInputTokens);
+        Assert.Equal(3, budget.ActualOutputTokens);
+        Assert.Equal(0, budget.UnknownUsageAttempts);
+        Assert.Equal(0, budget.UnknownInputReservation);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task RunRecordMatchesExactRequestAndCheckpointsUnknownReservationBeforeDispatch(bool serverFacts, bool stream)
+    {
+        using var budget = new LlmBudget();
+        var options = new AiOptions { Provider = "OpenAiCompatible", ApiKey = Secret, ServerRenderedFacts = serverFacts, StreamResponses = stream, MaxRetries = 0 };
+        var checkpointed = false;
+        budget.CheckpointAsync = _ =>
+        {
+            checkpointed = budget.Attempts == 1 && budget.UnknownUsageAttempts == 1 && budget.UnknownInputReservation > 0;
+            return Task.CompletedTask;
+        };
+        using var handler = new Handler(async (request, ct) =>
+        {
+            Assert.True(checkpointed);
+            var snapshot = Assert.Single(budget.Requests);
+            var body = await request.Content!.ReadAsByteArrayAsync(ct);
+            Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(body)), snapshot.GetProperty("requestSha256").GetString());
+            Assert.Equal(serverFacts, snapshot.GetProperty("serverRenderedFacts").GetBoolean());
+            Assert.Equal(stream, snapshot.GetProperty("streamResponses").GetBoolean());
+            Assert.DoesNotContain(Secret, snapshot.GetRawText(), StringComparison.Ordinal);
+            return new HttpResponseMessage(HttpStatusCode.BadGateway);
+        });
+        using var client = new HttpClient(handler);
+        var engine = new InvestigationEngine(Gateway(client, options), Options.Create(options));
+        var evidence = new InvestigationEvidence("E1", "Alarm", "告警", ["历史触发值为 12 mm/s。"], new string('a', 64), DateTimeOffset.UtcNow, Guid.NewGuid());
+        var exception = await Assert.ThrowsAsync<LlmException>(() => engine.ExecuteAsync([evidence],
+            (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
+        Assert.Equal(LlmFailure.Unavailable, exception.Failure);
+        Assert.Equal(1, budget.UnknownUsageAttempts);
+        Assert.Equal(0, budget.ReportedUsageAttempts);
+    }
+
     [Fact]
     public async Task ChineseMachineJsonIsCompactAndRoundTripsUntrustedText()
     {

@@ -88,7 +88,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
         JsonElement? result = run.ResultJson == null ? null : JsonDocument.Parse(run.ResultJson).RootElement.Clone();
         return new(run.Id, run.AlarmId, run.AssetId, run.Status, run.CreatedAt, run.StartedAt, run.CompletedAt,
             run.Provider, run.Model, run.Simulated, run.FailureCode, result, evidence, warnings,
-            run.ModelRounds, run.ToolCalls, run.InputTokens, run.OutputTokens);
+            run.ModelRounds, run.ToolCalls, run.InputTokens, run.OutputTokens,
+            run.RunRecordJson == null ? null : JsonSerializer.Deserialize<JsonElement>(run.RunRecordJson));
     }
 
     public async Task<InvestigationRunDto> CreateAsync(Actor actor, Guid alarmId, CancellationToken cancellationToken = default)
@@ -226,6 +227,13 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             MaxToolCalls: configuration.GetValue("AI:MaxToolCalls", 8),
             MaxInputTokens: configuration.GetValue("AI:MaxInputTokens", 16000),
             MaxOutputTokens: configuration.GetValue("AI:MaxOutputTokens", 2000)));
+        budget.CheckpointAsync = async token =>
+        {
+            if (await CheckpointAsync(run, ledger, warnings, budget, token) != 1)
+            {
+                throw new OperationCanceledException(token);
+            }
+        };
         using var active = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
         using var monitorStop = new CancellationTokenSource();
         var monitor = MonitorCancellationAsync(run.Id, run.LeaseId!.Value, active, monitorStop.Token);
@@ -511,6 +519,36 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             .ExecuteUpdateAsync(update => update.SetProperty(x => x.EvidenceJson, JsonSerializer.Serialize(ledger, Json))
                 .SetProperty(x => x.WarningsJson, JsonSerializer.Serialize(warnings.Order().ToArray(), Json))
                 .SetProperty(x => x.ModelRounds, budget.ModelRounds).SetProperty(x => x.ToolCalls, budget.ToolCalls)
+                .SetProperty(x => x.PromptVersion, budget.PromptVersion)
+                .SetProperty(x => x.RunRecordJson, JsonSerializer.Serialize(new
+                {
+                    version = "investigation-run-record-v1",
+                    run.LeaseId,
+                    leaseAttempt = run.Attempts,
+                    previousAttemptUnknown = run.Attempts > 1 && run.RunRecordJson == null,
+                    previousAttempt = run.RunRecordJson == null ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(run.RunRecordJson),
+                    promptVersion = budget.PromptVersion,
+                    limits = budget.Limits,
+                    requests = budget.Requests,
+                    evidenceSha256 = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(ledger, Json)))),
+                    usage = new
+                    {
+                        scope = "lease-attempt",
+                        source = run.Simulated ? "simulated" : budget.ReportedUsageAttempts == 0 ? "unknown" : "provider-reported",
+                        complete = budget.Attempts > 0 && budget.UnknownUsageAttempts == 0,
+                        actualInputTokens = budget.Attempts > 0 && budget.UnknownUsageAttempts == 0 ? (long?)budget.ActualInputTokens : null,
+                        actualOutputTokens = budget.Attempts > 0 && budget.UnknownUsageAttempts == 0 ? (long?)budget.ActualOutputTokens : null,
+                        reportedInputTokens = budget.ActualInputTokens,
+                        reportedOutputTokens = budget.ActualOutputTokens,
+                        reportedAttempts = budget.ReportedUsageAttempts,
+                        unknownAttempts = budget.UnknownUsageAttempts,
+                        unknownInputReservation = budget.UnknownInputReservation,
+                        unknownOutputReservation = budget.UnknownOutputReservation,
+                        budgetInputTokens = budget.ReservedInputTokens,
+                        budgetOutputTokens = budget.ReservedOutputTokens,
+                        reservedAttempts = budget.Attempts
+                    }
+                }, Json))
                 .SetProperty(x => x.InputTokens, budget.ReservedInputTokens).SetProperty(x => x.OutputTokens, budget.ReservedOutputTokens), cancellationToken);
 
     private async Task MonitorCancellationAsync(Guid id, Guid lease, CancellationTokenSource active, CancellationToken stoppingToken)

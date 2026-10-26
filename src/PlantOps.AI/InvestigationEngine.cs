@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using System.Text;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
@@ -284,8 +285,34 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 throw new LlmException(LlmFailure.BudgetExceeded);
             }
             await authorize(deadline.Token);
-            var completion = await gateway.CompleteAsync(new(messages, Tools, InvestigationContract.OutputSchema,
-                MaxOutputTokens: budget.RemainingOutputTokens), budget, deadline.Token);
+            var request = new LlmRequest(messages, Tools, InvestigationContract.OutputSchema,
+                MaxOutputTokens: budget.RemainingOutputTokens);
+            string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+            var selected = options.Value;
+            await budget.RecordRequestAsync(PromptVersion, JsonSerializer.SerializeToElement(new
+            {
+                promptVersion = PromptVersion,
+                systemPromptSha256 = Hash(messages[0].Content!),
+                schemaName = InvestigationContract.OutputSchema.Name,
+                schemaSha256 = Hash(InvestigationContract.OutputSchema.Schema.GetRawText()),
+                toolsSha256 = Hash(JsonSerializer.Serialize(Tools, Json)),
+                evidenceSha256 = Hash(JsonSerializer.Serialize(ledger, new JsonSerializerOptions(JsonSerializerDefaults.Web))),
+                requestSha256 = Convert.ToHexStringLower(SHA256.HashData(ChatCompletionsProtocol.Serialize(request,
+                    selected.Provider == "Fake" ? "fake" : selected.Model,
+                    selected.Provider == "Fake" ? null : selected.ReasoningEffort,
+                    selected.Provider != "Fake" && selected.StreamResponses))),
+                trustPolicyVersion = "authorized-ledger-fact-validation-v8",
+                evidencePolicyVersion = "event-recovery-current-related-v1",
+                serverRenderedFacts = renderFacts,
+                provider = selected.Provider,
+                model = selected.Provider == "Fake" ? "fake" : selected.Model,
+                reasoningEffort = selected.Provider == "Fake" ? null : selected.ReasoningEffort,
+                streamResponses = selected.Provider != "Fake" && selected.StreamResponses,
+                selected.RequestTimeoutSeconds,
+                selected.MaxRetries,
+                request.MaxOutputTokens
+            }, Json), deadline.Token);
+            var completion = await gateway.CompleteAsync(request, budget, deadline.Token);
             await authorize(deadline.Token);
             if (completion.ToolCalls.Count == 0)
             {

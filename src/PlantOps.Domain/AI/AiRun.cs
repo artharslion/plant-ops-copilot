@@ -64,7 +64,12 @@ public sealed class AiRun
         get; set;
     }
 
-    public string PromptVersion { get; set; } = "investigation-extractive-v1";
+    public string PromptVersion { get; set; } = "unknown";
+
+    public string? RunRecordJson
+    {
+        get; set;
+    }
 
     public string? FailureCode
     {

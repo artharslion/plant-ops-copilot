@@ -40,6 +40,18 @@ type Run = {
   toolCalls?: number
   inputTokens?: number
   outputTokens?: number
+  runRecord?: {
+    leaseAttempt?: number
+    usage: {
+      source: string
+      complete: boolean
+      actualInputTokens: number | null
+      actualOutputTokens: number | null
+      reportedInputTokens: number
+      reportedOutputTokens: number
+      unknownAttempts: number
+    }
+  } | null
 }
 const runs = ref<Run[]>([]),
   selectedId = ref(''),
@@ -55,6 +67,16 @@ const elapsed = computed(() =>
     : 0,
 )
 const selected = computed(() => runs.value.find((run) => run.id === selectedId.value) ?? null)
+const usageNote = computed(() => {
+  const record = selected.value?.runRecord
+  const usage = record?.usage
+  if (!usage) return '旧记录缺少用量来源，实际消耗未知。'
+  if (usage.source === 'simulated') return '模拟运行，没有真实模型用量。'
+  const prefix = (record?.leaseAttempt ?? 1) > 1 ? '恢复执行：以下仅含本次执行，之前用量另存。' : ''
+  if (usage.complete)
+    return `${prefix}模型服务报告：输入 ${usage.actualInputTokens}、输出 ${usage.actualOutputTokens} tokens。`
+  return `${prefix}实际总用量未知；已报告输入 ${usage.reportedInputTokens}、输出 ${usage.reportedOutputTokens} tokens，另有 ${usage.unknownAttempts} 次预留未确认。`
+})
 const active = computed(
   () => selected.value && ['Pending', 'Running'].includes(selected.value.status),
 )
@@ -242,10 +264,11 @@ onUnmounted(() => {
       >
         {{ failures[selected.failureCode] ?? '调查未完成，请核查已有证据后重试。' }}
       </p>
-      <p v-if="selected.status === 'Failed' && selected.modelRounds != null" class="path-note">
-        调用记录：模型 {{ selected.modelRounds }} 轮，读取 {{ selected.toolCalls }} 次； 输入
-        {{ selected.inputTokens }}、输出
-        {{ selected.outputTokens }} tokens（未报告用量时为预留值）。
+      <p v-if="selected.modelRounds != null" class="path-note">
+        调用记录：模型 {{ selected.modelRounds }} 轮，读取 {{ selected.toolCalls }} 次；预算核算输入
+        {{ selected.inputTokens }}、输出 {{ selected.outputTokens }} tokens（含未确认预留）。{{
+          usageNote
+        }}
       </p>
       <ul v-if="selected.warnings.length" class="investigation-warnings">
         <li v-for="warning in selected.warnings" :key="warning">{{ warning }}</li>

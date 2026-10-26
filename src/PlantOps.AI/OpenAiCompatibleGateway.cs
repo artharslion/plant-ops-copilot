@@ -42,6 +42,10 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 throw;
             }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
+            if (budget.CheckpointAsync != null)
+            {
+                await budget.CheckpointAsync(cancellationToken);
+            }
             timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
             var receivedHeaders = false;
             var elapsed = Stopwatch.StartNew();
@@ -66,12 +70,19 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 {
                     timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
                 }
-                var result = options.StreamResponses
-                    ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token, logger,
-                        () => timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds)))
-                    : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
-                cancellationToken.ThrowIfCancellationRequested();
-                budget.CheckDeadline();
+                LlmCompletion result;
+                try
+                {
+                    result = options.StreamResponses
+                        ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token, logger,
+                            () => timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds)))
+                        : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
+                }
+                catch (LlmException ex) when (ex.Usage is not null)
+                {
+                    budget.ReconcileUsage(ex.Usage, inputReservation, request.MaxOutputTokens);
+                    throw;
+                }
                 try
                 {
                     budget.ReconcileUsage(result.Usage, inputReservation, request.MaxOutputTokens);
@@ -82,6 +93,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                         request.MaxOutputTokens, result.Usage?.InputTokens, result.Usage?.OutputTokens, budget.ModelRounds, budget.ToolCalls);
                     throw;
                 }
+                cancellationToken.ThrowIfCancellationRequested();
                 budget.RecordToolCalls(result.ToolCalls.Count);
                 return result;
             }

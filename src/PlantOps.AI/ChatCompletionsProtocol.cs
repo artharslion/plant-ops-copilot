@@ -137,10 +137,21 @@ internal static partial class ChatCompletionsProtocol
 
     public static LlmCompletion Parse(byte[] bytes, LlmRequest request)
     {
+        LlmUsage? usage = null;
         try
         {
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 32 });
             var root = document.RootElement;
+            if (root.TryGetProperty("usage", out var usageElement) && usageElement.ValueKind != JsonValueKind.Null)
+            {
+                var input = usageElement.GetProperty("prompt_tokens").GetInt32();
+                var output = usageElement.GetProperty("completion_tokens").GetInt32();
+                if (input < 0 || output < 0)
+                {
+                    throw new LlmException(LlmFailure.InvalidResponse);
+                }
+                usage = new(input, output);
+            }
             var choices = root.GetProperty("choices");
             if (choices.GetArrayLength() != 1)
             {
@@ -208,17 +219,6 @@ internal static partial class ChatCompletionsProtocol
             {
                 throw new LlmException(LlmFailure.InvalidResponse);
             }
-            LlmUsage? usage = null;
-            if (root.TryGetProperty("usage", out var usageElement) && usageElement.ValueKind != JsonValueKind.Null)
-            {
-                var input = usageElement.GetProperty("prompt_tokens").GetInt32();
-                var output = usageElement.GetProperty("completion_tokens").GetInt32();
-                if (input < 0 || output < 0)
-                {
-                    throw new LlmException(LlmFailure.InvalidResponse);
-                }
-                usage = new(input, output);
-            }
             var model = root.GetProperty("model").GetString();
             if (string.IsNullOrWhiteSpace(model) || model.Length > 200 || model.Any(char.IsControl))
             {
@@ -226,9 +226,13 @@ internal static partial class ChatCompletionsProtocol
             }
             return new(content, calls, model, usage);
         }
+        catch (LlmException ex) when (usage is not null && ex.Usage is null)
+        {
+            throw new LlmException(ex.Failure, usage);
+        }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException or ArgumentException)
         {
-            throw new LlmException(LlmFailure.InvalidResponse);
+            throw new LlmException(LlmFailure.InvalidResponse, usage);
         }
     }
 

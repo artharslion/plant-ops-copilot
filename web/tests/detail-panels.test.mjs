@@ -33,6 +33,7 @@ for (const name of [
   'SidePanel',
   'DirectoryEditor',
   'ActionProposalPanel',
+  'InvestigationPanel',
   'WorkOrderDrawer',
 ]) {
   const source = await fs.readFile(
@@ -91,6 +92,34 @@ async function mount(t, name, props, request) {
   return app._instance.setupState
 }
 const order = { id: 'order-1', number: 'WO-1', status: 'InProgress', version: 1, resolution: null }
+
+test('investigation usage distinguishes legacy, simulated, reported and unknown totals', async (t) => {
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
+    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  state.runs = [{ id: 'run-1', warnings: [] }]
+  state.selectedId = 'run-1'
+  assert.match(state.usageNote, /旧记录.*未知/)
+  state.runs[0].runRecord = { usage: { source: 'simulated' } }
+  assert.match(state.usageNote, /模拟运行，没有真实模型用量/)
+  state.runs[0].runRecord.usage = {
+    source: 'provider-reported',
+    complete: true,
+    actualInputTokens: 20,
+    actualOutputTokens: 3,
+  }
+  assert.match(state.usageNote, /输入 20、输出 3/)
+  state.runs[0].runRecord.usage = {
+    source: 'provider-reported',
+    complete: false,
+    reportedInputTokens: 20,
+    reportedOutputTokens: 3,
+    unknownAttempts: 1,
+  }
+  assert.match(state.usageNote, /实际总用量未知.*输入 20.*1 次预留未确认/)
+  state.runs[0].runRecord.leaseAttempt = 2
+  assert.match(state.usageNote, /恢复执行.*仅含本次执行.*之前用量另存/)
+})
 
 const proposal = () => ({
   id: 'proposal-1',

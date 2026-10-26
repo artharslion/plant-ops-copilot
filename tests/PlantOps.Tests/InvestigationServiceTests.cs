@@ -41,6 +41,27 @@ public sealed class InvestigationServiceTests
     private static Task<InvestigationRunDto?> Get(AssetManagementTests.Session session, Guid run) => session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run}");
 
     [DatabaseFact]
+    public async Task LegacyVersionWithoutRunRecordRemainsUnknownAndIsNotRewrittenOnRead()
+    {
+        var clock = new AlarmTests.Clock();
+        await using var s = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection());
+        await s.Initialize();
+        await s.Login();
+        var (_, alarm) = await Alarm(s, clock);
+        var run = await Create(s, alarm.Id);
+        await using var scope = s.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        await db.AiRuns.Where(x => x.Id == run.Id).ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, "Failed")
+            .SetProperty(x => x.PromptVersion, "investigation-extractive-v1").SetProperty(x => x.InputTokens, 123));
+        var legacy = (await Get(s, run.Id))!;
+        Assert.Null(legacy.RunRecord);
+        Assert.Equal(123, legacy.InputTokens);
+        var stored = await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id);
+        Assert.Equal("investigation-extractive-v1", stored.PromptVersion);
+        Assert.Null(stored.RunRecordJson);
+    }
+
+    [DatabaseFact]
     public async Task AlarmBusinessPathCallsGatewayPersistsEvidenceAndDoesNotWriteBusinessState()
     {
         var clock = new AlarmTests.Clock();
@@ -65,6 +86,18 @@ public sealed class InvestigationServiceTests
         Assert.True(run.Simulated);
         Assert.Equal("fake", run.Model);
         Assert.NotNull(run.Result);
+        var record = run.RunRecord!.Value;
+        Assert.Equal("investigation-extractive-v8", record.GetProperty("promptVersion").GetString());
+        var requestRecord = Assert.Single(record.GetProperty("requests").EnumerateArray());
+        Assert.Equal(64, requestRecord.GetProperty("requestSha256").GetString()!.Length);
+        Assert.Equal(64, requestRecord.GetProperty("systemPromptSha256").GetString()!.Length);
+        Assert.Equal(64, requestRecord.GetProperty("schemaSha256").GetString()!.Length);
+        Assert.Equal(64, requestRecord.GetProperty("toolsSha256").GetString()!.Length);
+        Assert.Equal(record.GetProperty("evidenceSha256").GetString(), requestRecord.GetProperty("evidenceSha256").GetString());
+        Assert.Equal("simulated", record.GetProperty("usage").GetProperty("source").GetString());
+        Assert.False(record.GetProperty("usage").GetProperty("complete").GetBoolean());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, record.GetProperty("usage").GetProperty("actualInputTokens").ValueKind);
+        Assert.Equal("investigation-extractive-v8", (await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id)).PromptVersion);
         Assert.Contains(run.Evidence, x => x.Kind == "Alarm");
         Assert.Contains(run.Evidence, x => x.Kind == "Trend");
         Assert.Contains(run.Evidence, x => x.Kind == "Maintenance");
@@ -237,6 +270,7 @@ public sealed class InvestigationServiceTests
         run = (await Get(s, run.Id))!;
         Assert.Equal("Failed", run.Status);
         Assert.Equal("Unavailable", run.FailureCode);
+        Assert.Equal("investigation-extractive-v8", run.RunRecord!.Value.GetProperty("promptVersion").GetString());
         Assert.Null(run.Result);
         Assert.NotEmpty(run.Evidence);
         Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync($"/api/v1/alarms/{alarm.Id}")).StatusCode);
@@ -256,7 +290,8 @@ public sealed class InvestigationServiceTests
         {
             var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
             await db.AiRuns.Where(x => x.Id == run.Id).ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, "Running")
-                .SetProperty(x => x.LeaseId, oldLease).SetProperty(x => x.LeaseUntil, clock.Now.AddSeconds(-1)).SetProperty(x => x.Attempts, 1));
+                .SetProperty(x => x.LeaseId, oldLease).SetProperty(x => x.LeaseUntil, clock.Now.AddSeconds(-1)).SetProperty(x => x.Attempts, 1)
+                .SetProperty(x => x.RunRecordJson, "{\"promptVersion\":\"historical-version\",\"usage\":{\"unknownAttempts\":1}}"));
         }
         await Process(s);
         Assert.Equal("Succeeded", (await Get(s, run.Id))!.Status);
@@ -265,6 +300,8 @@ public sealed class InvestigationServiceTests
         var stored = await checkDb.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id);
         Assert.Equal(2, stored.Attempts);
         Assert.NotEqual(oldLease, stored.LeaseId);
+        using var record = System.Text.Json.JsonDocument.Parse(stored.RunRecordJson!);
+        Assert.Equal("historical-version", record.RootElement.GetProperty("previousAttempt").GetProperty("promptVersion").GetString());
         Assert.Equal(0, await checkDb.AiRuns.Where(x => x.Id == run.Id && x.LeaseId == oldLease && x.Status == "Running")
             .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, "Failed")));
     }

@@ -154,6 +154,8 @@ node web/scripts/benchmark-p1.mjs
 
 不加载 AI 配置时默认使用 Fake Provider，不访问外网；模拟结果不能视为真实模型回答。真实模型配置、密钥加载和探针见 [AI 接入配置](AI_PROVIDER_SETUP.md)。启动 API 与 Worker 前，分别在各自终端加载 `deploy/Use-LocalAi.ps1`。告警调查与证据展开的操作和验证见 [AI 调查验证](AI_INVESTIGATION_VALIDATION.md)。
 
+P8.1 新运行的实际版本指纹及用量来源保存在 `AiRuns.RunRecordJson`，调查 API 返回 `runRecord`，详见 [最小运行记录](P8_1_RUN_RECORD_VALIDATION.md)。旧记录为 null，旧 `PromptVersion` 和 Token 字段不能证明当时实际请求或计费用量。`InputTokens`/`OutputTokens` 继续是兼容预算核算值，可能混合已报告用量与未知预留；总实耗未知时新记录明确返回 null。迁移需显式执行，源码更新不代表业务 Docker 已升级。
+
 ## 项目约定
 
 默认范围为单组织、多工厂、单机开发部署。业务来自通用工业资产管理经验，代码、名称、数据、文档、接口和界面独立设计。不得复制 KROHNE/AMADAS 的专有资产，不读取或依赖原项目仓库。公开展示统一使用 Plant Ops Copilot 名称，示例工厂和设备全部虚构。
