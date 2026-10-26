@@ -260,6 +260,18 @@ public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationSe
                 text.AppendLine($"[{comparison.Id}] {fact}");
             }
         }
+        foreach (var assessment in run.Evidence.Where(x => x.Kind == "Assessment"))
+        {
+            text.AppendLine("\n数据可信度与设备异常证据（截至取证时间）");
+            foreach (var fact in assessment.Facts)
+            {
+                text.AppendLine($"[{assessment.Id}] {fact}");
+            }
+            foreach (var status in run.Evidence.Where(x => x.Kind == "PointStatus"))
+            {
+                text.AppendLine($"[{status.Id}] {status.Facts[0]}");
+            }
+        }
         text.AppendLine("\n按序检查与记录");
         var index = 0;
         foreach (var check in result.GetProperty("nextChecks").EnumerateArray())

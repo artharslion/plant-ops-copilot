@@ -16,7 +16,7 @@ using PlantOps.Infrastructure.Persistence;
 
 namespace PlantOps.Infrastructure.AI;
 
-public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService alarms, IAssetDirectory assets,
+public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmService alarms, IAssetDirectory assets,
     ITelemetryService telemetry, IWorkOrderService maintenance, IDocumentEvidenceService documents,
     IServiceProvider executionServices, IAiSettingsService settings, IAiRunConfiguration runConfiguration,
     IConfiguration configuration, IServiceScopeFactory scopes, TimeProvider clock) : IInvestigationService
@@ -89,7 +89,8 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
         return new(run.Id, run.AlarmId, run.AssetId, run.Status, run.CreatedAt, run.StartedAt, run.CompletedAt,
             run.Provider, run.Model, run.Simulated, run.FailureCode, result, evidence, warnings,
             run.ModelRounds, run.ToolCalls, run.InputTokens, run.OutputTokens,
-            run.RunRecordJson == null ? null : JsonSerializer.Deserialize<JsonElement>(run.RunRecordJson));
+            run.RunRecordJson == null ? null : JsonSerializer.Deserialize<JsonElement>(run.RunRecordJson),
+            InvestigationAssessmentPolicy.FromEvidence(evidence));
     }
 
     public async Task<InvestigationRunDto> CreateAsync(Actor actor, Guid alarmId, CancellationToken cancellationToken = default)
@@ -253,15 +254,27 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             }
             await Authorize(active.Token);
             var actor = new Actor(run.ActorUserId, run.CorrelationId);
-            var selectedAlarm = await alarms.GetAsync(actor, run.AlarmId);
-            var assetPoints = await telemetry.PointsAsync(actor, run.AssetId);
-            var point = assetPoints.Single(x => x.Id == selectedAlarm.PointId);
-            // Same-asset candidates are contextual measurements, not a claim of
-            // a physical dependency. Bound automatic reads independently of AI.
-            var relatedCandidates = assetPoints.Where(x => x.Id != point.Id && x.Enabled).OrderBy(x => x.Code, StringComparer.Ordinal).ToArray();
-            var relatedPoints = relatedCandidates.Take(2).ToArray();
             var capturedAt = clock.GetUtcNow();
-            InvestigationEvidence Add(string kind, string title, Guid resource, string[] facts, string? sourceHash = null, Guid? version = null, Guid? chunk = null)
+            AlarmDto selectedAlarm;
+            PointOverview point;
+            PointOverview[] relatedCandidates;
+            PointOverview[] relatedPoints;
+            InvestigationPointSnapshot[] pointSnapshots;
+            await using (var snapshotTransaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, active.Token))
+            {
+                selectedAlarm = await alarms.GetAsync(actor, run.AlarmId);
+                var assetPoints = await telemetry.PointsAsync(actor, run.AssetId);
+                point = assetPoints.Single(x => x.Id == selectedAlarm.PointId);
+                // Same-asset candidates are contextual measurements, not a claim of
+                // a physical dependency. Bound automatic reads independently of AI.
+                relatedCandidates = assetPoints.Where(x => x.Id != point.Id && x.Enabled).OrderBy(x => x.Code, StringComparer.Ordinal).ToArray();
+                relatedPoints = relatedCandidates.Take(2).ToArray();
+                pointSnapshots = await CapturePointsAsync(run.PlantId, run.AssetId, new[] { point }.Concat(relatedPoints).ToArray(), capturedAt, active.Token);
+                await snapshotTransaction.CommitAsync(active.Token);
+            }
+            var pointWindows = pointSnapshots.ToDictionary(x => x.PointId, _ => new List<InvestigationWindowAssessment>());
+            InvestigationEvidence Add(string kind, string title, Guid resource, string[] facts, string? sourceHash = null, Guid? version = null, Guid? chunk = null,
+                InvestigationPointSnapshot? pointStatus = null)
             {
                 var existing = ledger.SingleOrDefault(x => x.Kind == kind && x.ResourceId == resource && x.VersionId == version && x.ChunkId == chunk);
                 if (existing != null)
@@ -272,9 +285,14 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 {
                     throw new LlmException(LlmFailure.BudgetExceeded);
                 }
-                var hash = sourceHash ?? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(facts, Json))));
+                var hash = sourceHash ?? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(pointStatus == null
+                    ? JsonSerializer.Serialize(facts, Json) : JsonSerializer.Serialize(new
+                    {
+                        facts,
+                        pointStatus
+                    }, Json))));
                 var item = new InvestigationEvidence("E" + (ledger.Count + 1).ToString(CultureInfo.InvariantCulture), kind, title,
-                    facts, hash, capturedAt, resource, version, chunk);
+                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus);
                 ledger.Add(item);
                 return item;
             }
@@ -325,6 +343,7 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                         foreach (var window in InvestigationWindows.Create(selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
                         {
                             var trend = await telemetry.TrendAsync(actor, run.AssetId, point.Id, window.From, window.To, "1m");
+                            pointWindows[point.Id].Add(InvestigationAssessmentPolicy.Window(window.Kind, trend));
                             var facts = new List<string> { $"{window.Label}：点位 {point.Code}，窗口 [{Time(trend.From)}, {Time(trend.To)})，单位 {trend.Unit}；仅含已完成分钟，不能由当前窗口替代事件过程。" };
                             if (window.Kind != "Trend" && window.To <= (window.Kind == "EventTrend" ? selectedAlarm.StartedAt : selectedAlarm.RecoveredAt))
                             {
@@ -374,6 +393,7 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                                 {
                                     await Authorize(token);
                                     var relatedTrend = await telemetry.TrendAsync(actor, run.AssetId, related.Id, window.From, window.To, "1m");
+                                    pointWindows[related.Id].Add(InvestigationAssessmentPolicy.Window(window.Kind, relatedTrend));
                                     var available = relatedTrend.Buckets.Where(x => x.Min.HasValue && x.Max.HasValue).ToArray();
                                     var prefix = $"关联点位 {related.Code} 的{window.Label} [{Time(relatedTrend.From)}, {Time(relatedTrend.To)})";
                                     var summary = available.Length == 0
@@ -460,6 +480,17 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 });
                 await ReadTool(tool, args, timeout.Token);
             }
+            foreach (var snapshot in pointSnapshots)
+            {
+                var frozen = snapshot with
+                {
+                    Windows = pointWindows[snapshot.PointId].ToArray()
+                };
+                Add("PointStatus", "测点证据状态 · " + frozen.Code, frozen.PointId, PointFacts(frozen), pointStatus: frozen);
+            }
+            var assessment = InvestigationAssessmentPolicy.FromEvidence(ledger)!;
+            Add("Assessment", "服务端双维度判断（取证时快照）", run.AlarmId, [InvestigationAssessmentPolicy.Summary(assessment)]);
+            warnings.Add("双维度判断仅适用于取证时刻的已检查点位和启用阈值；历史事件与完成分钟窗口另列，不能用历史告警推断当前异常，也不确认持续超限、根因或安全。");
             warnings.Add(relatedPoints.Length == 0
                 ? "调查取数范围：已自动查询同设备授权点位目录，未找到其他启用的对照候选；不能据此断言现场不存在关联测点。"
                 : "调查取数范围：已自动读取告警点位及同设备对照候选 " + string.Join("、", relatedPoints.Select(x => x.Code))

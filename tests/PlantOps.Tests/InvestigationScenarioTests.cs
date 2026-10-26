@@ -191,9 +191,9 @@ public sealed class InvestigationScenarioTests
         {
             var allowedResource = evidence.Kind switch
             {
-                "Alarm" or "DataQuality" => alarm.Id,
+                "Alarm" or "DataQuality" or "Assessment" => alarm.Id,
                 "TriggerReading" => alarm.TriggerReadingId,
-                "Trend" or "EventTrend" or "RecoveryTrend" or "EventReadings" or "RecoveryReadings" => fixture.Point.Id,
+                "Trend" or "EventTrend" or "RecoveryTrend" or "EventReadings" or "RecoveryReadings" or "PointStatus" => fixture.Point.Id,
                 "Asset" or "AlarmHistory" or "Maintenance" => fixture.Asset.Id,
                 "Document" => document!.Id,
                 _ => throw new InvalidOperationException("Unexpected evidence kind.")

@@ -2733,6 +2733,19 @@ export interface components {
             version: number | string;
             draft: components["schemas"]["WorkOrderNoteDraft"];
         };
+        InvestigationAssessment: {
+            policyVersion: string;
+            /** Format: date-time */
+            asOf: string;
+            scope: string;
+            dataTrust: string;
+            anomalyEvidence: string;
+            /** Format: int32 */
+            uninspectedPointCount: number | string;
+            reasons: string[];
+            points: components["schemas"]["InvestigationPointSnapshot"][];
+            evidenceIds: string[];
+        };
         InvestigationEvidence: {
             id: string;
             kind: string;
@@ -2747,6 +2760,84 @@ export interface components {
             versionId?: null | string;
             /** Format: uuid */
             chunkId?: null | string;
+            pointStatus?: null | components["schemas"]["InvestigationPointSnapshot"];
+        };
+        InvestigationObservedReading: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            effectiveAt: string;
+            /** Format: date-time */
+            receivedAt: string;
+            /** Format: double */
+            value: null | number | string;
+            quality: string;
+            timeAnomaly: boolean;
+            /** Format: uuid */
+            dataSourceId: string;
+            /** Format: uuid */
+            sourceMappingId: string;
+            /** Format: int64 */
+            mappingVersion: number | string;
+            sourceKind: string;
+            timestampOrigin: string;
+            /** Format: date-time */
+            sourceTimestamp: null | string;
+            /** Format: date-time */
+            serverTimestamp: null | string;
+            /** Format: uint32 */
+            rawStatusCode: null | number | string;
+            statusSymbol: null | string;
+            /** Format: int64 */
+            sourceVersion?: null | number | string;
+            /** Format: int64 */
+            pointVersion?: null | number | string;
+        };
+        InvestigationPointSnapshot: {
+            /** Format: uuid */
+            pointId?: string;
+            code?: string;
+            unit?: string;
+            /** Format: date-time */
+            asOf?: string;
+            /** Format: date-time */
+            retrievedAt?: string;
+            /** Format: int64 */
+            pointVersion?: number | string;
+            /** Format: uuid */
+            sourceId?: null | string;
+            /** Format: int64 */
+            sourceVersion?: null | number | string;
+            /** Format: uuid */
+            mappingId?: null | string;
+            /** Format: int64 */
+            mappingVersion?: null | number | string;
+            sourceKind?: null | string;
+            samplingMode?: string;
+            /** Format: int32 */
+            staleAfterMs?: number | string;
+            configurationCurrent?: boolean;
+            latestStateTrusted?: boolean;
+            observation?: null | components["schemas"]["InvestigationObservedReading"];
+            health?: null | components["schemas"]["SourceHealth"];
+            /** Format: int32 */
+            uninspectedPointCount?: number | string;
+            currentTrust?: string;
+            currentAnomaly?: string;
+            reasons?: string[];
+            rules?: components["schemas"]["InvestigationRuleSnapshot"][];
+            rulesTruncated?: boolean;
+            windows?: components["schemas"]["InvestigationWindowAssessment"][];
+        };
+        InvestigationRuleSnapshot: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            version: number | string;
+            /** Format: double */
+            raiseAbove: number | string;
+            /** Format: double */
+            clearBelow: number | string;
         };
         InvestigationRunDto: {
             /** Format: uuid */
@@ -2778,6 +2869,25 @@ export interface components {
             /** Format: int32 */
             outputTokens: number | string;
             runRecord?: unknown;
+            assessment?: null | components["schemas"]["InvestigationAssessment"];
+        };
+        InvestigationWindowAssessment: {
+            kind: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            trust: string;
+            /** Format: int32 */
+            goodCount: number | string;
+            /** Format: int32 */
+            badCount: number | string;
+            /** Format: int32 */
+            uncertainCount: number | string;
+            hasGap: boolean;
+            reasons: string[];
         };
         JsonElement: unknown;
         LoginInput: {

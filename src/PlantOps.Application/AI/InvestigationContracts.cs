@@ -4,7 +4,8 @@ using PlantOps.Application.Assets;
 namespace PlantOps.Application.AI;
 
 public sealed record InvestigationEvidence(string Id, string Kind, string Title, string[] Facts, string Sha256,
-    DateTimeOffset RetrievedAt, Guid ResourceId, Guid? VersionId = null, Guid? ChunkId = null);
+    DateTimeOffset RetrievedAt, Guid ResourceId, Guid? VersionId = null, Guid? ChunkId = null,
+    InvestigationPointSnapshot? PointStatus = null);
 
 public sealed record InvestigationToolResult(IReadOnlyList<InvestigationEvidence> Evidence, IReadOnlyList<string> Warnings);
 
@@ -20,7 +21,8 @@ public interface IInvestigationEngine
 public sealed record InvestigationRunDto(Guid Id, Guid AlarmId, Guid AssetId, string Status, DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, string Provider, string Model, bool Simulated,
     string? FailureCode, JsonElement? Result, IReadOnlyList<InvestigationEvidence> Evidence, IReadOnlyList<string> Warnings,
-    int ModelRounds, int ToolCalls, int InputTokens, int OutputTokens, JsonElement? RunRecord = null);
+    int ModelRounds, int ToolCalls, int InputTokens, int OutputTokens, JsonElement? RunRecord = null,
+    InvestigationAssessment? Assessment = null);
 
 public interface IInvestigationService
 {

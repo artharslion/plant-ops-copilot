@@ -93,6 +93,33 @@ async function mount(t, name, props, request) {
 }
 const order = { id: 'order-1', number: 'WO-1', status: 'InProgress', version: 1, resolution: null }
 
+test('investigation keeps server point labels and opens their frozen evidence; legacy remains unclassified', async (t) => {
+  const calls = []
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
+    calls.push(path)
+    if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+    if (path.includes('/evidence/')) return { id: 'E20', facts: ['取证时快照'] }
+    return []
+  })
+  state.runs = [{ id: 'run-1', warnings: [], assessment: null }]
+  state.selectedId = 'run-1'
+  assert.equal(state.selected.assessment, null)
+  state.runs[0].assessment = {
+    asOf: '2026-10-26T00:00:00Z',
+    dataTrust: 'Partial',
+    anomalyEvidence: 'Present',
+    evidenceIds: ['E20'],
+    points: [{ pointId: 'temp', reasons: ['QualityUntrusted', 'SilenceDoesNotProveFailure'] }],
+  }
+  assert.equal(state.trustLabels[state.selected.assessment.dataTrust], '部分可信')
+  assert.equal(state.anomalyLabels[state.selected.assessment.anomalyEvidence], '存在')
+  assert.match(state.reasons(state.selected.assessment.points[0]), /质量不可信.*静默不证明故障/)
+  await state.expand(state.selected.assessment.evidenceIds[0])
+  assert.equal(state.expanded.id, 'E20')
+  assert.ok(calls.includes('/investigations/run-1/evidence/E20'))
+  assert.equal(state.selected.assessment.asOf, '2026-10-26T00:00:00Z')
+})
+
 test('investigation usage distinguishes legacy, simulated, reported and unknown totals', async (t) => {
   const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
     path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],

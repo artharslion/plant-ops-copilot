@@ -30,6 +30,7 @@
 - [AI 授权证据验证](AI_EVIDENCE_VALIDATION.md)与[告警调查验证](AI_INVESTIGATION_VALIDATION.md)：检索、授权、引用、调查编排与页面接入。
 - [AI 固定场景验证](AI_SCENARIO_VALIDATION.md)、[流式调查验证](AI_STREAMING_VALIDATION.md)与[真实模型质量验证](AI_REAL_QUALITY_VALIDATION.md)：确定性测试、流式样本与有限真实质量复核。
 - [P8.1 最小运行记录](P8_1_RUN_RECORD_VALIDATION.md)：实际 Prompt/Schema/工具指纹、旧版本未知、报告用量与保守预留，以及本轮回归/失败边界。
+- [P6 逐测点可信度](P6_POINT_TRUST_VALIDATION.md)：取证时的双维度标签、配置版本、局部失效反例及页面/工单兼容。
 - [IndustrialSim 协议演示](INDUSTRIALSIM_DEMO_VALIDATION.md)与[AI 联合演示](INDUSTRIALSIM_AI_VALIDATION.md)：有限 OPC UA 采集及调查联调。
 
 历史日志、计划和验收报告记录的是对应时间与范围内的结果；旧测试数量、失败记录和阶段结论不代表当前完整能力。当前功能概览见项目首页，具体证据与限制以对应验收文档为准。

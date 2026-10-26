@@ -55,6 +55,7 @@ public sealed class InvestigationServiceTests
             .SetProperty(x => x.PromptVersion, "investigation-extractive-v1").SetProperty(x => x.InputTokens, 123));
         var legacy = (await Get(s, run.Id))!;
         Assert.Null(legacy.RunRecord);
+        Assert.Null(legacy.Assessment);
         Assert.Equal(123, legacy.InputTokens);
         var stored = await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id);
         Assert.Equal("investigation-extractive-v1", stored.PromptVersion);
@@ -87,7 +88,7 @@ public sealed class InvestigationServiceTests
         Assert.Equal("fake", run.Model);
         Assert.NotNull(run.Result);
         var record = run.RunRecord!.Value;
-        Assert.Equal("investigation-extractive-v8", record.GetProperty("promptVersion").GetString());
+        Assert.Equal("investigation-extractive-v9", record.GetProperty("promptVersion").GetString());
         var requestRecord = Assert.Single(record.GetProperty("requests").EnumerateArray());
         Assert.Equal(64, requestRecord.GetProperty("requestSha256").GetString()!.Length);
         Assert.Equal(64, requestRecord.GetProperty("systemPromptSha256").GetString()!.Length);
@@ -97,7 +98,7 @@ public sealed class InvestigationServiceTests
         Assert.Equal("simulated", record.GetProperty("usage").GetProperty("source").GetString());
         Assert.False(record.GetProperty("usage").GetProperty("complete").GetBoolean());
         Assert.Equal(System.Text.Json.JsonValueKind.Null, record.GetProperty("usage").GetProperty("actualInputTokens").ValueKind);
-        Assert.Equal("investigation-extractive-v8", (await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id)).PromptVersion);
+        Assert.Equal("investigation-extractive-v9", (await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id)).PromptVersion);
         Assert.Contains(run.Evidence, x => x.Kind == "Alarm");
         Assert.Contains(run.Evidence, x => x.Kind == "Trend");
         Assert.Contains(run.Evidence, x => x.Kind == "Maintenance");
@@ -270,7 +271,7 @@ public sealed class InvestigationServiceTests
         run = (await Get(s, run.Id))!;
         Assert.Equal("Failed", run.Status);
         Assert.Equal("Unavailable", run.FailureCode);
-        Assert.Equal("investigation-extractive-v8", run.RunRecord!.Value.GetProperty("promptVersion").GetString());
+        Assert.Equal("investigation-extractive-v9", run.RunRecord!.Value.GetProperty("promptVersion").GetString());
         Assert.Null(run.Result);
         Assert.NotEmpty(run.Evidence);
         Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync($"/api/v1/alarms/{alarm.Id}")).StatusCode);

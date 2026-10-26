@@ -1495,6 +1495,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("PointId")
                         .HasColumnType("uuid");
 
+                    b.Property<long?>("PointVersion")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Quality")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1533,6 +1536,9 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("SourceTimestamp")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("SourceVersion")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("StatusSymbol")
                         .HasMaxLength(128)

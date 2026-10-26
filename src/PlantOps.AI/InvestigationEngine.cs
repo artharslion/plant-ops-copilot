@@ -13,7 +13,12 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
     public const string SafeSummary = "调查已完成；结论仍需现场验证。";
-    public const string PromptVersion = "investigation-extractive-v8";
+    public const string PromptVersion = "investigation-extractive-v9";
+    private const string AssessmentInstructions = "\nAssessment and PointStatus are server-computed, authoritative labels scoped to CurrentReadingsAtAsOf. "
+        + "Do not rewrite the labels. Keep current assessments separate from historical event/windows. A bad temperature point does not negate trusted vibration evidence. "
+        + "Present means observed threshold evidence, not duration, root cause or safety. NotFound is limited to inspected points and enabled thresholds. "
+        + "Source health/KeepAlive is not measurement freshness; silence in Changes mode does not prove sensor failure. Read the supplied point reasons and acknowledge unknown identity/coverage.";
+
     private const string Instructions = "\nChinese. If factRendering=server, return observations=[] and summary EXACTLY 调查已完成；结论仍需现场验证。 The server renders authoritative observations and factual summary; do not copy them into the response. If factRendering=model, observations must equal requiredObservations EXACTLY without paraphrasing. Current normal never replaces the event. "
         + "Summary copies up to three observation sentences joined with newline: trigger, recovery, separate current; or exactly: 调查已完成；结论仍需现场验证。 "
         + "Hypotheses OPTIONAL; default [] unless an observed fact distinguishes a cause. Restating a short vibration excursion, a manual alone, or missing data is NOT a cause hypothesis. Prefix 可能/待验证, weak/moderate; basis must COPY ONE ENTIRE observed Fact character-for-character, never summarize several facts; limitations=what cannot be concluded; verification=discriminating read-only check. "
@@ -83,6 +88,24 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         var summary = result.Observations.Any(x => x.Text == result.Summary)
             ? result.Summary : result.Summary.Replace("\\n", "\n", StringComparison.Ordinal);
         var summaryFacts = summary.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var assessment = InvestigationAssessmentPolicy.FromEvidence(evidence);
+        if (assessment != null)
+        {
+            var advice = result.Hypotheses.SelectMany(x => new[] { x.Text, x.Verification, x.Limitations ?? "" })
+                .Concat(result.NextChecks.SelectMany(x => new[] { x.Text, x.Record ?? "", x.Completion ?? "", x.Escalation ?? "" }))
+                .Concat(result.MissingInformation);
+            foreach (var text in advice)
+            {
+                var data = Regex.Match(text, @"当前数据可信度[：:]\s*(部分可信|不可验证|可信)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+                var anomaly = Regex.Match(text, @"当前设备异常证据[：:]\s*(证据不足|未发现|存在)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+                if (data.Success && data.Groups[1].Value != InvestigationAssessmentPolicy.TrustLabel(assessment.DataTrust)
+                    || anomaly.Success && anomaly.Groups[1].Value != InvestigationAssessmentPolicy.AnomalyLabel(assessment.AnomalyEvidence)
+                    || Regex.IsMatch(text, @"(?:已确认|证明|保证|说明|判定|确认)(?:全设备|设备)(?:完全|绝对|运行)?(?:正常|安全|无异常)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
+                {
+                    throw new LlmException(LlmFailure.InvalidResponse);
+                }
+            }
+        }
         if (result.Summary != SafeSummary && !result.Observations.Any(x => x.Text == summary) && (summaryFacts.Length is < 1 or > 3
             || summaryFacts.Distinct(StringComparer.Ordinal).Count() != summaryFacts.Length
             || summaryFacts.Any(f => !result.Observations.Any(x => x.Text == f))))
@@ -154,10 +177,10 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             var x = result.Hypotheses[i];
             if (!(x.Text.StartsWith("可能", StringComparison.Ordinal) || x.Text.StartsWith("待验证", StringComparison.Ordinal))
             || x.Support == "strong" || x.Text.Contains("已确认", StringComparison.Ordinal)
-            || x.EvidenceIds.All(id => ledger[id].Kind is "DataQuality" or "Document" or "Asset")
+            || x.EvidenceIds.All(id => ledger[id].Kind is "DataQuality" or "Document" or "Asset" or "Assessment" or "PointStatus")
             || string.IsNullOrWhiteSpace(x.Basis) || x.Basis.Length > 2000
             || x.Basis.Contains("不可查询", StringComparison.Ordinal) || x.Basis.Contains("未查询到", StringComparison.Ordinal) || x.Basis.Contains("无可用分钟聚合", StringComparison.Ordinal)
-            || !x.EvidenceIds.Any(id => ledger[id].Kind is not ("DataQuality" or "Document" or "Asset") && ledger[id].Facts.Contains(x.Basis, StringComparer.Ordinal)))
+            || !x.EvidenceIds.Any(id => ledger[id].Kind is not ("DataQuality" or "Document" or "Asset" or "Assessment" or "PointStatus") && ledger[id].Facts.Contains(x.Basis, StringComparer.Ordinal)))
             {
                 throw Invalid("hypothesis-observed-basis", i);
             }
@@ -260,7 +283,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             initialEvidence = ForModel(ledger, inputLimit);
             messages =
             [
-                new(LlmRole.System, InvestigationContract.SystemPrompt + instructions),
+                new(LlmRole.System, InvestigationContract.SystemPrompt + (ledger.Any(x => x.Kind == "Assessment") ? AssessmentInstructions : "") + instructions),
                 new(LlmRole.User, JsonSerializer.Serialize(new { mode = PromptVersion, factRendering = renderFacts ? "server" : "model", requiredObservations = RequiredObservations(ledger), evidence = initialEvidence }, Json))
             ];
             // Include schema, tools and protected facts in the input reservation,
@@ -301,7 +324,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     selected.Provider == "Fake" ? "fake" : selected.Model,
                     selected.Provider == "Fake" ? null : selected.ReasoningEffort,
                     selected.Provider != "Fake" && selected.StreamResponses))),
-                trustPolicyVersion = "authorized-ledger-fact-validation-v8",
+                trustPolicyVersion = InvestigationAssessmentPolicy.Version + "/authorized-ledger-fact-validation-v8",
                 evidencePolicyVersion = "event-recovery-current-related-v1",
                 serverRenderedFacts = renderFacts,
                 provider = selected.Provider,
@@ -420,6 +443,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         var items = evidence.OrderBy(x => x.Kind switch
         {
             "Alarm" => 0,
+            "Assessment" => 0,
+            "PointStatus" => 1,
             "Asset" => 1,
             "EventTrend" => 2,
             "RecoveryTrend" => 3,

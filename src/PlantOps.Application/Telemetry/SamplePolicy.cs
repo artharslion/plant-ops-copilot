@@ -50,6 +50,8 @@ public static class SamplePolicy
             DataSourceId = c.DataSourceId,
             SourceMappingId = c.MappingId,
             MappingVersion = c.MappingVersion,
+            SourceVersion = c.SourceVersion,
+            PointVersion = c.PointVersion,
             RawStatusCode = sample.RawStatusCode,
             StatusSymbol = sample.StatusSymbol,
             Quality = sample.Quality,

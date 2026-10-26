@@ -11,6 +11,42 @@ const proposalDirty = computed(() => !!proposalPanel.value?.dirty)
 defineExpose({ busy: proposalBusy, dirty: proposalDirty })
 type Evidence = { id: string; kind: string; title: string; facts: string[]; retrievedAt: string }
 type Statement = { text: string; evidenceIds: string[] }
+type PointStatus = {
+  pointId: string
+  code: string
+  unit: string
+  sourceKind: string | null
+  currentTrust: string
+  currentAnomaly: string
+  reasons: string[]
+  observation: {
+    value: number | null
+    quality: string
+    effectiveAt: string
+    receivedAt: string
+    timestampOrigin: string
+  } | null
+  health: { state: string; isCurrent: boolean } | null
+  windows: {
+    kind: string
+    from: string
+    to: string
+    retrievedAt: string
+    trust: string
+    goodCount: number
+    badCount: number
+    uncertainCount: number
+    hasGap: boolean
+  }[]
+}
+type Assessment = {
+  asOf: string
+  dataTrust: string
+  anomalyEvidence: string
+  uninspectedPointCount: number
+  points: PointStatus[]
+  evidenceIds: string[]
+}
 type Answer = {
   summary: string
   observations: Statement[]
@@ -40,6 +76,7 @@ type Run = {
   toolCalls?: number
   inputTokens?: number
   outputTokens?: number
+  assessment?: Assessment | null
   runRecord?: {
     leaseAttempt?: number
     usage: {
@@ -67,6 +104,37 @@ const elapsed = computed(() =>
     : 0,
 )
 const selected = computed(() => runs.value.find((run) => run.id === selectedId.value) ?? null)
+const trustLabels: Record<string, string> = {
+  Trusted: '可信',
+  Partial: '部分可信',
+  Unverifiable: '不可验证',
+}
+const anomalyLabels: Record<string, string> = {
+  Present: '存在',
+  NotFound: '未发现',
+  Insufficient: '证据不足',
+}
+const reasonLabels: Record<string, string> = {
+  ConfigurationUnverified: '当前配置身份未核实',
+  ConfigurationVersionUnverified: '读数的来源／测点版本未知或已变化',
+  ObservationUnavailable: '原始观测不可查询',
+  QualityUntrusted: '观测质量不可信',
+  ObservationUntrusted: '观测存在可信度限制',
+  AfterAsOf: '观测晚于取证截止',
+  StaleObservation: '观测已陈旧',
+  ObservationTimeUnknown: '仅有接收时间，观测时间未知',
+  MappingChanged: '读数与当前映射不一致',
+  SourceHealthUnverified: '来源健康缺失、过期或版本不一致',
+  SourceNotConnected: '来源未连接',
+  SamplingContractUnknown: '采样契约未知',
+  SilenceDoesNotProveFailure: '按变化通知的静默不证明故障',
+  NoApplicableThreshold: '缺少适用的启用阈值',
+  ThresholdComparisonOnly: '仅比较当前值与启用阈值，不确认持续超限',
+  ThresholdScopeTruncated: '启用规则范围已截断',
+}
+function reasons(point: PointStatus) {
+  return point.reasons.map((reason) => reasonLabels[reason] ?? reason).join('；')
+}
 const usageNote = computed(() => {
   const record = selected.value?.runRecord
   const usage = record?.usage
@@ -273,6 +341,62 @@ onUnmounted(() => {
       <ul v-if="selected.warnings.length" class="investigation-warnings">
         <li v-for="warning in selected.warnings" :key="warning">{{ warning }}</li>
       </ul>
+      <article v-if="selected.assessment" aria-label="数据可信度与异常证据">
+        <h4>
+          当前数据可信度：{{ trustLabels[selected.assessment.dataTrust] ?? '不可验证' }} ·
+          当前设备异常证据：{{ anomalyLabels[selected.assessment.anomalyEvidence] ?? '证据不足' }}
+        </h4>
+        <p class="path-note">
+          截至
+          {{ at(selected.assessment.asOf) }}
+          的取证快照，不代表页面此刻状态。仅限下列测点与启用阈值；未检查启用测点
+          {{ selected.assessment.uninspectedPointCount }}
+          个。历史窗口单列；这些判断不确认根因、持续超限或设备安全。
+        </p>
+        <div
+          v-for="(point, index) in selected.assessment.points"
+          :key="point.pointId"
+          class="investigation-statement"
+        >
+          <p>
+            <strong>{{ point.code }}</strong
+            >：{{ trustLabels[point.currentTrust] ?? '不可验证' }}／异常证据{{
+              anomalyLabels[point.currentAnomaly] ?? '证据不足'
+            }}；观测 {{ point.observation?.value ?? '无值' }} {{ point.unit }}，质量
+            {{ point.observation?.quality ?? '未知' }}。
+          </p>
+          <p class="path-note">
+            {{ reasons(point) }}。来源 {{ point.sourceKind ?? '未知' }}；来源健康
+            {{ point.health?.state ?? '未知'
+            }}{{ point.health && !point.health.isCurrent ? '（记录已过期或版本不一致）' : '' }}。
+          </p>
+          <p v-if="point.observation" class="path-note">
+            有效时间 {{ at(point.observation.effectiveAt) }}；接收时间
+            {{ at(point.observation.receivedAt) }}；时间来源
+            {{ point.observation.timestampOrigin }}。
+          </p>
+          <details v-if="point.windows.length">
+            <summary>历史及完成分钟窗口的质量与覆盖</summary>
+            <p class="path-note">
+              分钟投影未保留逐样本的完整来源版本，因此有值窗口仍仅为部分核实，不能据此认定连续趋势。
+            </p>
+            <p v-for="window in point.windows" :key="window.kind" class="path-note">
+              {{ at(window.from) }} 至 {{ at(window.to) }}：{{
+                trustLabels[window.trust] ?? '不可验证'
+              }}；可信 {{ window.goodCount }}，Bad {{ window.badCount }}，Uncertain
+              {{ window.uncertainCount }}；{{ window.hasGap ? '存在缺口' : '未记录缺口' }}；查询时间
+              {{ at(window.retrievedAt) }}。仅代表已入库完成分钟。
+            </p>
+          </details>
+          <el-button
+            v-if="selected.assessment.evidenceIds[index]"
+            type="primary"
+            class="secondary citation"
+            @click="expand(selected.assessment.evidenceIds[index]!)"
+            >查看测点依据 {{ selected.assessment.evidenceIds[index] }}</el-button
+          >
+        </div>
+      </article>
       <div v-if="selected.result" class="investigation-columns">
         <article>
           <h4>有据可查的事实</h4>

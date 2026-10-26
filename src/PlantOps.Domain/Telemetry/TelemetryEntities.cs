@@ -101,6 +101,16 @@ public sealed class SourceMapping
 
 public sealed class MeasurementReading
 {
+    public long? SourceVersion
+    {
+        get; set;
+    }
+
+    public long? PointVersion
+    {
+        get; set;
+    }
+
     public DateOnly EffectiveDate
     {
         get; set;
