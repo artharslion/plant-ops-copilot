@@ -276,6 +276,82 @@ public sealed class InvestigationServiceTests
     public Task CleanedRawEventKeepsAlarmSnapshotAndRetainedAggregates() => DelayedEvidence(true);
 
     [DatabaseFact]
+    public async Task RelatedTrendsAreAutomaticallyAlignedBoundedAndRetainUnavailableAndQualityEvidence()
+    {
+        var clock = new AlarmTests.Clock();
+        await using var s = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection());
+        await s.Initialize();
+        await s.Login();
+        var config = s.Factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+        config["AI:MaxInputTokens"] = "32000";
+        config["AI:MaxOutputTokens"] = "6000";
+        config["AI:ServerRenderedFacts"] = "true";
+        var (fixture, alarm) = await Alarm(s, clock);
+        async Task<PointOverview> Point(Guid asset, string code, bool enabled = true)
+        {
+            var response = await s.Client.PostAsJsonAsync($"/api/v1/assets/{asset}/measurement-points", new PointInput(code, code, "Temperature", "degC", Enabled: enabled));
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<PointOverview>())!;
+        }
+        var reference = await Point(fixture.Asset.Id, "REFERENCE_TEMPERATURE");
+        var temperature = await Point(fixture.Asset.Id, "TEMPERATURE");
+        var capped = await Point(fixture.Asset.Id, "ZZ_OTHER");
+        var disabled = await Point(fixture.Asset.Id, "AA_DISABLED", false);
+        var otherAsset = await s.Create("assets", fixture.Asset.PlantId);
+        var foreign = await Point(otherAsset.Id, "FOREIGN");
+        config["OpcUa:LocalRuntimeEnabled"] = "true";
+        const string prefix = "OpcUa:ApprovedEndpoints:local-runtime:";
+        config[prefix + "Url"] = OpcUaRuntimeTests.Endpoint.Url;
+        config[prefix + "ApplicationUri"] = OpcUaRuntimeTests.Endpoint.ApplicationUri;
+        config[prefix + "NamespaceUri"] = OpcUaRuntimeTests.Endpoint.NamespaceUri;
+        config[prefix + "CertificateRoot"] = OpcUaRuntimeTests.Endpoint.CertificateRoot;
+        config[prefix + "Nodes:0"] = "String:plantops-p101/temperature";
+        var sourceResponse = await s.Client.PostAsJsonAsync($"/api/v1/plants/{fixture.Asset.PlantId}/data-sources",
+            new SourceInput("Temperature fixture", Kind: "OpcUa", OpcUa: new("local-runtime")));
+        Assert.Equal(HttpStatusCode.Created, sourceResponse.StatusCode);
+        var sourceDto = (await sourceResponse.Content.ReadFromJsonAsync<SourceDto>())!;
+        var mapping = await s.Client.PostAsJsonAsync($"/api/v1/assets/{fixture.Asset.Id}/measurement-points/{temperature.Id}/source-mappings",
+            new MappingInput(sourceDto.Id, "temperature", RawUnit: "degC", OpcUa: new(OpcUaRuntimeTests.Endpoint.NamespaceUri, "String", "plantops-p101/temperature")));
+        Assert.Equal(HttpStatusCode.Created, mapping.StatusCode);
+        await using var scope = s.Factory.Services.CreateAsyncScope();
+        var source = (await scope.ServiceProvider.GetRequiredService<ISourceConfigurationReader>().GetEnabledAsync()).Single(x => x.PointId == temperature.Id);
+        var minute = new DateTimeOffset(alarm.StartedAt.Year, alarm.StartedAt.Month, alarm.StartedAt.Day, alarm.StartedAt.Hour, alarm.StartedAt.Minute, 0, TimeSpan.Zero);
+        await scope.ServiceProvider.GetRequiredService<ISourceRuntimeStore>().ActivateAsync([source],
+            [new(temperature.Id, source.MappingId, source.MappingVersion, minute, "Periodic", 1000, 1000, 10)], default);
+        foreach (var (at, value, quality) in new[] { (minute.AddSeconds(10), 80d, "Good"), (minute.AddSeconds(11), 99d, "Bad"), (minute.AddHours(1).AddMinutes(-1).AddSeconds(10), 40d, "Good") })
+        {
+            clock.Now = at;
+            await scope.ServiceProvider.GetRequiredService<IMeasurementIngestor>().IngestAsync([SamplePolicy.Normalize(source, value, quality, at, null, at, at.ToString("O"))]);
+        }
+        clock.Now = minute.AddHours(1);
+        await scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>().AggregateAsync();
+        var run = await Create(s, alarm.Id);
+        await Process(s);
+        run = (await Get(s, run.Id))!;
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        var related = run.Evidence.Where(x => x.Kind == "RelatedTrend").ToArray();
+        Assert.Equal(2, related.Length);
+        Assert.DoesNotContain(related, x => new[] { capped.Id, disabled.Id, foreign.Id }.Contains(x.ResourceId));
+        var temp = Assert.Single(related, x => x.ResourceId == temperature.Id);
+        Assert.Contains(temp.Facts, x => x.Contains("最小值 80 degC") && x.Contains("触发事件窗口"));
+        Assert.Contains(temp.Facts, x => x.Contains("最小值 40 degC") && x.Contains("调查当前窗口"));
+        Assert.Contains(temp.Facts, x => x.Contains("Bad 1"));
+        Assert.Contains(Assert.Single(related, x => x.ResourceId == reference.Id).Facts, x => x.Contains("无可用完成分钟聚合"));
+        Assert.Contains(run.Warnings, x => x.Contains("TEMPERATURE") && x.Contains("低质量"));
+        Assert.Contains(run.Warnings, x => x.Contains("超过自动读取上限"));
+        var comparison = Assert.Single(run.Evidence, x => x.Kind == "RelatedComparison");
+        Assert.Contains(run.Result!.Value.GetProperty("observations").EnumerateArray(), x => x.GetProperty("text").GetString() == comparison.Facts[0]);
+        Assert.Equal(5, run.ToolCalls);
+        Assert.Equal(comparison.Sha256, (await s.Client.GetFromJsonAsync<InvestigationEvidence>($"/api/v1/investigations/{run.Id}/evidence/{comparison.Id}"))!.Sha256);
+        var proposalResponse = await s.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
+        Assert.Equal(HttpStatusCode.OK, proposalResponse.StatusCode);
+        var proposal = (await proposalResponse.Content.ReadFromJsonAsync<ActionProposalDto>())!;
+        Assert.Contains("已自动读取的关联趋势", proposal.Draft!.Description);
+        Assert.Contains(comparison.Facts[0], proposal.Draft.Description);
+        Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders.CountAsync());
+    }
+
+    [DatabaseFact]
     public async Task ExpandedConfiguredBudgetReachesGatewayAndKeepsTheRunBounded()
     {
         var clock = new AlarmTests.Clock();

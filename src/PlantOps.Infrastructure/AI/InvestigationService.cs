@@ -246,7 +246,12 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
             await Authorize(active.Token);
             var actor = new Actor(run.ActorUserId, run.CorrelationId);
             var selectedAlarm = await alarms.GetAsync(actor, run.AlarmId);
-            var point = (await telemetry.PointsAsync(actor, run.AssetId)).Single(x => x.Id == selectedAlarm.PointId);
+            var assetPoints = await telemetry.PointsAsync(actor, run.AssetId);
+            var point = assetPoints.Single(x => x.Id == selectedAlarm.PointId);
+            // Same-asset candidates are contextual measurements, not a claim of
+            // a physical dependency. Bound automatic reads independently of AI.
+            var relatedCandidates = assetPoints.Where(x => x.Id != point.Id && x.Enabled).OrderBy(x => x.Code, StringComparer.Ordinal).ToArray();
+            var relatedPoints = relatedCandidates.Take(2).ToArray();
             var capturedAt = clock.GetUtcNow();
             InvestigationEvidence Add(string kind, string title, Guid resource, string[] facts, string? sourceHash = null, Guid? version = null, Guid? chunk = null)
             {
@@ -348,6 +353,48 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                                 selected.Select(x => $"点位 {point.Code}，样本 {x.Id}，有效时间 {Time(x.EffectiveAt)}，值 {(x.Value.HasValue ? Number(x.Value.Value) : "无值")} {point.CanonicalUnit}，质量 {x.Quality}，时间异常 {x.TimeAnomaly}，前置缺口 {x.GapBefore}，来源 {x.DataSourceId}，映射 {x.SourceMappingId}，映射版本 {x.MappingVersion}，协议 {x.SourceKind}；协议源时间不等于物理采样时间。")
                                     .DefaultIfEmpty("事件原始观测不可查询；使用历史告警快照和可用分钟聚合，不补造事件样本。").ToArray()));
                         }
+                        if (relatedPoints.Length > 0 && !ledger.Any(x => x.Kind == "RelatedComparison"))
+                        {
+                            var comparison = new List<string>();
+                            foreach (var related in relatedPoints)
+                            {
+                                var relatedFacts = new List<string>
+                                {
+                                    $"关联点位 {related.Code}；物理量 {related.Quantity}；单位 {related.CanonicalUnit}；来源 {related.SourceKind ?? "未登记"}；映射 {related.MappingId?.ToString() ?? "未登记"}；映射版本 {related.MappingVersion?.ToString(CultureInfo.InvariantCulture) ?? "未登记"}；同设备对照候选不等于已确认物理关联。"
+                                };
+                                foreach (var window in InvestigationWindows.Create(selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
+                                {
+                                    await Authorize(token);
+                                    var relatedTrend = await telemetry.TrendAsync(actor, run.AssetId, related.Id, window.From, window.To, "1m");
+                                    var available = relatedTrend.Buckets.Where(x => x.Min.HasValue && x.Max.HasValue).ToArray();
+                                    var prefix = $"关联点位 {related.Code} 的{window.Label} [{Time(relatedTrend.From)}, {Time(relatedTrend.To)})";
+                                    var summary = available.Length == 0
+                                        ? prefix + "无可用完成分钟聚合；未聚合、已清理或未入库待核实。"
+                                        : prefix + $"：可用分钟 {available.Length}，最小值 {Number(available.Min(x => x.Min!.Value))} {relatedTrend.Unit}，最大值 {Number(available.Max(x => x.Max!.Value))} {relatedTrend.Unit}，可信样本数 {available.Sum(x => x.GoodCount)}。";
+                                    if (window.Kind != "Trend" && window.To <= (window.Kind == "EventTrend" ? selectedAlarm.StartedAt : selectedAlarm.RecoveredAt))
+                                    {
+                                        summary += "锚点所在分钟尚未结束，以上聚合不含锚点所在分钟。";
+                                    }
+                                    comparison.Add(summary);
+                                    relatedFacts.Add(summary);
+                                    foreach (var bucket in relatedTrend.Buckets.OrderBy(x => x.Start))
+                                    {
+                                        relatedFacts.Add($"关联点位 {related.Code} 的{window.Label}；分钟 {Time(bucket.Start)}；最小值 {(bucket.Min.HasValue ? Number(bucket.Min.Value) : "无值")}，最大值 {(bucket.Max.HasValue ? Number(bucket.Max.Value) : "无值")} {relatedTrend.Unit}；Good {bucket.GoodCount}，Bad {bucket.BadCount}，Uncertain {bucket.UncertainCount}，时间异常 {bucket.AnomalyCount}，缺口 {bucket.HasGap}，采样模式 {bucket.SamplingMode}。");
+                                    }
+                                    foreach (var warning in InvestigationWindows.Quality(relatedTrend, window.Label, related.Code, selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
+                                    {
+                                        warnings.Add(warning);
+                                    }
+                                }
+                                supplied.Add(Add("RelatedTrend", "关联点位同期趋势 · " + related.Code, related.Id, relatedFacts.ToArray()));
+                            }
+                            supplied.Add(Add("RelatedComparison", "自动关联趋势对照摘要", run.AlarmId,
+                                [string.Join("\n", comparison) + "\n以上采用与告警点位相同的 UTC 窗口，仅含完成分钟聚合；分钟极值不能证明亚分钟同步、现场工况或因果关系，空窗口不等于测点不存在。"]));
+                        }
+                        else
+                        {
+                            supplied.AddRange(ledger.Where(x => x.Kind is "RelatedTrend" or "RelatedComparison"));
+                        }
                         break;
                     case "get_recent_alarms":
                         var alarmPage = await alarms.ListAsync(actor, run.PlantId, null, run.AssetId, 100, null);
@@ -405,7 +452,11 @@ public sealed class InvestigationService(PlantOpsDbContext db, IAlarmService ala
                 });
                 await ReadTool(tool, args, timeout.Token);
             }
-            warnings.Add("调查取数范围：自动趋势仅覆盖所选告警点位，未自动提供关联测点同期趋势；如需对照应经授权补查，不能将未提供理解为不存在数据。");
+            warnings.Add(relatedPoints.Length == 0
+                ? "调查取数范围：已自动查询同设备授权点位目录，未找到其他启用的对照候选；不能据此断言现场不存在关联测点。"
+                : "调查取数范围：已自动读取告警点位及同设备对照候选 " + string.Join("、", relatedPoints.Select(x => x.Code))
+                    + " 的事件、恢复及当前完成分钟趋势；具体窗口和缺项见证据。候选按点位编号排序最多两个，不能据此确认物理关联；其余候选、跨设备趋势及现场工况未自动读取。"
+                    + (relatedCandidates.Length > relatedPoints.Length ? "同设备候选超过自动读取上限，目录并非完整现场关联清单。" : ""));
             if (warnings.Count > 0)
             {
                 Add("DataQuality", "服务端数据质量与范围提示", run.AlarmId, warnings.Order().ToArray());

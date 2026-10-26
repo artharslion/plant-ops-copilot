@@ -12,17 +12,18 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
     public const string SafeSummary = "调查已完成；结论仍需现场验证。";
-    public const string PromptVersion = "investigation-extractive-v7.1";
+    public const string PromptVersion = "investigation-extractive-v8";
     private const string Instructions = "\nChinese. If factRendering=server, return observations=[] and summary EXACTLY 调查已完成；结论仍需现场验证。 The server renders authoritative observations and factual summary; do not copy them into the response. If factRendering=model, observations must equal requiredObservations EXACTLY without paraphrasing. Current normal never replaces the event. "
         + "Summary copies up to three observation sentences joined with newline: trigger, recovery, separate current; or exactly: 调查已完成；结论仍需现场验证。 "
-        + "Hypotheses OPTIONAL; default [] unless an observed fact distinguishes a cause. Restating a short vibration excursion, a manual alone, or missing data is NOT a cause hypothesis. Prefix 可能/待验证, weak/moderate; basis must COPY ONE ENTIRE requiredObservation text character-for-character, never summarize several facts; limitations=what cannot be concluded; verification=discriminating read-only check. "
+        + "Hypotheses OPTIONAL; default [] unless an observed fact distinguishes a cause. Restating a short vibration excursion, a manual alone, or missing data is NOT a cause hypothesis. Prefix 可能/待验证, weak/moderate; basis must COPY ONE ENTIRE observed Fact character-for-character, never summarize several facts; limitations=what cannot be concluded; verification=discriminating read-only check. "
+        + "RelatedTrend and RelatedComparison are automatically queried same-asset candidate trends with aligned UTC event/recovery/current windows. Analyze their actual supplied values and quality before proposing checks. Never task humans to fetch these already supplied trends or mark them unprovided. Limit follow-up to explicit unavailable windows, external operating conditions, physical mapping or remaining uncertainty. Completed-minute extrema do not prove sub-minute synchrony or cause. Same asset is not proof of physical relation. "
         + "nextChecks MUST contain two to four targeted read-only checks, also in server rendering mode; empty nextChecks is rejected. Each: text=task, record=specific evidence to record, completion=verifiable acceptance condition (全部…且…后完成), escalation=condition and responsible role. Never use 未完成/部分完成/待补证 as completion. Reuse supplied facts; do not task humans to re-fetch them. "
         + "Known but weak maintenance records are not missing records. omittedFactCount means facts exist in the ledger but were not supplied due to input limits; NEVER call them absent/empty/unqueryable. MissingInformation names only genuinely missing evidence, not unacknowledged alarm state. "
         + "If raw history is explicitly unqueryable, use retained alarm/minute evidence; record the limit and retention/handoff review. Do not demand reconstruction of lost samples as completion; allow documented unavailability plus responsible review, without claiming the missing history was verified. "
         + "Numbers/IDs only inside entire cited Facts, including advice and missingInformation. Outside copied facts avoid 设置/设定/改为/调节/调整/写入/停机/开机/启动/停止/复位/修改阈值 even in negations. Demos lack field authority. Sampling, KeepAlive and constant values prove no fault or notification rate. "
         + "dataWarnings=[]; omit root evidenceIds. existingEvidenceIds=fully supplied; query only missing data.";
 
-    private const string CompactInstructions = "\nChinese. Copy requiredObservations exactly; event/current separate. Summary=observation or 调查已完成；结论仍需现场验证。 Optional hypotheses: 可能/待验证, weak/moderate, entire observed basis, limitations, distinguishing verification. No manual-only causes. Checks cite facts: record, completion condition, escalation. Only whole cited facts may contain numbers/IDs; no controls. Input omissions are not data loss. dataWarnings=[]; omit root evidenceIds. existingEvidenceIds=fully supplied.";
+    private const string CompactInstructions = "\nChinese. Copy requiredObservations exactly; event/current separate. Summary=observation or 调查已完成；结论仍需现场验证。 Optional hypotheses: 可能/待验证, weak/moderate, entire observed basis, limitations, distinguishing verification. No manual-only causes. Use supplied RelatedTrend/RelatedComparison before checks; do not request them again. Checks cite facts: record, completion condition, escalation. Only whole cited facts may contain numbers/IDs; no controls. Input omissions are not data loss. dataWarnings=[]; omit root evidenceIds. existingEvidenceIds=fully supplied.";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private static readonly LlmTool[] Tools =
@@ -214,7 +215,10 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         var recovery = items.Where(x => x.Kind == "Alarm").SelectMany(x => x.Facts)
             .Select(x => Regex.Match(x, @"恢复时间为 ([^，]+)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
             .FirstOrDefault(x => x.Success)?.Groups[1].Value;
+        var hasComparison = items.Any(x => x.Kind == "RelatedComparison");
+        var triggerInRaw = trigger != null && items.Any(x => x.Kind == "EventReadings" && x.Facts.Any(f => f.Contains(trigger.ResourceId.ToString(), StringComparison.Ordinal)));
         var raw = items.Where(x => x.Kind is "TriggerReading" or "EventReadings" or "RecoveryReadings")
+            .Where(x => !hasComparison || !triggerInRaw || x.Kind != "TriggerReading")
             .Select(x =>
             {
                 var fact = x.Kind switch
@@ -226,7 +230,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 } ?? x.Facts.FirstOrDefault();
                 return fact == null ? null : new InvestigationObservation(fact, [x.Id]);
             }).OfType<InvestigationObservation>();
-        return core.Concat(raw).GroupBy(x => x.Text, StringComparer.Ordinal)
+        return core.Concat(raw).Concat(items.Where(x => x.Kind == "RelatedComparison").SelectMany(x => x.Facts.Select(f => new InvestigationObservation(f, [x.Id]))))
+            .GroupBy(x => x.Text, StringComparer.Ordinal)
             .Select(group => new InvestigationObservation(group.Key, group.SelectMany(x => x.EvidenceIds).Distinct(StringComparer.Ordinal).Take(8).ToArray()))
             .Take(8).ToArray();
     }
@@ -397,6 +402,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             "RecoveryReadings" => 7,
             "DataQuality" => 8,
             "Maintenance" => 9,
+            "RelatedComparison" => 10,
+            "RelatedTrend" => 10,
             "Document" => 11,
             _ => 10
         }).ToArray();

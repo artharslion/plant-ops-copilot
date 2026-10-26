@@ -252,6 +252,14 @@ public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationSe
                 text.AppendLine($"[{item.Id}] {fact}");
             }
         }
+        foreach (var comparison in run.Evidence.Where(x => x.Kind == "RelatedComparison"))
+        {
+            text.AppendLine("\n已自动读取的关联趋势（调查时快照）");
+            foreach (var fact in comparison.Facts)
+            {
+                text.AppendLine($"[{comparison.Id}] {fact}");
+            }
+        }
         text.AppendLine("\n按序检查与记录");
         var index = 0;
         foreach (var check in result.GetProperty("nextChecks").EnumerateArray())

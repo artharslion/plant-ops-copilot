@@ -264,4 +264,48 @@ public sealed class InvestigationQualityTests
         var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, new HashSet<string>(["E1", "E4"]));
         Assert.Contains(scopeFact, report.MissingInformation);
     }
+
+    [Fact]
+    public async Task RelatedComparisonFitsAlongsideSeparateEventRecoveryCurrentAndRawAnchors()
+    {
+        var trigger = Alarm with
+        {
+            Id = "E2",
+            Kind = "TriggerReading",
+            Facts = ["原始触发样本值为历史值。"]
+        };
+        var eventRaw = Raw with
+        {
+            Id = "E3",
+            Facts = ["事件样本 " + trigger.ResourceId + "，质量 Good。"]
+        };
+        var recoveryRaw = Raw with
+        {
+            Id = "E4",
+            Kind = "RecoveryReadings",
+            Facts = ["恢复样本，质量 Good。"]
+        };
+        var trends = new[] { "EventTrend", "RecoveryTrend", "Trend" }.Select((kind, i) => Alarm with
+        {
+            Id = "E" + (i + 5),
+            Kind = kind,
+            Facts = [kind + " 最小值为已记录值。"]
+        }).ToArray();
+        var comparison = Alarm with
+        {
+            Id = "E8",
+            Kind = "RelatedComparison",
+            Facts = ["关联温度的事件与当前完成分钟对照已记录，因果待核实。"]
+        };
+        InvestigationEvidence[] evidence = [Alarm, trigger, eventRaw, recoveryRaw, .. trends, comparison];
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var result = await new InvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions { ServerRenderedFacts = true }))
+            .ExecuteAsync(evidence, (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
+        var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, evidence.Select(x => x.Id).ToHashSet());
+        Assert.Equal(8, report.Observations.Length);
+        Assert.Contains(report.Observations, x => x.Text == comparison.Facts[0]);
+        Assert.Contains(report.Observations, x => x.Text == eventRaw.Facts[0]);
+        Assert.Contains(report.Observations, x => x.Text == recoveryRaw.Facts[0]);
+        Assert.DoesNotContain(report.Observations, x => x.Text == trigger.Facts[0]);
+    }
 }
