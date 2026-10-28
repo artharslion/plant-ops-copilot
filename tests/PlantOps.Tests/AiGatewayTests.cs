@@ -544,7 +544,7 @@ public sealed class AiGatewayTests
                     var format = body.GetProperty("response_format");
                     Assert.Equal("json_schema", format.GetProperty("type").GetString());
                     Assert.True(format.GetProperty("json_schema").GetProperty("strict").GetBoolean());
-                    Assert.Equal("investigation_v1", format.GetProperty("json_schema").GetProperty("name").GetString());
+                    Assert.Equal("investigation_v2", format.GetProperty("json_schema").GetProperty("name").GetString());
                     var content = InvestigationContract.Serialize(new("1", "Synthetic protocol check.",
                         [new(ProviderProbe.ProbeObservation, ["E1"])], [], [], ["No field data."], [], ["E1"]));
                     return Response(JsonSerializer.Serialize(new

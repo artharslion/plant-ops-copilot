@@ -5,7 +5,7 @@ namespace PlantOps.Application.AI;
 
 public sealed record InvestigationEvidence(string Id, string Kind, string Title, string[] Facts, string Sha256,
     DateTimeOffset RetrievedAt, Guid ResourceId, Guid? VersionId = null, Guid? ChunkId = null,
-    InvestigationPointSnapshot? PointStatus = null);
+    InvestigationPointSnapshot? PointStatus = null, InvestigationDerivedTrend? DerivedTrend = null);
 
 public sealed record InvestigationToolResult(IReadOnlyList<InvestigationEvidence> Evidence, IReadOnlyList<string> Warnings);
 

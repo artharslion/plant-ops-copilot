@@ -272,6 +272,15 @@ public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationSe
                 text.AppendLine($"[{status.Id}] {status.Facts[0]}");
             }
         }
+        if (result.TryGetProperty("analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Array && analysis.GetArrayLength() > 0)
+        {
+            text.AppendLine("\n趋势分析（待人工核查）");
+            foreach (var item in analysis.EnumerateArray())
+            {
+                text.AppendLine(string.Join(" ", item.GetProperty("evidenceIds").EnumerateArray().Select(x => $"[{x.GetString()}]"))
+                    + " " + item.GetProperty("text").GetString());
+            }
+        }
         text.AppendLine("\n按序检查与记录");
         var index = 0;
         foreach (var check in result.GetProperty("nextChecks").EnumerateArray())

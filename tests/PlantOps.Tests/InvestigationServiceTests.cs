@@ -88,7 +88,7 @@ public sealed class InvestigationServiceTests
         Assert.Equal("fake", run.Model);
         Assert.NotNull(run.Result);
         var record = run.RunRecord!.Value;
-        Assert.Equal("investigation-extractive-v11", record.GetProperty("promptVersion").GetString());
+        Assert.Equal(PlantOps.AI.InvestigationEngine.PromptVersion, record.GetProperty("promptVersion").GetString());
         var requestRecord = Assert.Single(record.GetProperty("requests").EnumerateArray());
         Assert.Equal(64, requestRecord.GetProperty("requestSha256").GetString()!.Length);
         Assert.Equal(64, requestRecord.GetProperty("systemPromptSha256").GetString()!.Length);
@@ -98,7 +98,7 @@ public sealed class InvestigationServiceTests
         Assert.Equal("simulated", record.GetProperty("usage").GetProperty("source").GetString());
         Assert.False(record.GetProperty("usage").GetProperty("complete").GetBoolean());
         Assert.Equal(System.Text.Json.JsonValueKind.Null, record.GetProperty("usage").GetProperty("actualInputTokens").ValueKind);
-        Assert.Equal("investigation-extractive-v11", (await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id)).PromptVersion);
+        Assert.Equal(PlantOps.AI.InvestigationEngine.PromptVersion, (await db.AiRuns.AsNoTracking().SingleAsync(x => x.Id == run.Id)).PromptVersion);
         Assert.Contains(run.Evidence, x => x.Kind == "Alarm");
         Assert.Contains(run.Evidence, x => x.Kind == "Trend");
         Assert.Contains(run.Evidence, x => x.Kind == "Maintenance");
@@ -271,7 +271,7 @@ public sealed class InvestigationServiceTests
         run = (await Get(s, run.Id))!;
         Assert.Equal("Failed", run.Status);
         Assert.Equal("Unavailable", run.FailureCode);
-        Assert.Equal("investigation-extractive-v11", run.RunRecord!.Value.GetProperty("promptVersion").GetString());
+        Assert.Equal(PlantOps.AI.InvestigationEngine.PromptVersion, run.RunRecord!.Value.GetProperty("promptVersion").GetString());
         Assert.Null(run.Result);
         Assert.NotEmpty(run.Evidence);
         Assert.Equal(HttpStatusCode.OK, (await s.Client.GetAsync($"/api/v1/alarms/{alarm.Id}")).StatusCode);

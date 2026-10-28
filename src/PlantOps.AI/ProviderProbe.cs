@@ -25,8 +25,8 @@ public static class ProviderProbe
         new("Hello.", [], "fake", null),
         new(null, [new("probe_call_1", "get_asset_details", """{"assetId":"demo-p101"}""")], "fake", null),
         new("E1", [], "fake", null),
-        new(InvestigationContract.Serialize(new("1", "Synthetic protocol probe; no equipment diagnosis.",
-            [new(ProbeObservation, ["E1"])], [], [], ["No business or field data was used."], [], ["E1"])), [], "fake", null)
+        new(InvestigationContract.Serialize(new("2", "Synthetic protocol probe; no equipment diagnosis.",
+            [new(ProbeObservation, ["E1"])], [], [], ["No business or field data was used."], [], ["E1"], [])), [], "fake", null)
     ]);
 
     public static async Task<ProviderProbeReport> RunAsync(ILlmGateway gateway, AiOptions options, bool simulated, CancellationToken ct = default)

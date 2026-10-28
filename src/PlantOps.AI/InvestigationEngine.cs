@@ -14,7 +14,14 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
 {
     public const string SafeSummary = "调查已完成；结论仍需现场验证。";
     public const string EnglishSafeSummary = "Investigation completed; conclusions still require on-site verification.";
-    public const string PromptVersion = "investigation-extractive-v11";
+    public const string PromptVersion = "investigation-derived-v12";
+    private const string TrendInstructions = "\nAnalysis must interpret supplied raw changes in the requested language, cite BOTH the relevant DerivedTrend and selected Alarm, and distinguish event from current. "
+        + "For the alarm point, explain the non-decreasing observed sequence and its relationship to the historical threshold alarm, if supplied; this is anomaly evidence with cause unconfirmed, not a root-cause hypothesis. "
+        + "Use only server-calculated changes and RiseSegments; never derive persistence from minute extrema or bridge invalid samples/gaps/configuration versions. "
+        + "A RiseSegment allows plateaus and at least two observed increases; it proves neither continuous physical heating between samples nor threshold duration. "
+        + "When raw changes are verifiable, analysis cannot be empty or just copy a fact. Unknown raw changes must stay unknown. "
+        + "Numbers, units and IDs only in ENTIRE copied cited facts, including analysis. Do not request already supplied derived trends again. Return analysis=[] if no verifiable raw changes exist.";
+
     private const string EnglishInstructions = "\nRespond in English. Keep JSON property names and enum values unchanged. "
         + "All newly written hypotheses, checks and missingInformation MUST be English. Original evidence, observations and hypothesis basis MUST remain verbatim in their source language; never translate or paraphrase a quoted fact. "
         + "If factRendering=server, return observations=[] and summary EXACTLY: " + EnglishSafeSummary
@@ -113,7 +120,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         {
             var advice = result.Hypotheses.SelectMany(x => new[] { x.Text, x.Verification, x.Limitations ?? "" })
                 .Concat(result.NextChecks.SelectMany(x => new[] { x.Text, x.Record ?? "", x.Completion ?? "", x.Escalation ?? "" }))
-                .Concat(result.MissingInformation);
+                .Concat(result.MissingInformation).Concat((result.Analysis ?? []).Select(x => x.Text));
             foreach (var text in advice)
             {
                 var data = Regex.Match(text, @"当前数据可信度[：:]\s*(部分可信|不可验证|可信)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
@@ -216,6 +223,34 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 throw Invalid(field + "-contradicts-maintenance", index);
             }
         }
+        var changes = evidence.Where(x => x.DerivedTrend is { Change: not null } || x.DerivedTrend?.RiseSegments.Length > 0).ToArray();
+        if (changes.Length > 0 && (result.SchemaVersion != "2" || result.Analysis is not { Length: > 0 }))
+        {
+            throw Invalid("missing-trend-analysis", 0);
+        }
+        var alarmPointChanges = changes.Where(x => x.DerivedTrend!.IsAlarmPoint).ToArray();
+        if (alarmPointChanges.Length > 0 && !(result.Analysis ?? []).Any(x => alarmPointChanges.Any(e => x.EvidenceIds.Contains(e.Id, StringComparer.Ordinal))))
+        {
+            throw Invalid("missing-alarm-point-analysis", 0);
+        }
+        for (var i = 0; i < (result.Analysis?.Length ?? 0); i++)
+        {
+            var item = result.Analysis![i];
+            var citedChanges = changes.Where(x => item.EvidenceIds.Contains(x.Id, StringComparer.Ordinal)).ToArray();
+            var prose = WithoutQuotedFacts(item.Text, item.EvidenceIds).Trim();
+            if (citedChanges.Length == 0 || !item.EvidenceIds.Any(id => ledger[id].Kind == "Alarm")
+                || prose.Length < 12 || UnsupportedNumbers(item.Text, item.EvidenceIds) || WrongLanguage(item.Text, item.EvidenceIds)
+                || Regex.IsMatch(prose, @"(?:确诊|根因已确认|已确认根因|证明.*根因|设备.*安全|确定.*故障原因)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
+            {
+                throw Invalid("ungrounded-trend-analysis", i);
+            }
+            if (Regex.IsMatch(prose, @"升温|上升|非下降|\b(?:rising|rise|increas\w*|heating|non.decreasing)\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))
+                && !citedChanges.Any(x => x.DerivedTrend!.RiseSegments.Length > 0))
+            {
+                throw Invalid("unverified-rising-sequence", i);
+            }
+            CheckAvailability(item.Text, "analysis", i);
+        }
         for (var i = 0; i < result.Hypotheses.Length; i++)
         {
             var x = result.Hypotheses[i];
@@ -303,7 +338,9 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 } ?? x.Facts.FirstOrDefault();
                 return fact == null ? null : new InvestigationObservation(fact, [x.Id]);
             }).OfType<InvestigationObservation>();
-        return core.Concat(raw).Concat(items.Where(x => x.Kind == "RelatedComparison").SelectMany(x => x.Facts.Select(f => new InvestigationObservation(f, [x.Id]))))
+        var derived = items.Where(x => x.DerivedTrend is { Change: not null } || x.DerivedTrend?.RiseSegments.Length > 0)
+            .Take(3).Select(x => new InvestigationObservation(x.Facts[0], [x.Id]));
+        return derived.Concat(core).Concat(raw).Concat(items.Where(x => x.Kind == "RelatedComparison").SelectMany(x => x.Facts.Select(f => new InvestigationObservation(f, [x.Id]))))
             .GroupBy(x => x.Text, StringComparer.Ordinal)
             .Select(group => new InvestigationObservation(group.Key, group.SelectMany(x => x.EvidenceIds).Distinct(StringComparer.Ordinal).Take(8).ToArray()))
             .Take(8).ToArray();
@@ -329,6 +366,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         var inputLimit = budget.RemainingInputTokens >= 28000 ? 16000 : 8000;
         var renderFacts = options.Value.ServerRenderedFacts;
         var safeSummary = language == "en" ? EnglishSafeSummary : SafeSummary;
+        var derivedMode = ledger.Any(x => x.DerivedTrend != null);
+        var outputSchema = derivedMode ? InvestigationContract.OutputSchema : InvestigationContract.LegacyOutputSchema;
         var instructions = language == "en" ? EnglishInstructions
             : renderFacts || budget.RemainingInputTokens >= 28000 ? Instructions : CompactInstructions;
         ModelEvidence[] initialEvidence;
@@ -338,12 +377,12 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             initialEvidence = ForModel(ledger, inputLimit);
             messages =
             [
-                new(LlmRole.System, InvestigationContract.SystemPrompt + (ledger.Any(x => x.Kind == "Assessment") ? AssessmentInstructions : "") + instructions),
+                new(LlmRole.System, (derivedMode ? InvestigationContract.SystemPrompt + TrendInstructions : InvestigationContract.LegacySystemPrompt) + (ledger.Any(x => x.Kind == "Assessment") ? AssessmentInstructions : "") + instructions),
                 new(LlmRole.User, JsonSerializer.Serialize(new { mode = PromptVersion, language, factRendering = renderFacts ? "server" : "model", requiredObservations = RequiredObservations(ledger), evidence = initialEvidence }, Json))
             ];
             // Include schema, tools and protected facts in the input reservation,
             // preserving smaller configured budgets instead of raising them.
-            var initialRequest = new LlmRequest(messages, Tools, InvestigationContract.OutputSchema, MaxOutputTokens: budget.RemainingOutputTokens);
+            var initialRequest = new LlmRequest(messages, Tools, outputSchema, MaxOutputTokens: budget.RemainingOutputTokens);
             var overhead = ChatCompletionsProtocol.Serialize(initialRequest, string.IsNullOrWhiteSpace(options.Value.Model) ? "fake" : options.Value.Model,
                 options.Value.ReasoningEffort, options.Value.StreamResponses).Length + 512 - budget.RemainingInputTokens;
             if (overhead <= 0 || inputLimit <= 1024)
@@ -364,7 +403,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 throw new LlmException(LlmFailure.BudgetExceeded);
             }
             await authorize(deadline.Token);
-            var request = new LlmRequest(messages, Tools, InvestigationContract.OutputSchema,
+            var request = new LlmRequest(messages, Tools, outputSchema,
                 MaxOutputTokens: budget.RemainingOutputTokens, DisableToolCalls: correctionAttempted);
             string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
             var selected = options.Value;
@@ -373,16 +412,16 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 promptVersion = PromptVersion,
                 language,
                 systemPromptSha256 = Hash(messages[0].Content!),
-                schemaName = InvestigationContract.OutputSchema.Name,
-                schemaSha256 = Hash(InvestigationContract.OutputSchema.Schema.GetRawText()),
+                schemaName = outputSchema.Name,
+                schemaSha256 = Hash(outputSchema.Schema.GetRawText()),
                 toolsSha256 = Hash(JsonSerializer.Serialize(Tools, Json)),
                 evidenceSha256 = Hash(JsonSerializer.Serialize(ledger, new JsonSerializerOptions(JsonSerializerDefaults.Web))),
                 requestSha256 = Convert.ToHexStringLower(SHA256.HashData(ChatCompletionsProtocol.Serialize(request,
                     selected.Provider == "Fake" ? "fake" : selected.Model,
                     selected.Provider == "Fake" ? null : selected.ReasoningEffort,
                     selected.Provider != "Fake" && selected.StreamResponses))),
-                trustPolicyVersion = InvestigationAssessmentPolicy.Version + "/authorized-ledger-fact-validation-v9",
-                evidencePolicyVersion = "event-recovery-current-related-v1",
+                trustPolicyVersion = InvestigationAssessmentPolicy.Version + "/authorized-ledger-fact-validation-v10",
+                evidencePolicyVersion = "event-recovery-current-related-v1/" + InvestigationTrendPolicy.Version,
                 serverRenderedFacts = renderFacts,
                 provider = selected.Provider,
                 model = selected.Provider == "Fake" ? "fake" : selected.Model,
@@ -453,7 +492,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                                 + (language == "en" ? "Write English; use the alarm asset, alarm point or related point. " : "Use 告警设备、告警点位、关联测点. ")
                                 + "Do not delete a genuine limitation merely to pass validation. Keep the other grounded fields and server fact-rendering rules. No tool calls.")
                         };
-                        var correctionRequest = new LlmRequest(correctionMessages, Tools, InvestigationContract.OutputSchema,
+                        var correctionRequest = new LlmRequest(correctionMessages, Tools, outputSchema,
                             MaxOutputTokens: budget.RemainingOutputTokens, DisableToolCalls: true);
                         if (ChatCompletionsProtocol.Serialize(correctionRequest,
                             selected.Provider == "Fake" ? "fake" : selected.Model,
@@ -535,6 +574,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             "PointStatus" => 1,
             "Asset" => 1,
             "EventTrend" => 2,
+            "EventDerivedTrend" => 2,
+            "CurrentDerivedTrend" => 2,
             "RecoveryTrend" => 3,
             "Trend" => 4,
             "TriggerReading" => 5,
@@ -554,7 +595,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             Fact = fact,
             Priority = item.Kind switch
             {
-                "Document" => 100 + round,
+                "Document" => round == 0 ? 12 : 100 + round,
                 _ => round * 15 + index
             }
         })).OrderBy(x => x.Priority);

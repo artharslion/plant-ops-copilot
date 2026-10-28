@@ -16,7 +16,25 @@ const proposalPanel = ref<InstanceType<typeof ActionProposalPanel>>()
 const proposalBusy = computed(() => !!proposalPanel.value?.busy)
 const proposalDirty = computed(() => !!proposalPanel.value?.dirty)
 defineExpose({ busy: proposalBusy, dirty: proposalDirty })
-type Evidence = { id: string; kind: string; title: string; facts: string[]; retrievedAt: string }
+type Evidence = {
+  id: string
+  kind: string
+  title: string
+  facts: string[]
+  retrievedAt: string
+  derivedTrend?: {
+    algorithmVersion: string
+    samples: {
+      id: string
+      effectiveAt: string
+      value: number | null
+      quality: string
+      sourceVersion: number | null
+      pointVersion: number | null
+      mappingVersion: number
+    }[]
+  } | null
+}
 type Statement = { text: string; evidenceIds: string[] }
 type PointStatus = {
   pointId: string
@@ -56,6 +74,7 @@ type Assessment = {
 }
 type Answer = {
   summary: string
+  analysis?: Statement[]
   observations: Statement[]
   hypotheses: (Statement & {
     support: string
@@ -414,6 +433,26 @@ onUnmounted(() => {
           {{ t('项数据或范围提示，可在“事实、依据与限制”中核对。') }}
         </p>
       </article>
+      <article v-if="selected.result?.analysis?.length" :aria-label="t('趋势分析')">
+        <h4>{{ t('趋势分析') }}</h4>
+        <div
+          v-for="(item, index) in selected.result.analysis"
+          :key="index"
+          class="investigation-statement"
+        >
+          <p>{{ evidenceText(item.text) }}</p>
+          <el-button
+            v-for="id in item.evidenceIds"
+            :key="id"
+            link
+            type="primary"
+            class="citation"
+            @click="expand(id)"
+          >
+            {{ t('查看依据') }} {{ id }}
+          </el-button>
+        </div>
+      </article>
       <article v-if="selected.result" class="investigation-next" :aria-label="t('下一步核查')">
         <h4>{{ t('下一步核查') }}</h4>
         <p v-if="!selected.result.nextChecks.length" class="path-note">
@@ -636,6 +675,21 @@ onUnmounted(() => {
           <p v-for="(fact, index) in expanded.facts" :key="index" class="evidence-text">
             {{ formatEvidenceFact(fact, expanded.kind) }}
           </p>
+          <details v-if="expanded.derivedTrend" class="original-evidence">
+            <summary>{{ t('核对计算样本') }} · {{ expanded.derivedTrend.samples.length }}</summary>
+            <p>{{ t('算法版本') }}：{{ expanded.derivedTrend.algorithmVersion }}</p>
+            <el-table :data="expanded.derivedTrend.samples" row-key="id" max-height="320">
+              <el-table-column prop="id" :label="t('样本标识')" min-width="280" />
+              <el-table-column :label="t('有效时间')" min-width="180">
+                <template #default="{ row }">{{ at(row.effectiveAt) }}</template>
+              </el-table-column>
+              <el-table-column prop="value" :label="t('观测值')" min-width="90" />
+              <el-table-column prop="quality" :label="t('质量')" min-width="90" />
+              <el-table-column prop="sourceVersion" :label="t('来源版本')" min-width="100" />
+              <el-table-column prop="pointVersion" :label="t('测点版本')" min-width="100" />
+              <el-table-column prop="mappingVersion" :label="t('映射版本')" min-width="100" />
+            </el-table>
+          </details>
           <details v-if="locale === 'en'" class="original-evidence">
             <summary>{{ t('查看原始证据') }}</summary>
             <h5>{{ expanded.title }}</h5>

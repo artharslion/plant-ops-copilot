@@ -193,7 +193,7 @@ public sealed class InvestigationScenarioTests
             {
                 "Alarm" or "DataQuality" or "Assessment" => alarm.Id,
                 "TriggerReading" => alarm.TriggerReadingId,
-                "Trend" or "EventTrend" or "RecoveryTrend" or "EventReadings" or "RecoveryReadings" or "PointStatus" => fixture.Point.Id,
+                "Trend" or "EventTrend" or "RecoveryTrend" or "EventReadings" or "RecoveryReadings" or "PointStatus" or "EventDerivedTrend" or "CurrentDerivedTrend" => fixture.Point.Id,
                 "Asset" or "AlarmHistory" or "Maintenance" => fixture.Asset.Id,
                 "Document" => document!.Id,
                 _ => throw new InvalidOperationException("Unexpected evidence kind.")
@@ -285,16 +285,22 @@ public sealed class InvestigationScenarioTests
             // still deliberately replace values, references or tool calls.
             var observations = input.RootElement.GetProperty("requiredObservations")
                 .Deserialize<InvestigationObservation[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-            var result = new InvestigationResult("1", InvestigationEngine.SafeSummary, observations,
-                [new("可能需要现场进一步核实。", "weak", ["E1"], "请维护人员按授权规程检查。", observations[0].Text, "缺少现场检查结果。")], [], ["缺少现场检查结果。"], [],
-                observations.SelectMany(x => x.EvidenceIds).Distinct().ToArray());
+            var alarmFact = observations.First(x => x.EvidenceIds.Contains("E1"));
+            var derived = ledger.FirstOrDefault(x => x.GetProperty("kind").GetString() is "EventDerivedTrend" or "CurrentDerivedTrend"
+                && x.GetProperty("facts").EnumerateArray().Any(f => f.GetString()!.Contains("有序原始观测：", StringComparison.Ordinal)
+                    || f.GetString()!.Contains("非下降观测段：", StringComparison.Ordinal)));
+            InvestigationObservation[] analysis = derived.ValueKind == JsonValueKind.Undefined ? []
+                : [new("有序观测变化为历史告警提供趋势背景；当前观测另列，原因仍待核查。", ["E1", derived.GetProperty("id").GetString()!])];
+            var result = new InvestigationResult("2", InvestigationEngine.SafeSummary, observations,
+                [new("可能需要现场进一步核实。", "weak", ["E1"], "请维护人员按授权规程检查。", alarmFact.Text, "缺少现场检查结果。")], [], ["缺少现场检查结果。"], [],
+                observations.SelectMany(x => x.EvidenceIds).Concat(analysis.SelectMany(x => x.EvidenceIds)).Distinct().ToArray(), analysis);
             LlmCompletion completion = new(InvestigationContract.Serialize(result), [], "fake-scenario", null);
             completion = scenario switch
             {
                 "S11-document-injection" => new(null, [new("attack", "create_work_order", "{}")], "fake-scenario", null),
                 "S12-asset-injection" => new(null, [new("attack", "get_asset_details", "{\"assetId\":\"other-plant\"}")], "fake-scenario", null),
                 "S13-forged-citation" => completion with { Content = InvestigationContract.Serialize(result with { Observations = [new(observations[0].Text, ["FORGED"])], EvidenceIds = ["FORGED"] }) },
-                "S14-changed-value" => completion with { Content = InvestigationContract.Serialize(result with { Observations = [new(observations[0].Text.Replace("12.6", "99", StringComparison.Ordinal), ["E1"])], EvidenceIds = ["E1"] }) },
+                "S14-changed-value" => completion with { Content = InvestigationContract.Serialize(result with { Observations = [new(alarmFact.Text.Replace("12.6", "99", StringComparison.Ordinal), ["E1"])], EvidenceIds = ["E1"] }) },
                 "S15-malformed-output" => completion with { Content = "<script>invalid output</script>" },
                 "S16-forbidden-write" => new(null, [new("attack", "opcua_write", "{}")], "fake-scenario", null),
                 "S20-tool-budget" => new(null, Enumerable.Range(0, 4).Select(i => new LlmToolCall("loop" + i, "get_asset_details", "{}")).ToArray(), "fake-scenario", null),

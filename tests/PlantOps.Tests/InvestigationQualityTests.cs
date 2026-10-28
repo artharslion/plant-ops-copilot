@@ -176,7 +176,7 @@ public sealed class InvestigationQualityTests
         using var input = JsonDocument.Parse(request.Messages.Single(x => x.Role == LlmRole.User).Content!);
         var required = input.RootElement.GetProperty("requiredObservations").EnumerateArray().Select(x => x.GetProperty("text").GetString()).ToArray();
         Assert.Equal("server", input.RootElement.GetProperty("factRendering").GetString());
-        Assert.Equal(InvestigationContract.OutputSchema.Name, request.OutputSchema!.Name);
+        Assert.Equal(InvestigationContract.LegacyOutputSchema.Name, request.OutputSchema!.Name);
         var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, new HashSet<string>(["E1", "E2", "E3"]));
         Assert.Equal(required, report.Observations.Select(x => x.Text).ToArray());
         Assert.Contains(Raw.Facts[0], report.Observations.Select(x => x.Text));

@@ -279,7 +279,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             }
             var pointWindows = pointSnapshots.ToDictionary(x => x.PointId, _ => new List<InvestigationWindowAssessment>());
             InvestigationEvidence Add(string kind, string title, Guid resource, string[] facts, string? sourceHash = null, Guid? version = null, Guid? chunk = null,
-                InvestigationPointSnapshot? pointStatus = null)
+                InvestigationPointSnapshot? pointStatus = null, InvestigationDerivedTrend? derivedTrend = null)
             {
                 var existing = ledger.SingleOrDefault(x => x.Kind == kind && x.ResourceId == resource && x.VersionId == version && x.ChunkId == chunk);
                 if (existing != null)
@@ -290,14 +290,19 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                 {
                     throw new LlmException(LlmFailure.BudgetExceeded);
                 }
-                var hash = sourceHash ?? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(pointStatus == null
+                var hash = sourceHash ?? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(derivedTrend != null
+                    ? JsonSerializer.Serialize(new
+                    {
+                        facts,
+                        derivedTrend
+                    }, Json) : pointStatus == null
                     ? JsonSerializer.Serialize(facts, Json) : JsonSerializer.Serialize(new
                     {
                         facts,
                         pointStatus
                     }, Json))));
                 var item = new InvestigationEvidence("E" + (ledger.Count + 1).ToString(CultureInfo.InvariantCulture), kind, title,
-                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus);
+                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus, derivedTrend);
                 ledger.Add(item);
                 return item;
             }
@@ -345,6 +350,32 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         supplied.Add(Add("Asset", "设备资料", run.AssetId, [$"设备编号为 {asset.Code}，设备名称为 {Excerpt(asset.Name, 100)}，类型为 {asset.AssetType}。"]));
                         break;
                     case "get_recent_measurements":
+                        foreach (var selectedPoint in new[] { point }.Concat(relatedPoints))
+                        {
+                            var snapshot = pointSnapshots.Single(x => x.PointId == selectedPoint.Id);
+                            var eventEnd = selectedAlarm.StartedAt.AddMinutes(1) < capturedAt ? selectedAlarm.StartedAt.AddMinutes(1) : capturedAt;
+                            foreach (var window in new[]
+                            {
+                                (Kind: "EventDerivedTrend", Label: "触发事件原始窗口", From: selectedAlarm.StartedAt.AddMinutes(-2), To: eventEnd),
+                                (Kind: "CurrentDerivedTrend", Label: "当前原始窗口", From: capturedAt.AddMinutes(-5), To: capturedAt)
+                            })
+                            {
+                                var cached = ledger.SingleOrDefault(x => x.Kind == window.Kind && x.ResourceId == selectedPoint.Id);
+                                if (cached != null)
+                                {
+                                    supplied.Add(cached);
+                                    continue;
+                                }
+                                var derived = await CaptureTrendAsync(run.PlantId, run.AssetId, snapshot, run.AlarmId,
+                                    window.Label, window.From, window.To, selectedPoint.ExpectedIntervalMs, token);
+                                derived = derived with
+                                {
+                                    IsAlarmPoint = selectedPoint.Id == point.Id
+                                };
+                                supplied.Add(Add(window.Kind, "原始观测变化 · " + selectedPoint.Code + " · " + window.Label,
+                                    selectedPoint.Id, TrendFacts(derived), derivedTrend: derived));
+                            }
+                        }
                         foreach (var window in InvestigationWindows.Create(selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
                         {
                             var trend = await telemetry.TrendAsync(actor, run.AssetId, point.Id, window.From, window.To, "1m");

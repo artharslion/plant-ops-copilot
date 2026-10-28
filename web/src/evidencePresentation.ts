@@ -25,6 +25,8 @@ const terms: Record<string, string> = {
   恢复事件窗口: 'Recovery event window',
   触发与恢复事件窗口: 'Trigger and recovery event window',
   调查当前窗口: 'Current investigation window',
+  触发事件原始窗口: 'Raw trigger event window',
+  当前原始窗口: 'Raw current window',
   缺口标记: 'Gap flag',
   时间异常: 'Time anomaly',
   '低质量（Bad/Uncertain）': 'Low quality (Bad/Uncertain)',
@@ -90,6 +92,34 @@ templates(
     [
       '告警规则历史快照：{0}；仅解释本事件，不作为现场操作参数。',
       'Historical alarm rule snapshot: {0}. This explains this event only and must not be used as field operating parameters.',
+    ],
+  ],
+)
+templates(
+  ['EventDerivedTrend', 'CurrentDerivedTrend'],
+  [
+    [
+      '测点 {0} 的{1}有序原始观测：{2} 至 {3}，首值 {4} {5}，末值 {6} {5}，变化量 {7} {5}，观测间平均变化率 {8} {5}/min，样本数 {9}；仅代表版本已核对且段内无已知缺口的已入库观测，不证明采样间物理连续。',
+      'Point {0}, {1}, ordered raw observations: {2} to {3}; first {4} {5}, last {6} {5}, change {7} {5}, average change rate between observations {8} {5}/min, samples {9}. Configuration versions are verified and no internal gap is known; physical continuity between samples is not established.',
+      [1],
+    ],
+    [
+      '测点 {0} 的{1}非下降观测段：{2} 至 {3}，首值 {4} {5}，末值 {6} {5}，变化量 {7} {5}，观测间平均变化率 {8} {5}/min，样本数 {9}，严格上升次数 {10}；允许平台值，仅限该段，不确认根因或设备安全。',
+      'Point {0}, {1}, non-decreasing observation segment: {2} to {3}; first {4} {5}, last {6} {5}, change {7} {5}, average change rate between observations {8} {5}/min, samples {9}, strict increases {10}. Plateaus are allowed; this applies only to this segment and confirms neither root cause nor asset safety.',
+      [1],
+    ],
+    [
+      '测点 {0} 的{1}没有可验证的连续观测段变化；保留样本和限制，不跨坏值、缺口或未知配置计算变化。',
+      'Point {0}, {1}: no verifiable change across a continuous observation segment. Samples and limitations are retained; changes are not calculated across bad values, gaps or unknown configuration versions.',
+      [1],
+    ],
+    [
+      '原始变化证据范围：测点 {0}，窗口 [{1}, {2})，截至 {3}，实际查询 {4}，关联所选告警 {5}，算法 {6}；查询可能晚于截止时刻，不保证截止前全部样本均已入库，首末样本不等于窗口完整覆盖。',
+      'Raw change evidence scope: point {0}, window [{1}, {2}), as of {3}, retrieved at {4}, selected alarm {5}, algorithm {6}. Retrieval may follow the cutoff; all samples before it are not guaranteed to have arrived, and endpoint samples do not establish full window coverage.',
+    ],
+    [
+      '原始变化计算限制代码：{0}；段外未知，分钟极值不证明持续升温，多点共同变化不证明共同原因。',
+      'Raw change limitation codes: {0}. Conditions outside the segment are unknown; minute extrema do not establish sustained heating, and concurrent point changes do not establish a common cause.',
     ],
   ],
 )
@@ -345,6 +375,14 @@ export function formatEvidenceTitle(evidence: EvidenceSource): string {
   if (['EventTrend', 'RecoveryTrend', 'Trend'].includes(kind)) return terms[title] ?? title
   if (kind === 'PointStatus' && title.startsWith('测点证据状态 · '))
     return 'Point evidence status · ' + title.slice('测点证据状态 · '.length)
+  if (
+    (kind === 'EventDerivedTrend' || kind === 'CurrentDerivedTrend') &&
+    title.startsWith('原始观测变化 · ')
+  )
+    return title
+      .replace('原始观测变化 · ', 'Raw observation change · ')
+      .replace('触发事件原始窗口', 'Raw trigger event window')
+      .replace('当前原始窗口', 'Raw current window')
   if (kind === 'RelatedTrend' && title.startsWith('关联点位同期趋势 · '))
     return 'Related point concurrent trends · ' + title.slice('关联点位同期趋势 · '.length)
   if (kind === 'Document')

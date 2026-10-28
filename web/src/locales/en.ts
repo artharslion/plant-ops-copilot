@@ -1,5 +1,14 @@
 // Chinese source messages are stable translation keys. Business content is not translated.
 export default {
+  趋势分析: 'Trend analysis',
+  核对计算样本: 'Review calculation samples',
+  算法版本: 'Algorithm version',
+  样本标识: 'Sample ID',
+  观测值: 'Observed value',
+  质量: 'Quality',
+  来源版本: 'Source version',
+  测点版本: 'Point version',
+  映射版本: 'Mapping version',
   查看原始证据: 'View original evidence',
   '本次已获取的证据（{0}）': 'Evidence retrieved in this run ({0})',
   '调查语言：{0}。事实可随界面切换语言，原文可在证据详情查看。':

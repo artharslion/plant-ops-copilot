@@ -24,6 +24,30 @@ const alarm = Object.freeze({
 const scope =
   '调查取数范围：已自动读取告警点位及同设备对照候选 REFERENCE_TEMPERATURE、TEMPERATURE 的事件、恢复及当前完成分钟趋势；具体窗口和缺项见证据。候选按点位编号排序最多两个，不能据此确认物理关联；其余候选、跨设备趋势及现场工况未自动读取。同设备候选超过自动读取上限，目录并非完整现场关联清单。'
 
+test('raw trend translations retain exact changes, units, window bounds and provenance', (context) => {
+  context.after(() => setLocale('zh-CN'))
+  const fact =
+    '测点 TEMP 的触发事件原始窗口有序原始观测：2026-10-28T00:00:00.0000000+00:00 至 2026-10-28T00:01:00.0000000+00:00，首值 60 degC，末值 90 degC，变化量 30 degC，观测间平均变化率 30 degC/min，样本数 61；仅代表版本已核对且段内无已知缺口的已入库观测，不证明采样间物理连续。'
+  const evidence = {
+    kind: 'EventDerivedTrend',
+    title: '原始观测变化 · TEMP · 触发事件原始窗口',
+    facts: [fact],
+  }
+  const before = JSON.stringify(evidence)
+  setLocale('en')
+  const translated = formatEvidenceFact(fact, evidence.kind)
+  assert.match(translated, /Raw trigger event window/)
+  assert.match(translated, /first 60 degC, last 90 degC, change 30 degC/)
+  assert.match(translated, /30 degC\/min, samples 61/)
+  assert.match(translated, /physical continuity between samples is not established/)
+  assert.doesNotMatch(translated, /[\u4e00-\u9fff]/)
+  assert.equal(
+    formatEvidenceTitle(evidence),
+    'Raw observation change · TEMP · Raw trigger event window',
+  )
+  assert.equal(JSON.stringify(evidence), before)
+})
+
 test('the reported alarm facts and evidence titles render in English while stored text and hashes remain identical', (context) => {
   context.after(() => setLocale('zh-CN'))
   const original = JSON.stringify(alarm),

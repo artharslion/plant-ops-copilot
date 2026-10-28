@@ -2748,6 +2748,32 @@ export interface components {
             points: components["schemas"]["InvestigationPointSnapshot"][];
             evidenceIds: string[];
         };
+        InvestigationDerivedTrend: {
+            algorithmVersion: string;
+            /** Format: uuid */
+            pointId: string;
+            code: string;
+            unit: string;
+            /** Format: uuid */
+            alarmId: string;
+            windowKind: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** Format: date-time */
+            asOf: string;
+            /** Format: date-time */
+            retrievedAt: string;
+            samples: components["schemas"]["InvestigationObservedReading"][];
+            gaps: components["schemas"]["InvestigationTrendGap"][];
+            profiles: components["schemas"]["InvestigationTrendProfile"][];
+            change: null | components["schemas"]["InvestigationTrendChange"];
+            riseSegments: components["schemas"]["InvestigationTrendChange"][];
+            reasons: string[];
+            /** @default true */
+            isAlarmPoint: boolean;
+        };
         InvestigationEvidence: {
             id: string;
             kind: string;
@@ -2763,6 +2789,7 @@ export interface components {
             /** Format: uuid */
             chunkId?: null | string;
             pointStatus?: null | components["schemas"]["InvestigationPointSnapshot"];
+            derivedTrend?: null | components["schemas"]["InvestigationDerivedTrend"];
         };
         InvestigationObservedReading: {
             /** Format: uuid */
@@ -2874,6 +2901,50 @@ export interface components {
             assessment?: null | components["schemas"]["InvestigationAssessment"];
             /** @default zh-CN */
             language: string;
+        };
+        InvestigationTrendChange: {
+            /** Format: uuid */
+            firstReadingId: string;
+            /** Format: uuid */
+            lastReadingId: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** Format: double */
+            firstValue: number | string;
+            /** Format: double */
+            lastValue: number | string;
+            /** Format: double */
+            change: number | string;
+            /** Format: double */
+            ratePerMinute: number | string;
+            /** Format: int32 */
+            sampleCount: number | string;
+            /** Format: int32 */
+            increaseCount: number | string;
+        };
+        InvestigationTrendGap: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: null | string;
+            reason: string;
+        };
+        InvestigationTrendProfile: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: null | string;
+            /** Format: uuid */
+            mappingId: string;
+            /** Format: int64 */
+            mappingVersion: number | string;
+            mode: string;
+            /** Format: double */
+            intervalMs: null | number | string;
         };
         InvestigationWindowAssessment: {
             kind: string;
