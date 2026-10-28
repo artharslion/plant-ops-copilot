@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageRef, t } from '../i18n'
+import { formatDateTime as at } from '../time'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ApiError, listAll, request, type DirectoryRecord } from '../api'
 import { useSession } from '../stores/session'
@@ -21,18 +23,18 @@ const locationId = ref('')
 const asset = ref<DirectoryRecord | null>(null)
 const loading = ref(false)
 const saving = ref(false)
-const error = ref('')
-const notice = ref('')
+const error = messageRef()
+const notice = messageRef()
 const expired = ref(false)
 const editor = ref<{ kind: string; record: DirectoryRecord | null } | null>(null)
 const assetTab = ref('overview')
-const assetTabs = [
-  { id: 'overview', label: '设备概览' },
-  { id: 'measurements', label: '测量与趋势' },
-  { id: 'orders', label: '维护工单' },
-  { id: 'history', label: '维修历史' },
-  { id: 'documents', label: '设备资料' },
-]
+const assetTabs = computed(() => [
+  { id: 'overview', label: t('设备概览') },
+  { id: 'measurements', label: t('测量与趋势') },
+  { id: 'orders', label: t('维护工单') },
+  { id: 'history', label: t('维修历史') },
+  { id: 'documents', label: t('设备资料') },
+])
 const plant = computed(() => plants.value.find((x) => x.id === plantId.value))
 const location = computed(() => locations.value.find((x) => x.id === locationId.value))
 const visibleAssets = computed(() =>
@@ -49,14 +51,14 @@ const tree = computed(() => {
       )
       .map((x) => ({
         id: x.id,
-        label: x.name + (x.isArchived ? '（已归档）' : ''),
+        label: x.name + (x.isArchived ? t('（已归档）') : ''),
         children: children(x.id),
       }))
   }
-  return [{ id: '', label: `全部位置（${assets.value.length}）`, children: children(null) }]
+  return [{ id: '', label: t('全部位置（{0}）', [assets.value.length]), children: children(null) }]
 })
 function fail(e: unknown) {
-  error.value = e instanceof Error ? e.message : '操作失败。'
+  error.value = () => (e instanceof Error ? e.message : t('操作失败。'))
   expired.value = e instanceof ApiError && e.status === 401
 }
 async function loadPlant() {
@@ -90,7 +92,7 @@ async function refresh() {
   editor.value = null
   try {
     await session.load()
-    if (!session.user) throw new ApiError(401, '会话已失效，请重新登录。')
+    if (!session.user) throw new ApiError(401, t('会话已失效，请重新登录。'))
     plants.value = await listAll('/plants')
     if (!plants.value.some((x) => x.id === plantId.value))
       plantId.value = plants.value.find((x) => !x.isArchived)?.id ?? plants.value[0]?.id ?? ''
@@ -114,7 +116,8 @@ async function selectAsset(id: string) {
       await loadPlant()
     }
     assetTab.value =
-      typeof route.query.tab === 'string' && assetTabs.some((tab) => tab.id === route.query.tab)
+      typeof route.query.tab === 'string' &&
+      assetTabs.value.some((tab) => tab.id === route.query.tab)
         ? route.query.tab
         : typeof route.query.alarmId === 'string'
           ? 'orders'
@@ -157,7 +160,7 @@ async function save(input: object) {
     await refresh()
     if (kind === 'assets') await selectAsset(saved.id)
     if (kind === 'locations') locationId.value = saved.id
-    notice.value = `已保存 ${saved.name} · 版本 ${saved.version} · 已记录审计`
+    notice.value = () => t('已保存 {0} · 版本 {1} · 已记录审计', [saved.name, saved.version])
   } catch (e) {
     fail(e)
   } finally {
@@ -189,49 +192,52 @@ onMounted(async () => {
 </script>
 <template>
   <header class="topbar">
-    <span>工作空间 / 资产目录</span
+    <span>{{ t('工作空间 / 资产目录') }}</span
     ><span class="stage-chip">{{ session.user?.roles.join(' / ') }}</span>
   </header>
   <section class="page-heading">
     <div>
       <p class="eyebrow">ASSET DIRECTORY / 01</p>
-      <h1>了解工厂中的每一台设备。</h1>
+      <h1>{{ t('了解工厂中的每一台设备。') }}</h1>
       <p class="intro">
         {{
           session.admin
-            ? '管理授权工厂内的资产。每一次保存都检查版本并记录审计。'
-            : '浏览授权工厂的设备目录。当前角色可读取资产信息。'
+            ? t('管理授权工厂内的资产。每一次保存都检查版本并记录审计。')
+            : t('浏览授权工厂的设备目录。当前角色可读取资产信息。')
         }}
       </p>
     </div>
-    <el-button :disabled="loading || saving" @click="refresh" type="primary">刷新目录</el-button>
+    <el-button :disabled="loading || saving" @click="refresh" type="primary">{{
+      t('刷新目录')
+    }}</el-button>
   </section>
   <p v-if="error" class="error-banner" role="alert">
-    {{ error }} <RouterLink v-if="expired" to="/login">重新登录</RouterLink>
+    {{ error }} <RouterLink v-if="expired" to="/login">{{ t('重新登录') }}</RouterLink>
   </p>
   <el-alert v-if="notice" :title="notice" type="success" :closable="false" show-icon />
   <div class="directory-toolbar">
-    <el-form-item label="工厂"
+    <el-form-item :label="t('工厂')"
       ><el-select filterable v-model="plantId" :disabled="loading || saving" @change="changePlant">
-        <el-option v-if="!plants.length" value="" label="无授权工厂" />
+        <el-option v-if="!plants.length" value="" :label="t('无授权工厂')" />
         <el-option
           v-for="p in plants"
           :key="p.id"
           :value="p.id"
-          :label="p.name + (p.isArchived ? '（已归档）' : '')"
+          :label="p.name + (p.isArchived ? t('（已归档）') : '')"
         /> </el-select
     ></el-form-item>
     <div v-if="session.admin" class="actions">
-      <el-button :disabled="loading || saving" @click="edit('plants', null)"> 新增工厂</el-button
+      <el-button :disabled="loading || saving" @click="edit('plants', null)">
+        {{ t('新增工厂') }}</el-button
       ><el-button :disabled="!plant || loading || saving" @click="edit('plants', plant ?? null)">
-        编辑工厂
+        {{ t('编辑工厂') }}
       </el-button>
     </div>
   </div>
   <section v-if="plant" class="directory-grid" :aria-busy="loading">
     <aside class="location-panel">
       <div class="section-title">
-        <h2>位置树</h2>
+        <h2>{{ t('位置树') }}</h2>
         <el-button
           v-if="session.admin && !plant.isArchived"
           class="small-button"
@@ -239,7 +245,7 @@ onMounted(async () => {
           @click="edit('locations', null)"
           type="primary"
         >
-          新增位置
+          {{ t('新增位置') }}
         </el-button>
       </div>
       <el-tree
@@ -249,25 +255,25 @@ onMounted(async () => {
         highlight-current
         :current-node-key="locationId"
         :expand-on-click-node="false"
-        aria-label="工厂位置"
+        :aria-label="t('工厂位置')"
         @node-click="(node: LocationNode) => !loading && !saving && selectLocation(node.id)"
       />
       <p v-if="!locations.length" class="path-note">
-        {{ loading ? '正在加载位置…' : '暂无位置。' }}
+        {{ loading ? t('正在加载位置…') : t('暂无位置。') }}
       </p>
       <el-button
         v-if="session.admin && location && !plant.isArchived"
         :disabled="loading || saving"
         @click="edit('locations', location ?? null)"
       >
-        编辑所选位置
+        {{ t('编辑所选位置') }}
       </el-button>
     </aside>
     <div class="asset-list-panel">
       <div class="section-title">
         <div>
           <p class="eyebrow">{{ plant.code }} / {{ location?.code ?? 'ALL LOCATIONS' }}</p>
-          <h2>{{ location?.name ?? '全部设备' }}</h2>
+          <h2>{{ location?.name ?? t('全部设备') }}</h2>
         </div>
         <el-button
           v-if="session.admin && !plant.isArchived"
@@ -276,7 +282,7 @@ onMounted(async () => {
           @click="edit('assets', null)"
           type="primary"
         >
-          新增设备
+          {{ t('新增设备') }}
         </el-button>
       </div>
       <el-table
@@ -284,10 +290,10 @@ onMounted(async () => {
         v-loading="loading"
         row-key="id"
         highlight-current-row
-        empty-text="此位置暂无设备"
+        :empty-text="t('此位置暂无设备')"
         @row-click="(item: DirectoryRecord) => !saving && selectAsset(item.id)"
       >
-        <el-table-column prop="code" label="设备代码" min-width="150"
+        <el-table-column prop="code" :label="t('设备代码')" min-width="150"
           ><template #default="{ row }"
             ><el-button
               link
@@ -298,15 +304,15 @@ onMounted(async () => {
             ></template
           ></el-table-column
         >
-        <el-table-column prop="name" label="设备名称" min-width="180" />
-        <el-table-column label="生命周期" min-width="140"
+        <el-table-column prop="name" :label="t('设备名称')" min-width="180" />
+        <el-table-column :label="t('生命周期')" min-width="140"
           ><template #default="{ row }"
             ><el-tag :type="row.isArchived ? 'info' : 'success'">{{
-              row.isArchived ? '已归档' : row.lifecycleStatus
+              row.isArchived ? t('已归档') : row.lifecycleStatus
             }}</el-tag></template
           ></el-table-column
         >
-        <el-table-column prop="version" label="版本" width="80" />
+        <el-table-column prop="version" :label="t('版本')" width="80" />
       </el-table>
     </div>
   </section>
@@ -318,8 +324,8 @@ onMounted(async () => {
   >
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <el-alert v-if="notice" :title="notice" type="success" :closable="false" show-icon />
-    <el-tabs v-model="assetTab" aria-label="设备详情分区">
-      <el-tab-pane name="overview" label="设备概览">
+    <el-tabs v-model="assetTab" :aria-label="t('设备详情分区')">
+      <el-tab-pane name="overview" :label="t('设备概览')">
         <section v-show="assetTab === 'overview'" class="asset-detail">
           <div class="section-title">
             <div>
@@ -335,56 +341,54 @@ onMounted(async () => {
               @click="edit('assets', asset)"
               type="primary"
             >
-              编辑设备
+              {{ t('编辑设备') }}
             </el-button>
           </div>
           <dl class="detail-grid">
             <div>
-              <dt>设备类型</dt>
+              <dt>{{ t('设备类型') }}</dt>
               <dd>{{ asset.assetType }}</dd>
             </div>
             <div>
-              <dt>生命周期</dt>
+              <dt>{{ t('生命周期') }}</dt>
               <dd>{{ asset.lifecycleStatus }}</dd>
             </div>
             <div>
-              <dt>重要程度</dt>
+              <dt>{{ t('重要程度') }}</dt>
               <dd>{{ asset.criticality }}</dd>
             </div>
             <div>
-              <dt>版本</dt>
+              <dt>{{ t('版本') }}</dt>
               <dd>{{ asset.version }}</dd>
             </div>
             <div>
-              <dt>制造商 / 型号</dt>
-              <dd>{{ asset.manufacturer || '未填写' }} / {{ asset.model || '未填写' }}</dd>
+              <dt>{{ t('制造商 / 型号') }}</dt>
+              <dd>{{ asset.manufacturer || t('未填写') }} / {{ asset.model || t('未填写') }}</dd>
             </div>
             <div>
-              <dt>序列号</dt>
-              <dd>{{ asset.serialNumber || '未填写' }}</dd>
+              <dt>{{ t('序列号') }}</dt>
+              <dd>{{ asset.serialNumber || t('未填写') }}</dd>
             </div>
             <div>
-              <dt>安装时间</dt>
+              <dt>{{ t('安装时间') }}</dt>
               <dd>
-                {{
-                  asset.installedAt ? new Date(asset.installedAt).toLocaleString('zh-CN') : '未填写'
-                }}
+                {{ asset.installedAt ? at(asset.installedAt) : t('未填写') }}
               </dd>
             </div>
             <div>
-              <dt>归档</dt>
-              <dd>{{ asset.isArchived ? '已归档，历史保留' : '未归档' }}</dd>
+              <dt>{{ t('归档') }}</dt>
+              <dd>{{ asset.isArchived ? t('已归档，历史保留') : t('未归档') }}</dd>
             </div>
           </dl>
           <p class="path-note">
             <RouterLink
               :to="{ path: '/alarms', query: { plantId: asset.plantId, assetId: asset.id } }"
-              >查看此设备的告警 →</RouterLink
+              >{{ t('查看此设备的告警 →') }}</RouterLink
             >
           </p>
         </section>
       </el-tab-pane>
-      <el-tab-pane name="measurements" label="测量与趋势">
+      <el-tab-pane name="measurements" :label="t('测量与趋势')">
         <MeasurementPanel
           v-if="assetTab === 'measurements'"
           :key="asset.id"
@@ -396,7 +400,7 @@ onMounted(async () => {
           :admin="session.admin"
           :archived="asset.isArchived || !!plant?.isArchived"
       /></el-tab-pane>
-      <el-tab-pane name="orders" label="维护工单">
+      <el-tab-pane name="orders" :label="t('维护工单')">
         <WorkOrderPanel
           v-show="assetTab === 'orders'"
           :active="assetTab === 'orders'"
@@ -408,7 +412,7 @@ onMounted(async () => {
           :plant-id="asset.plantId"
           :archived="asset.isArchived || !!plant?.isArchived"
       /></el-tab-pane>
-      <el-tab-pane name="history" label="维修历史">
+      <el-tab-pane name="history" :label="t('维修历史')">
         <WorkOrderPanel
           v-show="assetTab === 'history'"
           :active="assetTab === 'history'"
@@ -417,7 +421,7 @@ onMounted(async () => {
           :plant-id="asset.plantId"
           history
       /></el-tab-pane>
-      <el-tab-pane name="documents" label="设备资料">
+      <el-tab-pane name="documents" :label="t('设备资料')">
         <DocumentPanel
           v-show="assetTab === 'documents'"
           :active="assetTab === 'documents'"
@@ -432,7 +436,7 @@ onMounted(async () => {
   <SidePanel
     ref="editorPanel"
     v-if="editor"
-    title="目录编辑"
+    :title="t('目录编辑')"
     mode="dialog"
     :level="asset ? 1 : 0"
     :busy="saving"
@@ -451,5 +455,5 @@ onMounted(async () => {
       @cancel="editorPanel?.requestClose()"
     />
   </SidePanel>
-  <p v-if="!plant && !loading && !error" class="path-note">当前账号没有工厂授权。</p>
+  <p v-if="!plant && !loading && !error" class="path-note">{{ t('当前账号没有工厂授权。') }}</p>
 </template>

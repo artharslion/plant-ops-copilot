@@ -21,10 +21,10 @@ public static class InvestigationEndpoints
                 externalData = provider != "Fake"
             };
         });
-        api.MapPost("/alarms/{alarmId:guid}/investigations", async (HttpContext context, IInvestigationService service, Guid alarmId) =>
+        api.MapPost("/alarms/{alarmId:guid}/investigations", async (HttpContext context, IInvestigationService service, Guid alarmId, string? language) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            var run = await service.CreateAsync(Actor(context), alarmId, context.RequestAborted);
+            var run = await service.CreateAsync(Actor(context), alarmId, context.RequestAborted, language ?? "zh-CN");
             return Results.Accepted($"/api/v1/investigations/{run.Id}", run);
         });
         api.MapGet("/alarms/{alarmId:guid}/investigations", (HttpContext context, IInvestigationService service, Guid alarmId) =>

@@ -303,6 +303,13 @@ namespace PlantOps.Infrastructure.Persistence.Migrations
                     b.Property<int>("InputTokens")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("zh-CN");
+
                     b.Property<Guid?>("LeaseId")
                         .HasColumnType("uuid");
 

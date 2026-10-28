@@ -1,4 +1,5 @@
-import { ref } from 'vue'
+import { t } from './i18n'
+import { computed, ref } from 'vue'
 import { HubConnectionBuilder, LogLevel, type HubConnection } from '@microsoft/signalr'
 export type PlantEvent = {
   eventId: string
@@ -8,7 +9,8 @@ export type PlantEvent = {
   eventType: string
   occurredAt: string
 }
-export const realtimeStatus = ref('未连接')
+const connectionStatus = ref('未连接')
+export const realtimeStatus = computed(() => t(connectionStatus.value))
 let connection: HubConnection | undefined
 let restart: ReturnType<typeof setTimeout> | undefined
 let active = false
@@ -41,12 +43,12 @@ async function connect() {
   if (!active || !connection) return
   try {
     await connection.start()
-    realtimeStatus.value = '实时已连接'
+    connectionStatus.value = '实时已连接'
     seen.clear()
     versions.clear()
     notify(null)
   } catch {
-    realtimeStatus.value = '实时离线 · 定期补查'
+    connectionStatus.value = '实时离线 · 定期补查'
     if (active) restart = setTimeout(connect, 5000)
   }
 }
@@ -60,16 +62,16 @@ export function startRealtime() {
     .build()
   connection.on('PlantEvent', acceptPlantEvent)
   connection.onreconnecting(() => {
-    realtimeStatus.value = '正在重连 · 定期补查'
+    connectionStatus.value = '正在重连 · 定期补查'
   })
   connection.onreconnected(() => {
-    realtimeStatus.value = '实时已连接'
+    connectionStatus.value = '实时已连接'
     seen.clear()
     versions.clear()
     notify(null)
   })
   connection.onclose(() => {
-    realtimeStatus.value = '实时离线 · 定期补查'
+    connectionStatus.value = '实时离线 · 定期补查'
     if (active) restart = setTimeout(connect, 5000)
   })
   void connect()
@@ -81,6 +83,6 @@ export async function stopRealtime() {
   connection = undefined
   seen.clear()
   versions.clear()
-  realtimeStatus.value = '未连接'
+  connectionStatus.value = '未连接'
   notify(null)
 }

@@ -83,18 +83,22 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             await AuthorizeAsync(run, [], cancellationToken);
             return new(run.Id, run.AlarmId, run.AssetId, "Invalidated", run.CreatedAt, run.StartedAt, run.CompletedAt,
                 run.Provider, run.Model, run.Simulated, "EvidenceChanged", null, [], ["资料版本或读取权限已变化，旧调查内容已隐藏，请重新调查。"],
-                run.ModelRounds, run.ToolCalls, run.InputTokens, run.OutputTokens);
+                run.ModelRounds, run.ToolCalls, run.InputTokens, run.OutputTokens, Language: run.Language);
         }
         JsonElement? result = run.ResultJson == null ? null : JsonDocument.Parse(run.ResultJson).RootElement.Clone();
         return new(run.Id, run.AlarmId, run.AssetId, run.Status, run.CreatedAt, run.StartedAt, run.CompletedAt,
             run.Provider, run.Model, run.Simulated, run.FailureCode, result, evidence, warnings,
             run.ModelRounds, run.ToolCalls, run.InputTokens, run.OutputTokens,
             run.RunRecordJson == null ? null : JsonSerializer.Deserialize<JsonElement>(run.RunRecordJson),
-            InvestigationAssessmentPolicy.FromEvidence(evidence));
+            InvestigationAssessmentPolicy.FromEvidence(evidence), run.Language);
     }
 
-    public async Task<InvestigationRunDto> CreateAsync(Actor actor, Guid alarmId, CancellationToken cancellationToken = default)
+    public async Task<InvestigationRunDto> CreateAsync(Actor actor, Guid alarmId, CancellationToken cancellationToken = default, string language = "zh-CN")
     {
+        if (language is not ("zh-CN" or "en"))
+        {
+            throw new DirectoryException(400, "Unsupported investigation language.");
+        }
         var alarm = await alarms.GetAsync(actor, alarmId);
         var selection = await settings.SelectionAsync(cancellationToken);
         var run = new AiRun
@@ -107,6 +111,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             CreatedAt = clock.GetUtcNow(),
             Provider = selection.Provider,
             Model = selection.Model,
+            Language = language,
             Simulated = selection.Provider == "Fake"
         };
         await AuthorizeAsync(run, [], cancellationToken);
@@ -502,7 +507,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             }
             await CheckpointAsync(run, ledger, warnings, budget, active.Token);
             var output = await executionServices.GetRequiredService<IInvestigationEngine>()
-                .ExecuteAsync(ledger, ReadTool, Authorize, budget, active.Token);
+                .ExecuteAsync(ledger, ReadTool, Authorize, budget, active.Token, run.Language);
             await Authorize(active.Token);
             result = output.ResultJson;
             run.Model = output.Model;
@@ -559,6 +564,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                     previousAttemptUnknown = run.Attempts > 1 && run.RunRecordJson == null,
                     previousAttempt = run.RunRecordJson == null ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(run.RunRecordJson),
                     promptVersion = budget.PromptVersion,
+                    language = run.Language,
                     limits = budget.Limits,
                     requests = budget.Requests,
                     evidenceSha256 = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(ledger, Json)))),

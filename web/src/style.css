@@ -60,6 +60,29 @@ a {
   font-size: 11px;
   letter-spacing: 2px;
 }
+.language-switcher {
+  display: grid;
+  gap: 8px;
+  margin-top: 28px;
+  font-size: 12px;
+  color: #dce8df;
+}
+.language-switcher select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #91ae9c;
+  border-radius: 4px;
+  background: #163e37;
+  color: #fff;
+  font: inherit;
+}
+.language-switcher select:focus-visible {
+  outline: 2px solid #c6d77a;
+  outline-offset: 3px;
+}
+.language-switcher + .nav-caption {
+  margin-top: 28px;
+}
 .nav-item {
   margin-top: 14px;
   padding: 14px;

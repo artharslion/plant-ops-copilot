@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { messageRef, t } from '../i18n'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { request, type DirectoryRecord } from '../api'
@@ -15,7 +16,7 @@ const panel = ref<InstanceType<typeof WorkOrderPanel>>()
 const asset = ref<DirectoryRecord | null>(null)
 const plant = ref<DirectoryRecord | null>(null)
 const loading = ref(false),
-  error = ref('')
+  error = messageRef()
 const busy = computed(() => loading.value || !!panel.value?.busy)
 let generation = 0
 watch(
@@ -54,7 +55,7 @@ watch(
       plant.value = selectedPlant
     } catch (e) {
       if (current === generation)
-        error.value = e instanceof Error ? e.message : '读取工单设备失败。'
+        error.value = () => (e instanceof Error ? e.message : t('读取工单设备失败。'))
     } finally {
       if (current === generation) loading.value = false
     }
@@ -84,8 +85,8 @@ onUnmounted(() => {
 <template>
   <SidePanel
     v-if="drawer.target"
-    title="维护工单"
-    :subtitle="asset ? `${asset.code} · ${asset.name}` : '正在读取设备'"
+    :title="t('维护工单')"
+    :subtitle="asset ? `${asset.code} · ${asset.name}` : t('正在读取设备')"
     size="min(960px, calc(100vw - 24px))"
     :busy="busy"
     :dirty="panel?.dirty"

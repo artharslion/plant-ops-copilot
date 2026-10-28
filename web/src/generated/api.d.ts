@@ -1929,7 +1929,9 @@ export interface paths {
         put?: never;
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    language?: string;
+                };
                 header?: never;
                 path: {
                     alarmId: string;
@@ -2870,6 +2872,8 @@ export interface components {
             outputTokens: number | string;
             runRecord?: unknown;
             assessment?: null | components["schemas"]["InvestigationAssessment"];
+            /** @default zh-CN */
+            language: string;
         };
         InvestigationWindowAssessment: {
             kind: string;

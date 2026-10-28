@@ -59,6 +59,8 @@ public sealed class AiRun
 
     public string Model { get; set; } = "";
 
+    public string Language { get; set; } = "zh-CN";
+
     public bool Simulated
     {
         get; set;

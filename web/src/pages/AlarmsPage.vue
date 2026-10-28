@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageRef, t } from '../i18n'
+import { formatDateTime as at } from '../time'
 import SidePanel from '../components/SidePanel.vue'
 import InvestigationPanel from '../components/InvestigationPanel.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -26,9 +28,9 @@ const rows = ref<Alarm[]>([]),
   selectedId = ref('')
 const alarm = ref<Alarm | null>(null),
   events = ref<Event[]>([]),
-  error = ref(''),
+  error = messageRef(),
   actionError = ref(''),
-  notice = ref(''),
+  notice = messageRef(),
   checked = ref('')
 const busy = ref(false),
   auto = ref(true),
@@ -55,17 +57,14 @@ const snapshot = computed(() => {
     return {}
   }
 })
-function at(value?: string | null) {
-  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
-}
 function state(value: string) {
-  return value === 'Active' ? '活动' : '已恢复'
+  return value === 'Active' ? t('活动') : t('已恢复')
 }
-const eventNames: Record<string, string> = {
-  Raised: '触发',
-  Acknowledged: '人工确认',
-  Recovered: '可信低值恢复',
-}
+const eventNames = computed<Record<string, string>>(() => ({
+  Raised: t('触发'),
+  Acknowledged: t('人工确认'),
+  Recovered: t('可信低值恢复'),
+}))
 async function refresh(more = false, background = false) {
   if (busy.value || refreshing || !plantId.value) return
   refreshing = true
@@ -90,7 +89,7 @@ async function refresh(more = false, background = false) {
     error.value = ''
   } catch (e) {
     if (current === generation) {
-      error.value = e instanceof Error ? e.message : '告警读取失败'
+      error.value = () => (e instanceof Error ? e.message : t('告警读取失败'))
       rows.value = []
       alarm.value = null
       events.value = []
@@ -150,9 +149,9 @@ async function acknowledge() {
   try {
     const result = await request<Alarm>(`/alarms/${id}/acknowledge`, 'POST', { version })
     alarm.value = result
-    notice.value = '已记录确认人和时间。确认不改变告警的活动或恢复状态。'
+    notice.value = () => t('已记录确认人和时间。确认不改变告警的活动或恢复状态。')
   } catch (e) {
-    actionError.value = e instanceof Error ? e.message : '确认失败'
+    actionError.value = e instanceof Error ? e.message : t('确认失败')
   } finally {
     busy.value = false
     await refresh()
@@ -170,7 +169,7 @@ onMounted(async () => {
     assetId.value = typeof route.query.assetId === 'string' ? route.query.assetId : ''
     selectedId.value = typeof route.query.alarmId === 'string' ? route.query.alarmId : ''
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '工厂读取失败'
+    error.value = () => (e instanceof Error ? e.message : t('工厂读取失败'))
   } finally {
     busy.value = false
     await refresh()
@@ -195,111 +194,123 @@ onUnmounted(() => {
 </script>
 <template>
   <header class="topbar">
-    <span>工作空间 / 告警台</span
+    <span>{{ t('工作空间 / 告警台') }}</span
     ><span class="stage-chip">{{ session.user?.roles.join(' / ') }}</span>
   </header>
   <section class="page-heading">
     <div>
       <p class="eyebrow">ALARM DESK / 03</p>
-      <h1>看见异常，确认收到。</h1>
-      <p class="intro">告警由可信测量与确定性规则产生。人工确认与数据恢复各自独立。</p>
+      <h1>{{ t('看见异常，确认收到。') }}</h1>
+      <p class="intro">{{ t('告警由可信测量与确定性规则产生。人工确认与数据恢复各自独立。') }}</p>
     </div>
-    <el-button :disabled="busy" @click="refresh()" type="primary">刷新告警</el-button>
+    <el-button :disabled="busy" @click="refresh()" type="primary">{{ t('刷新告警') }}</el-button>
   </section>
   <p v-if="error" role="alert" class="error-banner">
-    {{ error }} 已隐藏未验证的告警状态。<RouterLink v-if="!session.user" to="/login"
-      >重新登录</RouterLink
-    >
+    {{ error }} {{ t('已隐藏未验证的告警状态。')
+    }}<RouterLink v-if="!session.user" to="/login">{{ t('重新登录') }}</RouterLink>
   </p>
   <p v-if="actionError" role="alert" class="error-banner">{{ actionError }}</p>
   <p v-if="notice" role="status" class="success-banner">{{ notice }}</p>
   <div class="measurement-toolbar alarm-toolbar">
-    <el-form-item label-position="top" label="工厂"
+    <el-form-item label-position="top" :label="t('工厂')"
       ><el-select filterable v-model="plantId" :disabled="busy" @change="change(true)">
-        <el-option v-if="!plants.length" value="" label="无授权工厂" />
+        <el-option v-if="!plants.length" value="" :label="t('无授权工厂')" />
         <el-option
           v-for="p in plants"
           :key="p.id"
           :value="p.id"
-          :label="p.name + (p.isArchived ? '（已归档）' : '')"
+          :label="p.name + (p.isArchived ? t('（已归档）') : '')"
         /> </el-select></el-form-item
-    ><el-form-item label-position="top" label="告警状态"
+    ><el-form-item label-position="top" :label="t('告警状态')"
       ><el-select filterable v-model="filter" :disabled="busy" @change="change()">
-        <el-option value="active" label="活动告警" />
-        <el-option value="recovered" label="已恢复告警" />
-        <el-option value="all" label="全部历史" /> </el-select></el-form-item
-    ><el-checkbox class="check-label" v-model="auto">每 5 秒刷新</el-checkbox
-    ><el-button v-if="assetId" @click="clearAssetFilter">清除设备筛选</el-button
+        <el-option value="active" :label="t('活动告警')" />
+        <el-option value="recovered" :label="t('已恢复告警')" />
+        <el-option value="all" :label="t('全部历史')" /> </el-select></el-form-item
+    ><el-checkbox class="check-label" v-model="auto">{{ t('每 5 秒刷新') }}</el-checkbox
+    ><el-button v-if="assetId" @click="clearAssetFilter">{{ t('清除设备筛选') }}</el-button
     ><el-button
       v-if="session.admin && plantId"
       :disabled="busy"
       @click="configuring = !configuring"
     >
-      {{ configuring ? '关闭规则配置' : '配置告警规则' }}
+      {{ configuring ? t('关闭规则配置') : t('配置告警规则') }}
     </el-button>
   </div>
   <div v-if="!error" class="alarm-counts">
     <div>
-      <span>已加载 · 活动</span><strong>{{ counts.active }}</strong>
+      <span>{{ t('已加载 · 活动') }}</span
+      ><strong>{{ counts.active }}</strong>
     </div>
     <div>
-      <span>已加载 · 已确认</span><strong>{{ counts.acknowledged }}</strong>
+      <span>{{ t('已加载 · 已确认') }}</span
+      ><strong>{{ counts.acknowledged }}</strong>
     </div>
     <div>
-      <span>已加载 · 当前状态无法验证</span><strong>{{ counts.unknown }}</strong>
+      <span>{{ t('已加载 · 当前状态无法验证') }}</span
+      ><strong>{{ counts.unknown }}</strong>
     </div>
   </div>
   <section class="alarm-list" :aria-busy="busy">
     <div class="section-title">
       <h2>
-        {{ filter === 'active' ? '活动告警' : filter === 'recovered' ? '已恢复告警' : '告警历史' }}
+        {{
+          filter === 'active'
+            ? t('活动告警')
+            : filter === 'recovered'
+              ? t('已恢复告警')
+              : t('告警历史')
+        }}
       </h2>
-      <span class="path-note">{{ rows.length }} 条已加载 · 每页 50 条</span>
+      <span class="path-note">{{ rows.length }} {{ t('条已加载 · 每页 50 条') }}</span>
     </div>
     <el-table
       :data="rows"
       v-loading="busy"
       row-key="id"
-      empty-text="此筛选下暂无告警"
+      :empty-text="t('此筛选下暂无告警')"
       @row-click="(item: (typeof rows)[number]) => !busy && select(item.id)"
     >
-      <el-table-column label="设备 / 规则" min-width="240"
+      <el-table-column :label="t('设备 / 规则')" min-width="240"
         ><template #default="{ row }"
           ><el-button link type="primary" :disabled="busy" @click.stop="select(row.id)"
             >{{ row.assetCode }} · {{ row.ruleName }}</el-button
           ><br /><small
-            >{{ row.pointCode }} · {{ row.severity }} · 触发
+            >{{ row.pointCode }} · {{ row.severity }} {{ t('· 触发') }}
             {{ Number(row.triggerValue).toFixed(2) }}</small
           ></template
         ></el-table-column
       >
-      <el-table-column label="业务状态" min-width="160"
+      <el-table-column :label="t('业务状态')" min-width="160"
         ><template #default="{ row }"
           ><el-tag :type="row.state === 'Active' ? 'warning' : 'success'">{{
             state(row.state)
           }}</el-tag>
-          <p>{{ row.currentObservationTrusted ? '当前观测可信' : '当前状态无法验证' }}</p></template
+          <p>
+            {{ row.currentObservationTrusted ? t('当前观测可信') : t('当前状态无法验证') }}
+          </p></template
         ></el-table-column
       >
-      <el-table-column label="人工确认" min-width="140"
+      <el-table-column :label="t('人工确认')" min-width="140"
         ><template #default="{ row }"
-          >{{ row.acknowledgedAt ? '已确认' : '未确认' }}<br /><small>{{
-            row.acknowledgedAt ? at(row.acknowledgedAt) : '确认不会使告警恢复'
+          >{{ row.acknowledgedAt ? t('已确认') : t('未确认') }}<br /><small>{{
+            row.acknowledgedAt ? at(row.acknowledgedAt) : t('确认不会使告警恢复')
           }}</small></template
         ></el-table-column
       >
-      <el-table-column label="发生时间" min-width="190"
+      <el-table-column :label="t('发生时间')" min-width="190"
         ><template #default="{ row }"
           >{{ at(row.startedAt) }}<br /><small>v{{ row.version }}</small></template
         ></el-table-column
       >
     </el-table>
-    <el-button v-if="nextCursor" :disabled="busy" @click="refresh(true)"> 加载更多告警 </el-button>
+    <el-button v-if="nextCursor" :disabled="busy" @click="refresh(true)">
+      {{ t('加载更多告警') }}
+    </el-button>
   </section>
   <SidePanel
     v-if="alarm"
     :title="alarm.ruleName"
-    :subtitle="`${alarm.assetCode} / 告警详情`"
+    :subtitle="t('{0} / 告警详情', [alarm.assetCode])"
     :busy="busy || investigation?.busy"
     :dirty="investigation?.dirty"
     @close="closeAlarm"
@@ -320,50 +331,57 @@ onUnmounted(() => {
           @click="acknowledge"
           type="primary"
         >
-          确认告警</el-button
+          {{ t('确认告警') }}</el-button
         ><span v-else class="quality-tag">{{
-          alarm.acknowledgedAt ? '已记录人工确认' : '当前角色只读'
+          alarm.acknowledgedAt ? t('已记录人工确认') : t('当前角色只读')
         }}</span>
       </div>
       <p class="alarm-status-note">
-        <strong>{{ state(alarm.state) }} · {{ alarm.acknowledgedAt ? '已确认' : '未确认' }}</strong
+        <strong
+          >{{ state(alarm.state) }} · {{ alarm.acknowledgedAt ? t('已确认') : t('未确认') }}</strong
         ><span>{{
           alarm.currentObservationTrusted
-            ? '当前观测可信'
-            : '当前状态无法验证：测量质量、陈旧或采集配置不可用。此提示不会自动恢复活动告警。'
+            ? t('当前观测可信')
+            : t('当前状态无法验证：测量质量、陈旧或采集配置不可用。此提示不会自动恢复活动告警。')
         }}</span>
       </p>
       <dl class="detail-grid">
         <div>
-          <dt>设备</dt>
+          <dt>{{ t('设备') }}</dt>
           <dd>{{ alarm.assetName }}</dd>
         </div>
         <div>
-          <dt>触发值 / 标准单位</dt>
+          <dt>{{ t('触发值 / 标准单位') }}</dt>
           <dd>{{ Number(alarm.triggerValue).toFixed(2) }} {{ snapshot.Unit }}</dd>
         </div>
         <div>
-          <dt>触发条件快照</dt>
-          <dd>&gt; {{ snapshot.RaiseAbove }}，持续 {{ Number(snapshot.RaiseForMs) / 1000 }} 秒</dd>
+          <dt>{{ t('触发条件快照') }}</dt>
+          <dd>
+            &gt; {{ snapshot.RaiseAbove }}{{ t('，持续') }} {{ Number(snapshot.RaiseForMs) / 1000 }}
+            {{ t('秒') }}
+          </dd>
         </div>
         <div>
-          <dt>恢复条件快照</dt>
-          <dd>&lt; {{ snapshot.ClearBelow }}，持续 {{ Number(snapshot.ClearForMs) / 1000 }} 秒</dd>
+          <dt>{{ t('恢复条件快照') }}</dt>
+          <dd>
+            &lt; {{ snapshot.ClearBelow }}{{ t('，持续') }} {{ Number(snapshot.ClearForMs) / 1000 }}
+            {{ t('秒') }}
+          </dd>
         </div>
         <div>
-          <dt>最大样本间隔</dt>
-          <dd>{{ Number(snapshot.MaxSampleGapMs) / 1000 }} 秒</dd>
+          <dt>{{ t('最大样本间隔') }}</dt>
+          <dd>{{ Number(snapshot.MaxSampleGapMs) / 1000 }} {{ t('秒') }}</dd>
         </div>
         <div>
-          <dt>恢复时间</dt>
+          <dt>{{ t('恢复时间') }}</dt>
           <dd>{{ at(alarm.recoveredAt) }}</dd>
         </div>
         <div>
-          <dt>确认人 / 时间</dt>
+          <dt>{{ t('确认人 / 时间') }}</dt>
           <dd>{{ alarm.acknowledgedByUserId ?? '—' }}<br />{{ at(alarm.acknowledgedAt) }}</dd>
         </div>
         <div>
-          <dt>最后评估 / 版本</dt>
+          <dt>{{ t('最后评估 / 版本') }}</dt>
           <dd>{{ at(alarm.lastEvaluatedAt) }} / v{{ alarm.version }}</dd>
         </div>
       </dl>
@@ -376,30 +394,32 @@ onUnmounted(() => {
             workOrderDrawer.open({ assetId: alarm.assetId, orderId: 'new', alarmId: alarm.id })
           "
         >
-          创建关联工单 →
+          {{ t('创建关联工单 →') }}
         </el-button>
         <RouterLink
           v-else
           :to="{ path: '/assets', query: { assetId: alarm.assetId, alarmId: alarm.id } }"
-          >查看设备与维护历史 →</RouterLink
+          >{{ t('查看设备与维护历史 →') }}</RouterLink
         >
       </p>
       <InvestigationPanel ref="investigation" :key="alarm.id" :alarm-id="alarm.id" />
-      <h3>事件记录</h3>
+      <h3>{{ t('事件记录') }}</h3>
       <ol class="alarm-timeline">
         <li v-for="event in events" :key="event.id">
           <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
-          ><span>{{ at(event.occurredAt) }} · {{ event.actorUserId ?? '规则引擎' }}</span
-          ><small v-if="event.readingId">观测 {{ event.readingId }}</small>
+          ><span>{{ at(event.occurredAt) }} · {{ event.actorUserId ?? t('规则引擎') }}</span
+          ><small v-if="event.readingId">{{ t('观测') }} {{ event.readingId }}</small>
         </li>
       </ol>
       <p v-if="!alarm.triggerReadingAvailable" class="path-note">
-        原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。
+        {{ t('原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。') }}
       </p>
       <details>
-        <summary>追溯标识</summary>
+        <summary>{{ t('追溯标识') }}</summary>
         <p class="path-note">
-          告警 {{ alarm.id }}<br />规则 {{ alarm.ruleId }} / v{{ alarm.ruleVersion }}<br />触发观测
+          {{ t('告警') }} {{ alarm.id }}<br />{{ t('规则') }} {{ alarm.ruleId }} / v{{
+            alarm.ruleVersion
+          }}<br />{{ t('触发观测') }}
           {{ alarm.triggerReadingId }}
         </p>
       </details>
@@ -409,7 +429,7 @@ onUnmounted(() => {
     v-if="configuring"
     mode="dialog"
     dirty
-    title="配置告警规则"
+    :title="t('配置告警规则')"
     :busy="busy || ruleConfiguration?.busy"
     @close="configuring = false"
   >
@@ -423,8 +443,8 @@ onUnmounted(() => {
     />
   </SidePanel>
   <p v-if="checked" class="path-note">
-    最近成功读取 {{ at(checked) }} ·
-    {{ auto && !configuring ? '自动刷新中' : '自动刷新已暂停，当前为读取时的快照' }} ·
-    页面时间为本机时区。
+    {{ t('最近成功读取') }} {{ at(checked) }} ·
+    {{ auto && !configuring ? t('自动刷新中') : t('自动刷新已暂停，当前为读取时的快照') }}
+    {{ t('· 页面时间为北京时间。') }}
   </p>
 </template>

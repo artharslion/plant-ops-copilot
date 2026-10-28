@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageRef, t } from '../i18n'
+import { formatDateTime as at } from '../time'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { request } from '../api'
 import type { components } from '../generated/api'
@@ -22,19 +24,19 @@ const points = ref<Point[]>([]),
 const sources = ref<Source[]>([])
 const source = computed(() => sources.value.find((s) => s.id === point.value?.dataSourceId))
 function connectionState() {
-  if (!source.value?.enabled) return '来源停用'
+  if (!source.value?.enabled) return t('来源停用')
   const health = source.value.health
-  if (!health || !health.isCurrent) return '状态未确认（Worker 心跳过期或配置已变化）'
+  if (!health || !health.isCurrent) return t('状态未确认（Worker 心跳过期或配置已变化）')
   const labels: Record<string, string> = {
-    Connecting: '连接中',
-    Connected: '已连接',
-    Reconnecting: '断线重连中',
-    Faulted: '配置或安全校验失败，等待调整配置',
-    Stopped: '采集已停止',
+    Connecting: t('连接中'),
+    Connected: t('已连接'),
+    Reconnecting: t('断线重连中'),
+    Faulted: t('配置或安全校验失败，等待调整配置'),
+    Stopped: t('采集已停止'),
   }
-  return labels[health.state] ?? '状态未知'
+  return labels[health.state] ?? t('状态未知')
 }
-const error = ref(''),
+const error = messageRef(),
   checked = ref(''),
   busy = ref(false),
   auto = ref(true),
@@ -46,9 +48,6 @@ let recordedReading: string | null = null
 const point = computed(() => points.value.find((p) => p.id === pointId.value))
 let generation = 0
 let refreshing = false
-function at(value?: string | null) {
-  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
-}
 function value(v?: number | string | null) {
   return v == null ? '—' : Number(v).toFixed(2)
 }
@@ -92,7 +91,7 @@ async function refresh(background = false) {
     }
   } catch (e) {
     if (current === generation) {
-      error.value = e instanceof Error ? e.message : '测量读取失败'
+      error.value = () => (e instanceof Error ? e.message : t('测量读取失败'))
       points.value = []
       sources.value = []
       trend.value = null
@@ -144,19 +143,19 @@ onUnmounted(() => {
   unsubscribe()
 })
 const chart = computed(() => {
-  const t = trend.value
-  if (!t)
+  const data = trend.value
+  if (!data)
     return { segments: [] as string[], dots: [] as { x: number; y: number }[], max: 1, min: 0 }
   const items =
-    t.bucket === 'raw'
-      ? t.samples.map((s) => ({
+    data.bucket === 'raw'
+      ? data.samples.map((s) => ({
           at: s.effectiveAt,
           value: s.value == null ? null : Number(s.value),
           valid:
             s.quality === 'Good' && !s.timeAnomaly && (Number(s.rawStatusCode) & 0xc80) !== 0x480,
           gap: s.gapBefore,
         }))
-      : t.buckets.map((s) => ({
+      : data.buckets.map((s) => ({
           at: s.start,
           value: s.average == null ? null : Number(s.average),
           valid: !s.hasGap,
@@ -167,8 +166,8 @@ const chart = computed(() => {
     .map((s) => s.value!)
   const max = Math.max(1, ...values) * 1.15,
     min = Math.min(0, ...values)
-  const from = Date.parse(t.from),
-    to = Date.parse(t.to)
+  const from = Date.parse(data.from),
+    to = Date.parse(data.to)
   const segments: string[] = [],
     dots: { x: number; y: number }[] = []
   let line: string[] = []
@@ -191,18 +190,18 @@ const chart = computed(() => {
   return { segments, dots, max, min }
 })
 const quality = computed(() => {
-  const t = trend.value
-  if (!t) return ''
+  const data = trend.value
+  if (!data) return ''
   const bad =
-    t.samples.filter((x) => x.quality === 'Bad').length +
-    t.buckets.reduce((a, b) => a + Number(b.badCount), 0)
+    data.samples.filter((x) => x.quality === 'Bad').length +
+    data.buckets.reduce((a, b) => a + Number(b.badCount), 0)
   const uncertain =
-    t.samples.filter((x) => x.quality === 'Uncertain').length +
-    t.buckets.reduce((a, b) => a + Number(b.uncertainCount), 0)
+    data.samples.filter((x) => x.quality === 'Uncertain').length +
+    data.buckets.reduce((a, b) => a + Number(b.uncertainCount), 0)
   const anomalies =
-    t.samples.filter((x) => x.timeAnomaly).length +
-    t.buckets.reduce((a, b) => a + Number(b.anomalyCount), 0)
-  return `Bad ${bad} · Uncertain ${uncertain} · 时间异常 ${anomalies}`
+    data.samples.filter((x) => x.timeAnomaly).length +
+    data.buckets.reduce((a, b) => a + Number(b.anomalyCount), 0)
+  return t('Bad {0} · Uncertain {1} · 时间异常 {2}', [bad, uncertain, anomalies])
 })
 </script>
 <template>
@@ -214,38 +213,38 @@ const quality = computed(() => {
     <div class="section-title">
       <div>
         <p class="eyebrow">MEASUREMENTS / QUALITY</p>
-        <h2>观测、质量与时间。</h2>
+        <h2>{{ t('观测、质量与时间。') }}</h2>
       </div>
       <div class="actions">
-        <el-button :disabled="busy" @click="refresh()">刷新测量</el-button
+        <el-button :disabled="busy" @click="refresh()">{{ t('刷新测量') }}</el-button
         ><el-button v-if="admin && !archived" @click="configure = !configure">
-          {{ configure ? '关闭配置' : '配置测量' }}
+          {{ configure ? t('关闭配置') : t('配置测量') }}
         </el-button>
       </div>
     </div>
     <p v-if="error" role="alert" class="error-banner">
-      {{ error }} 已隐藏未验证的测量状态，请重试。
+      {{ error }} {{ t('已隐藏未验证的测量状态，请重试。') }}
     </p>
     <div class="measurement-toolbar">
-      <el-form-item label-position="top" label="点位"
+      <el-form-item label-position="top" :label="t('点位')"
         ><el-select filterable v-model="pointId" :disabled="busy" @change="change">
-          <el-option v-if="!points.length" value="" label="暂无点位" />
+          <el-option v-if="!points.length" value="" :label="t('暂无点位')" />
           <el-option
             v-for="p in points"
             :key="p.id"
             :value="p.id"
-            :label="p.code + ' · ' + p.name + (p.enabled ? '' : '（已停用）')"
+            :label="p.code + ' · ' + p.name + (p.enabled ? '' : t('（已停用）'))"
           /> </el-select></el-form-item
-      ><el-form-item label-position="top" label="时间窗口"
+      ><el-form-item label-position="top" :label="t('时间窗口')"
         ><el-select filterable v-model="windowMinutes" @change="change">
-          <el-option :value="15" label="最近 15 分钟" />
-          <el-option :value="60" label="最近 1 小时" />
-          <el-option :value="1440" label="最近 24 小时" /> </el-select></el-form-item
-      ><el-form-item label-position="top" label="粒度"
+          <el-option :value="15" :label="t('最近 15 分钟')" />
+          <el-option :value="60" :label="t('最近 1 小时')" />
+          <el-option :value="1440" :label="t('最近 24 小时')" /> </el-select></el-form-item
+      ><el-form-item label-position="top" :label="t('粒度')"
         ><el-select filterable v-model="bucket" @change="change">
-          <el-option value="raw" label="原始观测" />
-          <el-option value="1m" label="分钟统计" /> </el-select></el-form-item
-      ><el-checkbox class="check-label" v-model="auto">每 5 秒刷新</el-checkbox>
+          <el-option value="raw" :label="t('原始观测')" />
+          <el-option value="1m" :label="t('分钟统计')" /> </el-select></el-form-item
+      ><el-checkbox class="check-label" v-model="auto">{{ t('每 5 秒刷新') }}</el-checkbox>
     </div>
     <template v-if="point">
       <div class="measurement-summary">
@@ -259,19 +258,23 @@ const quality = computed(() => {
             <span
               class="quality-tag"
               :class="point.latestObserved?.isTrusted ? 'trusted' : 'untrusted'"
-              >{{ point.latestObserved?.quality ?? '暂无观测' }} ·
+              >{{ point.latestObserved?.quality ?? t('暂无观测') }} ·
               {{
-                point.latestObserved ? (point.latestObserved.isFresh ? '新鲜' : '陈旧') : '未接收'
+                point.latestObserved
+                  ? point.latestObserved.isFresh
+                    ? t('新鲜')
+                    : t('陈旧')
+                  : t('未接收')
               }}</span
             >
           </p>
           <p class="path-note">
-            {{ point.latestObserved?.isTrusted ? '当前可信观测' : '不可作为当前可信值'
-            }}<br />有效时间 {{ at(point.latestObserved?.effectiveAt) }}
+            {{ point.latestObserved?.isTrusted ? t('当前可信观测') : t('不可作为当前可信值')
+            }}<br />{{ t('有效时间') }} {{ at(point.latestObserved?.effectiveAt) }}
           </p>
         </div>
         <div>
-          <p class="eyebrow">LAST GOOD / 历史可信值</p>
+          <p class="eyebrow">{{ t('LAST GOOD / 历史可信值') }}</p>
           <strong
             >{{ value(point.lastGood?.value) }} <small>{{ point.canonicalUnit }}</small></strong
           >
@@ -279,32 +282,34 @@ const quality = computed(() => {
             {{
               point.lastGood
                 ? point.lastGood.isFresh
-                  ? 'Good · 仍在新鲜度窗口内'
-                  : 'Good · 已陈旧，仅供历史参考'
-                : '尚无可信读数'
-            }}<br />有效时间 {{ at(point.lastGood?.effectiveAt) }}
+                  ? t('Good · 仍在新鲜度窗口内')
+                  : t('Good · 已陈旧，仅供历史参考')
+                : t('尚无可信读数')
+            }}<br />{{ t('有效时间') }} {{ at(point.lastGood?.effectiveAt) }}
           </p>
         </div>
         <div>
-          <p class="eyebrow">当前采集配置</p>
+          <p class="eyebrow">{{ t('当前采集配置') }}</p>
           <p>
-            {{ point.sourceKind ?? '未启用映射' }} · {{ point.enabled ? '点位启用' : '点位停用' }}
+            {{ point.sourceKind ?? t('未启用映射') }} ·
+            {{ point.enabled ? t('点位启用') : t('点位停用') }}
           </p>
           <template v-if="point.sourceKind === 'OpcUa'">
             <p role="status">{{ connectionState() }}</p>
             <p class="path-note">
-              重连 {{ source?.health?.reconnectCount ?? 0 }} 次 · 心跳
+              {{ t('重连') }} {{ source?.health?.reconnectCount ?? 0 }} {{ t('次 · 心跳') }}
               {{ at(source?.health?.updatedAt) }}<br />
-              协议保活 {{ at(source?.health?.lastKeepAliveAt) }}<br />
-              {{ source?.health?.failureCode ?? ''
-              }}<br />连接存活与观测新鲜度分别判断；断线期间不补造样本。
+              {{ t('协议保活') }} {{ at(source?.health?.lastKeepAliveAt) }}<br />
+              {{ source?.health?.failureCode ?? '' }}<br />{{
+                t('连接存活与观测新鲜度分别判断；断线期间不补造样本。')
+              }}
             </p>
           </template>
           <p class="path-note">
-            {{ point.sourceKey ?? '—' }}<br />映射 v{{ point.mappingVersion ?? '—' }} · 点位 v{{
-              point.version
-            }}<br />最后接收 {{ at(point.lastReceivedAt) }}<br />陈旧阈值
-            {{ Number(point.staleAfterMs) / 1000 }} 秒
+            {{ point.sourceKey ?? '—' }}<br />{{ t('映射 v') }}{{ point.mappingVersion ?? '—' }}
+            {{ t('· 点位 v') }}{{ point.version }}<br />{{ t('最后接收') }}
+            {{ at(point.lastReceivedAt) }}<br />{{ t('陈旧阈值') }}
+            {{ Number(point.staleAfterMs) / 1000 }} {{ t('秒') }}
           </p>
         </div>
       </div>
@@ -318,7 +323,7 @@ const quality = computed(() => {
         <svg
           viewBox="0 0 960 230"
           role="img"
-          :aria-label="`${point.name}趋势。仅连接有效 Good 数据，坏值与缺口断线。`"
+          :aria-label="t('{0}趋势。仅连接有效 Good 数据，坏值与缺口断线。', [point.name])"
         >
           <line x1="50" y1="195" x2="930" y2="195" stroke="#c7d4ce" />
           <line x1="50" y1="25" x2="930" y2="25" stroke="#e4ebe7" />
@@ -344,43 +349,44 @@ const quality = computed(() => {
           <text x="930" y="222" text-anchor="end">{{ at(trend.to) }}</text>
         </svg>
         <p v-if="!chart.dots.length" class="path-note">
-          此窗口没有可连续展示的 Good 数据。分钟统计含缺口时仍可在下表查看。
+          {{ t('此窗口没有可连续展示的 Good 数据。分钟统计含缺口时仍可在下表查看。') }}
         </p>
         <p class="path-note">
-          Bad、Uncertain、时间异常与采样缺口均断线；没有观测的区间保持空白。{{
-            trend.leadingGap || trend.trailingGap ? '窗口边缘存在缺口。' : ''
-          }}
-          分钟统计使用完整 UTC 分钟。页面时间采用本机时区；接口和存储为 UTC。
+          {{ t('Bad、Uncertain、时间异常与采样缺口均断线；没有观测的区间保持空白。')
+          }}{{ trend.leadingGap || trend.trailingGap ? t('窗口边缘存在缺口。') : '' }}
+          {{ t('分钟统计使用完整 UTC 分钟。页面时间采用北京时间；接口和存储为 UTC。') }}
         </p>
       </div>
       <details v-if="trend">
-        <summary>查看质量、时间与来源明细</summary>
+        <summary>{{ t('查看质量、时间与来源明细') }}</summary>
         <div class="telemetry-table">
           <el-table
             v-if="trend.bucket === 'raw'"
             :data="trend.samples.slice(-100).reverse()"
             row-key="id"
             max-height="360"
-            empty-text="此时间窗口暂无数据"
-            ><el-table-column label="有效时间" min-width="200"
+            :empty-text="t('此时间窗口暂无数据')"
+            ><el-table-column :label="t('有效时间')" min-width="200"
               ><template #default="{ row: s }">
-                {{ at(s.effectiveAt) }}{{ s.gapBefore ? ' · 缺口' : ''
-                }}{{ s.timeAnomaly ? ' · 时间异常' : '' }}
+                {{ at(s.effectiveAt) }}{{ s.gapBefore ? t(' · 缺口') : ''
+                }}{{ s.timeAnomaly ? t(' · 时间异常') : '' }}
               </template></el-table-column
-            ><el-table-column label="值 / 质量" min-width="120"
+            ><el-table-column :label="t('值 / 质量')" min-width="120"
               ><template #default="{ row: s }"
                 >{{ value(s.value) }} {{ s.quality }}</template
               ></el-table-column
-            ><el-table-column label="时间依据" min-width="220"
+            ><el-table-column :label="t('时间依据')" min-width="220"
               ><template #default="{ row: s }">
-                {{ s.timestampOrigin }}<br />源 {{ at(s.sourceTimestamp) }}<br />服务器
+                {{ s.timestampOrigin }}<br />{{ t('源') }} {{ at(s.sourceTimestamp) }}<br />{{
+                  t('服务器')
+                }}
                 {{ at(s.serverTimestamp) }}
               </template></el-table-column
-            ><el-table-column label="来源 / 映射版本" min-width="240"
+            ><el-table-column :label="t('来源 / 映射版本')" min-width="240"
               ><template #default="{ row: s }"
                 >{{ s.sourceKind }} / v{{ s.mappingVersion }}<br />{{ s.sourceMappingId }}</template
               ></el-table-column
-            ><el-table-column label="状态 / 接收时间" min-width="220"
+            ><el-table-column :label="t('状态 / 接收时间')" min-width="220"
               ><template #default="{ row: s }">
                 {{ s.statusSymbol ?? '—' }} / {{ s.rawStatusCode ?? '—' }}<br />{{
                   at(s.receivedAt)
@@ -393,10 +399,10 @@ const quality = computed(() => {
             :data="trend.buckets.slice(-100).reverse()"
             row-key="start"
             max-height="360"
-            empty-text="此时间窗口暂无数据"
-            ><el-table-column label="分钟" min-width="190"
+            :empty-text="t('此时间窗口暂无数据')"
+            ><el-table-column :label="t('分钟')" min-width="190"
               ><template #default="{ row: b }">{{ at(b.start) }}</template></el-table-column
-            ><el-table-column label="最小 / 最大 / 平均" min-width="180"
+            ><el-table-column :label="t('最小 / 最大 / 平均')" min-width="180"
               ><template #default="{ row: b }"
                 >{{ value(b.min) }} / {{ value(b.max) }} / {{ value(b.average) }}</template
               ></el-table-column
@@ -404,41 +410,41 @@ const quality = computed(() => {
               ><template #default="{ row: b }"
                 >{{ b.goodCount }} / {{ b.uncertainCount }} / {{ b.badCount }}</template
               ></el-table-column
-            ><el-table-column label="覆盖率 / 缺口" min-width="230"
+            ><el-table-column :label="t('覆盖率 / 缺口')" min-width="230"
               ><template #default="{ row: b }">
                 {{
                   b.coverageRatio == null
-                    ? '覆盖率未知'
+                    ? t('覆盖率未知')
                     : (Number(b.coverageRatio) * 100).toFixed(0) + '%'
                 }}
                 ·
                 {{
                   b.samplingMode === 'Changes'
-                    ? '变化通知'
+                    ? t('变化通知')
                     : b.samplingMode === 'Unknown'
-                      ? '采样区间未确认'
-                      : '周期采样'
+                      ? t('采样区间未确认')
+                      : t('周期采样')
                 }}
                 ·
-                {{ b.hasGap ? '有缺口' : '完整' }}
+                {{ b.hasGap ? t('有缺口') : t('完整') }}
               </template></el-table-column
             ></el-table
           >
         </div>
-        <p class="path-note">展示最近 100 条；窗口查询保留全部返回数据。</p>
+        <p class="path-note">{{ t('展示最近 100 条；窗口查询保留全部返回数据。') }}</p>
       </details>
     </template>
     <p v-else-if="!error" class="path-note">
-      {{ busy ? '正在读取测量…' : '此设备尚无测量点位。' }}
+      {{ busy ? t('正在读取测量…') : t('此设备尚无测量点位。') }}
     </p>
     <p v-if="checked" class="path-note">
-      最近成功读取 {{ at(checked) }} ·
-      {{ auto && !configure ? '自动刷新中' : '自动刷新已暂停，当前展示为读取时的快照' }}
+      {{ t('最近成功读取') }} {{ at(checked) }} ·
+      {{ auto && !configure ? t('自动刷新中') : t('自动刷新已暂停，当前展示为读取时的快照') }}
     </p>
     <SidePanel
       :busy="configuration?.busy"
       v-if="configure"
-      title="配置测量"
+      :title="t('配置测量')"
       mode="dialog"
       dirty
       @close="configure = false"

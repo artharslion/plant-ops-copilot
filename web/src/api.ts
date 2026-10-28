@@ -1,3 +1,4 @@
+import { t } from './i18n'
 import type { components } from './generated/api'
 export type DirectoryRecord = components['schemas']['DirectoryRecord']
 export type DirectoryPage = components['schemas']['DirectoryPage']
@@ -5,9 +6,11 @@ export type CurrentUser = components['schemas']['CurrentUser']
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string,
+    message: string | (() => string),
   ) {
-    super(message)
+    super(typeof message === 'function' ? message() : message)
+    if (typeof message === 'function')
+      Object.defineProperty(this, 'message', { get: message, configurable: true })
   }
 }
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -29,7 +32,7 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
     })
   } catch {
-    throw new ApiError(0, '无法连接服务，请检查连接后重试。')
+    throw new ApiError(0, () => t('无法连接服务，请检查连接后重试。'))
   }
   if (!response.ok) {
     const problem = (await response.json().catch(() => ({}))) as {
@@ -45,9 +48,10 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
       502: '服务暂时不可用，请稍后重试。',
       503: '服务暂时不可用，请稍后重试。',
     }
-    throw new ApiError(
-      response.status,
-      messages[response.status] ?? problem.title ?? `请求失败 (${response.status})`,
+    throw new ApiError(response.status, () =>
+      messages[response.status]
+        ? t(messages[response.status])
+        : (problem.title ?? t('请求失败 ({0})', [response.status])),
     )
   }
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
@@ -61,14 +65,13 @@ export async function downloadDocument(path: string, fileName: string) {
       signal: AbortSignal.timeout(10000),
     })
   } catch {
-    throw new ApiError(0, '无法连接服务，请重试。')
+    throw new ApiError(0, () => t('无法连接服务，请重试。'))
   }
   if (!response.ok)
-    throw new ApiError(
-      response.status,
+    throw new ApiError(response.status, () =>
       response.status === 404
-        ? '文档未发布、已撤回或不在授权范围内。'
-        : '文档下载失败，请刷新并检查权限。',
+        ? t('文档未发布、已撤回或不在授权范围内。')
+        : t('文档下载失败，请刷新并检查权限。'),
     )
   const url = URL.createObjectURL(await response.blob()),
     link = document.createElement('a')

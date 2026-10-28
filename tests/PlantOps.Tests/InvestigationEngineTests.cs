@@ -200,6 +200,106 @@ public sealed class InvestigationEngineTests
         Assert.Equal(Fact, Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence]).Observations).Text);
     }
 
+    [Theory]
+    [InlineData("valid")]
+    [InlineData("invalid")]
+    [InlineData("foreign-reference")]
+    [InlineData("tool-call")]
+    public async Task MissingInformationWordingGetsOneBoundedFullyValidatedCorrection(string replacement)
+    {
+        var draft = Valid() with
+        {
+            Observations = [],
+            MissingInformation = ["缺少 P-101 的现场工况。"],
+            NextChecks = [new("核对事件工况。", ["E1"], "记录现场记录及缺项。", "全部记录经维护人员审核后完成。", "证据不足交维护工程师复核。")]
+        };
+        var corrected = draft with
+        {
+            MissingInformation = ["缺少告警设备的现场工况。"]
+        };
+        if (replacement == "invalid")
+        {
+            corrected = draft;
+        }
+        if (replacement == "foreign-reference")
+        {
+            corrected = corrected with
+            {
+                NextChecks = [corrected.NextChecks[0] with { EvidenceIds = ["FOREIGN"] }],
+                EvidenceIds = ["FOREIGN"]
+            };
+        }
+        var gateway = new InspectingGateway(new FakeLlmGateway([
+            new(null, [new("asset-read", "get_asset_details", "{}")], "fake", new(100, 20)),
+            new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20)),
+            new(InvestigationContract.Serialize(corrected), replacement == "tool-call" ? [new("unexpected", "get_asset_details", "{}")] : [], "fake", new(100, 20))
+        ]));
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var engine = new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }));
+        var reads = 0;
+        Task<InvestigationExecutionResult> Execute() => engine.ExecuteAsync([Evidence],
+            (_, _, _) =>
+            {
+                reads++;
+                return Task.FromResult(new InvestigationToolResult([], []));
+            }, _ => Task.CompletedTask, budget, CancellationToken.None);
+        if (replacement == "valid")
+        {
+            var result = await Execute();
+            var report = InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence]);
+            Assert.Equal(corrected.MissingInformation, report.MissingInformation);
+            Assert.Equal(Fact, Assert.Single(report.Observations).Text);
+        }
+        else
+        {
+            Assert.Equal(LlmFailure.InvalidResponse, (await Assert.ThrowsAsync<LlmException>(Execute)).Failure);
+        }
+        Assert.Equal(3, budget.ModelRounds);
+        Assert.Equal(1, reads);
+        Assert.True(gateway.LastRequest!.DisableToolCalls);
+        Assert.NotEmpty(gateway.LastRequest.Tools!);
+        Assert.Contains("rule=missing-information-advice", gateway.LastRequest.Messages.Last().Content, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(4, true)]
+    public async Task WordingCorrectionNeverIncreasesTheOriginalBudget(int rounds, bool unknownUsage)
+    {
+        var draft = Valid() with
+        {
+            MissingInformation = ["缺少 P-101 的工况。"]
+        };
+        var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", unknownUsage ? null : new(100, 20))]);
+        using var budget = new LlmBudget(new(MaxModelRounds: rounds, MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var error = await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions()))
+            .ExecuteAsync([Evidence], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
+        Assert.Equal(LlmFailure.InvalidResponse, error.Failure);
+        Assert.Equal(1, budget.ModelRounds);
+    }
+
+    [Fact]
+    public void ExactServerScopeFactsCanContainIdentifiersButAlteredScopeClaimsAreRejected()
+    {
+        const string scope = "调查取数范围：已读取 P-101 的事件窗口，其余候选未自动读取。";
+        var quality = Evidence with
+        {
+            Id = "E2",
+            Kind = "DataQuality",
+            Facts = [scope]
+        };
+        var result = Valid() with
+        {
+            MissingInformation = [scope]
+        };
+        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, quality]));
+        result = result with
+        {
+            MissingInformation = [scope.Replace("P-101", "P-102", StringComparison.Ordinal)]
+        };
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, quality]));
+    }
+
     [Fact]
     public async Task ToolRoundTripUsesFixedAllowlistAndReauthorizes()
     {

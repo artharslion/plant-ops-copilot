@@ -25,6 +25,7 @@ internal static class AiModel
         run.Property(x => x.Status).HasMaxLength(32);
         run.Property(x => x.Provider).HasMaxLength(32);
         run.Property(x => x.Model).HasMaxLength(200);
+        run.Property(x => x.Language).HasMaxLength(16).HasDefaultValue("zh-CN");
         run.Property(x => x.PromptVersion).HasMaxLength(64);
         run.Property(x => x.FailureCode).HasMaxLength(64);
         run.HasOne<Asset>().WithMany().HasForeignKey(x => new { x.PlantId, x.AssetId }).HasPrincipalKey(x => new { x.PlantId, x.Id }).OnDelete(DeleteBehavior.Restrict);

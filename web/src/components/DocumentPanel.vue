@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageRef, t } from '../i18n'
+import { formatDateTime as at } from '../time'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import SidePanel from './SidePanel.vue'
 import type { FormInstance } from 'element-plus'
@@ -46,8 +48,8 @@ const rows = ref<Doc[]>([]),
   versions = ref<Version[]>([]),
   cursor = ref<string | null>(null)
 const busy = ref(false),
-  error = ref(''),
-  notice = ref(''),
+  error = messageRef(),
+  notice = messageRef(),
   editing = ref(false),
   creating = ref(false)
 const title = ref(''),
@@ -76,7 +78,7 @@ async function load(more = false, background = false) {
       selected.value = null
       versions.value = []
     }
-    error.value = e instanceof Error ? e.message : '读取失败。'
+    error.value = () => (e instanceof Error ? e.message : t('读取失败。'))
   } finally {
     if (!background) busy.value = false
   }
@@ -100,7 +102,7 @@ async function select(d: Doc) {
     allowedRoles.value = [...detail.allowedRoles]
     file.value = null
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '读取失败。'
+    error.value = () => (e instanceof Error ? e.message : t('读取失败。'))
   } finally {
     busy.value = false
   }
@@ -137,7 +139,7 @@ async function upload() {
   )
     return
   if (!file.value) {
-    error.value = '请选择文件。'
+    error.value = () => t('请选择文件。')
     return
   }
   busy.value = true
@@ -170,9 +172,9 @@ async function upload() {
     creating.value = false
     editing.value = false
     await select(d)
-    notice.value = '已上传草稿版本；发布后可授权下载。'
+    notice.value = () => t('已上传草稿版本；发布后可授权下载。')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '上传失败。'
+    error.value = () => (e instanceof Error ? e.message : t('上传失败。'))
   } finally {
     busy.value = false
   }
@@ -207,9 +209,9 @@ async function action(kind: string, number?: number) {
       busy.value = false
       await load()
     } else await select(d)
-    notice.value = '文档变更已保存，授权与发布状态立即生效。'
+    notice.value = () => t('文档变更已保存，授权与发布状态立即生效。')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '保存失败。'
+    error.value = () => (e instanceof Error ? e.message : t('保存失败。'))
   } finally {
     busy.value = false
   }
@@ -223,9 +225,9 @@ async function download(v: Version) {
       `/documents/${selected.value.id}/versions/${v.versionNumber}/download`,
       v.fileName,
     )
-    notice.value = '已通过授权检查并下载。'
+    notice.value = () => t('已通过授权检查并下载。')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '下载失败。'
+    error.value = () => (e instanceof Error ? e.message : t('下载失败。'))
   } finally {
     busy.value = false
   }
@@ -291,7 +293,7 @@ async function refreshState() {
       selected.value = null
       versions.value = []
     }
-    error.value = e instanceof Error ? e.message : '资料状态读取失败。'
+    error.value = () => (e instanceof Error ? e.message : t('资料状态读取失败。'))
   } finally {
     checking.value = false
   }
@@ -314,13 +316,13 @@ onUnmounted(() => {
     <div class="section-title">
       <div>
         <p class="eyebrow">KNOWLEDGE / DOCUMENTS</p>
-        <h2>设备与工厂资料</h2>
+        <h2>{{ t('设备与工厂资料') }}</h2>
       </div>
       <div class="actions">
-        <el-button :disabled="busy" @click="load()">刷新资料</el-button
-        ><el-button v-if="writer && !archived" :disabled="busy" @click="prepare" type="primary"
-          >上传新资料</el-button
-        >
+        <el-button :disabled="busy" @click="load()">{{ t('刷新资料') }}</el-button
+        ><el-button v-if="writer && !archived" :disabled="busy" @click="prepare" type="primary">{{
+          t('上传新资料')
+        }}</el-button>
       </div>
     </div>
     <el-alert
@@ -335,39 +337,39 @@ onUnmounted(() => {
       :data="rows"
       v-loading="busy"
       row-key="id"
-      empty-text="暂无可访问资料"
+      :empty-text="t('暂无可访问资料')"
       @row-click="(doc: Doc) => !busy && select(doc)"
     >
-      <el-table-column label="资料标题" min-width="200"
+      <el-table-column :label="t('资料标题')" min-width="200"
         ><template #default="{ row }"
           ><el-button link type="primary" :disabled="busy" @click.stop="select(row)">{{
             row.title
           }}</el-button></template
         ></el-table-column
       >
-      <el-table-column prop="category" label="分类" min-width="130" />
-      <el-table-column label="状态" width="100"
+      <el-table-column prop="category" :label="t('分类')" min-width="130" />
+      <el-table-column :label="t('状态')" width="100"
         ><template #default="{ row }"
           ><el-tag :type="row.currentPublishedVersionId ? 'success' : 'info'">{{
-            row.currentPublishedVersionId ? '已发布' : '未发布'
+            row.currentPublishedVersionId ? t('已发布') : t('未发布')
           }}</el-tag></template
         ></el-table-column
       >
-      <el-table-column label="读取范围" min-width="160"
+      <el-table-column :label="t('读取范围')" min-width="160"
         ><template #default="{ row }">{{
-          row.visibility === 'PlantReaders' ? '工厂读者' : row.allowedRoles.join(' / ')
+          row.visibility === 'PlantReaders' ? t('工厂读者') : row.allowedRoles.join(' / ')
         }}</template></el-table-column
       >
-      <el-table-column prop="version" label="版本" width="80" />
+      <el-table-column prop="version" :label="t('版本')" width="80" />
     </el-table>
-    <el-button v-if="cursor" :disabled="busy" @click="load(true)" type="primary"
-      >加载更多资料</el-button
-    >
+    <el-button v-if="cursor" :disabled="busy" @click="load(true)" type="primary">{{
+      t('加载更多资料')
+    }}</el-button>
     <SidePanel
       v-if="selected || creating"
       :mode="creating || editing || assetId ? 'dialog' : 'drawer'"
-      :title="creating ? '上传新资料' : editing ? '编辑资料信息' : selected!.title"
-      subtitle="知识资料 / 详情"
+      :title="creating ? t('上传新资料') : editing ? t('编辑资料信息') : selected!.title"
+      :subtitle="t('知识资料 / 详情')"
       :busy="busy"
       :dirty="metadataDirty || !!file || creating"
       @close="closeView"
@@ -383,26 +385,26 @@ onUnmounted(() => {
         class="editor-panel"
         @submit.prevent="creating ? upload() : action('configure')"
       >
-        <h3>{{ creating ? '上传资料' : '资料信息与读取权限' }}</h3>
+        <h3>{{ creating ? t('上传资料') : t('资料信息与读取权限') }}</h3>
         <el-form-item
-          label="资料标题"
+          :label="t('资料标题')"
           prop="title"
-          :rules="[{ required: true, whitespace: true, message: '请填写此项', trigger: 'blur' }]"
+          :rules="[{ required: true, whitespace: true, message: t('请填写此项'), trigger: 'blur' }]"
           ><el-input v-model="title" required maxlength="200" /></el-form-item
         ><el-form-item
-          label="分类"
+          :label="t('分类')"
           prop="category"
-          :rules="[{ required: true, whitespace: true, message: '请填写此项', trigger: 'blur' }]"
+          :rules="[{ required: true, whitespace: true, message: t('请填写此项'), trigger: 'blur' }]"
           ><el-input v-model="category" required maxlength="64" /></el-form-item
-        ><el-form-item label="读取范围"
+        ><el-form-item :label="t('读取范围')"
           ><el-select filterable v-model="visibility">
-            <el-option value="PlantReaders" label="工厂读者" />
-            <el-option value="RestrictedRoles" label="指定角色" /> </el-select
+            <el-option value="PlantReaders" :label="t('工厂读者')" />
+            <el-option value="RestrictedRoles" :label="t('指定角色')" /> </el-select
         ></el-form-item>
         <el-checkbox-group
           v-if="visibility === 'RestrictedRoles'"
           v-model="allowedRoles"
-          aria-label="允许读取的角色"
+          :aria-label="t('允许读取的角色')"
         >
           <el-checkbox
             v-for="r in ['Viewer', 'Operator', 'MaintenanceEngineer', 'Admin']"
@@ -412,58 +414,58 @@ onUnmounted(() => {
             >{{ r }}</el-checkbox
           >
         </el-checkbox-group>
-        <el-form-item v-if="creating" label="文件（PDF / Markdown / UTF-8 TXT，最多 10 MiB）"
+        <el-form-item v-if="creating" :label="t('文件（PDF / Markdown / UTF-8 TXT，最多 10 MiB）')"
           ><input
             type="file"
             accept=".pdf,.md,.txt"
             @change="file = ($event.target as HTMLInputElement).files?.[0] ?? null" /></el-form-item
         ><el-button :disabled="busy" native-type="submit" type="primary">{{
-          creating ? '上传草稿' : '保存资料信息'
+          creating ? t('上传草稿') : t('保存资料信息')
         }}</el-button>
       </el-form>
       <section v-if="selected && !editing" class="editor-panel">
         <div class="section-title">
           <h3>{{ selected.title }}</h3>
           <div v-if="writer" class="actions">
-            <el-button :disabled="busy" @click="editMetadata"> 编辑资料信息</el-button
-            ><el-button :disabled="busy" @click="action('archive')">归档资料</el-button>
+            <el-button :disabled="busy" @click="editMetadata"> {{ t('编辑资料信息') }}</el-button
+            ><el-button :disabled="busy" @click="action('archive')">{{ t('归档资料') }}</el-button>
           </div>
         </div>
         <p>
           {{
             selected.visibility === 'PlantReaders'
-              ? '授权工厂读者可读'
-              : '限定角色：' + selected.allowedRoles.join(' / ')
+              ? t('授权工厂读者可读')
+              : t('限定角色：') + selected.allowedRoles.join(' / ')
           }}
-          · 元数据 v{{ selected.version }}
+          {{ t('· 元数据 v') }}{{ selected.version }}
         </p>
         <el-form label-position="top" v-if="writer" @submit.prevent="upload">
-          <el-form-item label="上传下一版本"
+          <el-form-item :label="t('上传下一版本')"
             ><input
               type="file"
               accept=".pdf,.md,.txt"
               @change="
                 file = ($event.target as HTMLInputElement).files?.[0] ?? null
               " /></el-form-item
-          ><el-button :disabled="busy" native-type="submit" type="primary"
-            >保存新版本草稿</el-button
-          >
+          ><el-button :disabled="busy" native-type="submit" type="primary">{{
+            t('保存新版本草稿')
+          }}</el-button>
         </el-form>
         <article v-for="v in versions" :key="v.id" class="document-version">
-          <h4>版本 {{ v.versionNumber }} · {{ v.status }}</h4>
+          <h4>{{ t('版本') }} {{ v.versionNumber }} · {{ v.status }}</h4>
           <p>
             {{ v.fileName }} · {{ (v.sizeBytes / 1024).toFixed(1) }} KiB ·
-            {{ new Date(v.uploadedAt).toLocaleString('zh-CN') }}
+            {{ at(v.uploadedAt) }}
           </p>
           <p class="path-note">
             {{
               v.indexStatus === 'NeedsText'
-                ? 'PDF 尚无提取文本；可下载，尚不能用于证据查询。'
+                ? t('PDF 尚无提取文本；可下载，尚不能用于证据查询。')
                 : v.indexStatus === 'Ready'
-                  ? '文本片段已就绪；当前发布版本可供授权证据查询。'
+                  ? t('文本片段已就绪；当前发布版本可供授权证据查询。')
                   : v.indexStatus === 'NotRequested'
-                    ? '旧资料将在授权查询时生成文本片段。'
-                    : '资料为空、超出解析上限或暂不可解析，未纳入证据查询。'
+                    ? t('旧资料将在授权查询时生成文本片段。')
+                    : t('资料为空、超出解析上限或暂不可解析，未纳入证据查询。')
             }}<br />SHA-256 {{ v.sha256 }}
           </p>
           <div class="actions">
@@ -473,20 +475,20 @@ onUnmounted(() => {
               @click="download(v)"
               type="primary"
             >
-              下载版本 {{ v.versionNumber }}</el-button
+              {{ t('下载版本') }} {{ v.versionNumber }}</el-button
             ><el-button
               v-if="writer && v.status === 'Draft'"
               :disabled="busy"
               @click="action('publish', v.versionNumber)"
               type="primary"
             >
-              发布版本 {{ v.versionNumber }}</el-button
+              {{ t('发布版本') }} {{ v.versionNumber }}</el-button
             ><el-button
               v-if="writer && v.status === 'Published'"
               :disabled="busy"
               @click="action('withdraw', v.versionNumber)"
             >
-              撤回版本 {{ v.versionNumber }}
+              {{ t('撤回版本') }} {{ v.versionNumber }}
             </el-button>
           </div>
         </article>

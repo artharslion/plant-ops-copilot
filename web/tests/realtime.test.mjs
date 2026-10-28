@@ -1,3 +1,4 @@
+import { withI18n } from './i18n-loader.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -7,9 +8,11 @@ await fs.mkdir(cache, { recursive: true })
 const output = new URL('plantops-realtime-test.mjs', cache)
 await fs.writeFile(
   output,
-  ts.transpileModule(await fs.readFile(new URL('../src/realtime.ts', import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText,
+  withI18n(
+    ts.transpileModule(await fs.readFile(new URL('../src/realtime.ts', import.meta.url), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  ),
 )
 const realtime = await import(output.href)
 test('duplicate IDs and stale versions never notify twice; document changes remain distinct', () => {

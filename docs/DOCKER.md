@@ -56,6 +56,30 @@ API 和 Worker 使用非 root 用户。镜像采用多阶段构建、锁定依�
 
 ## 健康检查与日常操作
 
+### 控制数据库占用
+
+内置 Simulation 默认启用，约 100 个测点每秒写入；原始读数及索引每天可增长约 5 GiB，另外会保存实时通知事件。原始数据默认保留 7 天，分钟汇总保留 90 天；已发送 Outbox 通知默认不清理。
+
+只使用三点 IndustrialSim 演示时，可在本机 `deploy/.env.docker` 设置：
+
+```dotenv
+TELEMETRY_SIMULATION_ENABLED=false
+TELEMETRY_RAW_RETENTION_DAYS=1
+TELEMETRY_MINUTE_RETENTION_DAYS=90
+OUTBOX_RETENTION_ENABLED=true
+OUTBOX_SENT_RETENTION_HOURS=24
+OUTBOX_CLEANUP_BATCH_SIZE=5000
+OUTBOX_CLEANUP_INTERVAL_SECONDS=5
+```
+
+关闭内置 Simulation 后，相应测点停止更新；OPC UA 采集继续。原始数据按 UTC 整日分区清理，`1` 表示保留今天和昨天，旧分区只有在分钟聚合完整时才删除。Outbox 仅删除超过保留期的已发送通知，待发送事件不受影响。缩短保留期会删除符合条件的历史数据，请先确认需要保留的范围。
+
+更改后使用原启动命令中的全部 Compose 文件执行 `up -d --wait api worker`，让新配置加载；启用了 IndustrialSim overlay 时还需包含 `industrial-sim` 服务，因为它共享 Worker 网络。普通 `restart` 不加载 env 文件变更。无需重新构建镜像或初始化数据库。
+
+旧 Outbox 积压按批逐步清理；删除行后，文件空间通常先供数据库内部复用。需要立即缩小该表时，可在维护窗口执行 `VACUUM FULL "OutboxEvents"`，期间会锁住该表并需要额外临时空间，见 [PostgreSQL 17 说明](https://www.postgresql.org/docs/17/sql-vacuum.html)。Docker 数据卷缩小不代表 Windows 上的 Docker 虚拟磁盘文件立即缩小。
+
+### 检查服务
+
 ```sh
 docker compose --env-file deploy/.env.docker ps
 docker compose --env-file deploy/.env.docker logs --tail 100 api worker web

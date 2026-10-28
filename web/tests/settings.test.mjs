@@ -1,3 +1,4 @@
+import { withI18n } from './i18n-loader.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -20,9 +21,11 @@ const script = compileScript(descriptor, { id: 'settings' }).content.replace(
   /from ['"]\.\.\/(api|stores\/session)['"]/g,
   "from './settings-mocks.mjs'",
 )
-const output = ts.transpileModule(script, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText
+const output = withI18n(
+  ts.transpileModule(script, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText,
+)
 const file = new URL('settings-page.mjs', cache)
 await fs.writeFile(file, output)
 const component = (await import(file.href)).default

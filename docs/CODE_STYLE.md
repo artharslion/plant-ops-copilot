@@ -54,7 +54,7 @@ ESLint 10 要求 Node 22.13 或更高的 22.x；本仓库开发与 CI 使用 22.
 
 ## UI 组件约定
 
-- Element Plus 组件在 `main.ts` 显式注册；新增组件时同步注册，避免完整插件安装带入全部组件。统一中文由 `ElConfigProvider` 提供。依赖固定版本并更新锁文件。
+- Element Plus 组件在 `main.ts` 显式注册；新增组件时同步注册，避免完整插件安装带入全部组件。`ElConfigProvider` 跟随 `i18n.ts` 的当前语言提供中英文组件提示。界面文字使用 `t()`，英文词条维护在 `locales/en.ts`；包含翻译的标签集合使用 `computed`，保存/错误提示使用 `messageRef` 延迟求值，以支持即时切换。业务内容及接口枚举保持原值。依赖固定版本并更新锁文件。
 - 业务列表使用 `ElTable`，行键使用稳定业务 ID；设备/资料/工单名称提供可聚焦按钮，不只依赖鼠标点击行。空态使用业务文本，前台读取使用 `v-loading` / Skeleton，后台补查不得反复遮盖表单。
 - 表单使用 `ElForm` / `ElFormItem` / Input / Select / Checkbox；`prop` 对应模型字段，提交前等待 `validate()`。输入长度和必填约束以及服务端校验必须保留。文件仍用原生文件选择器，后续上传沿用授权 API，禁止绕开下载与 AI 引用重授权。
 - 主按钮明确 `type="primary"`；提交按钮设置 `native-type="submit"`，普通操作保持默认 button。草稿/复核等分支不得随组件迁移改变提交含义。

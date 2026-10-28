@@ -76,7 +76,7 @@ public sealed class AiSettingsTests
     {
         public Task<InvestigationExecutionResult> ExecuteAsync(IReadOnlyList<InvestigationEvidence> evidence,
             Func<string, JsonElement, CancellationToken, Task<InvestigationToolResult>> readTool,
-            Func<CancellationToken, Task> authorize, LlmBudget budget, CancellationToken ct)
+            Func<CancellationToken, Task> authorize, LlmBudget budget, CancellationToken ct, string language = "zh-CN")
         {
             var options = services.GetRequiredService<IOptions<AiOptions>>().Value;
             var gateway = services.GetRequiredService<ILlmGateway>();

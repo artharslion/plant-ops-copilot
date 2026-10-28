@@ -1,3 +1,4 @@
+import { withI18n } from './i18n-loader.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -7,6 +8,14 @@ import ts from 'typescript'
 
 const cache = new URL('../node_modules/.cache/', import.meta.url)
 await fs.mkdir(cache, { recursive: true })
+await fs.writeFile(
+  new URL('overview-time.mjs', cache),
+  withI18n(
+    ts.transpileModule(await fs.readFile(new URL('../src/time.ts', import.meta.url), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  ),
+)
 await fs.writeFile(
   new URL('overview-mocks.mjs', cache),
   `
@@ -22,15 +31,19 @@ export const subscribePlantEvents = callback => { globalThis.overviewHarness.not
 const { descriptor } = parse(
   await fs.readFile(new URL('../src/pages/OverviewPage.vue', import.meta.url), 'utf8'),
 )
-const script = compileScript(descriptor, { id: 'overview' }).content.replace(
-  /from ['"]\.\.\/(api|realtime|stores\/(session|workOrderDrawer))['"]/g,
-  "from './overview-mocks.mjs'",
-)
+const script = compileScript(descriptor, { id: 'overview' })
+  .content.replace(/from ['"]\.\.\/time['"]/g, "from './overview-time.mjs'")
+  .replace(
+    /from ['"]\.\.\/(api|realtime|stores\/(session|workOrderDrawer))['"]/g,
+    "from './overview-mocks.mjs'",
+  )
 await fs.writeFile(
   new URL('overview-component.mjs', cache),
-  ts.transpileModule(script, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText,
+  withI18n(
+    ts.transpileModule(script, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  ),
 )
 const component = (await import(new URL('overview-component.mjs', cache).href)).default
 component.render = () => null

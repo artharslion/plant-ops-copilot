@@ -34,9 +34,12 @@ public enum LlmFailure
 }
 
 // Never include provider response bodies, messages, URLs with credentials or inner exceptions.
-public sealed class LlmException(LlmFailure failure, LlmUsage? usage = null) : Exception($"AI request failed: {failure}.")
+public sealed class LlmException(LlmFailure failure, LlmUsage? usage = null, string? validationRule = null) : Exception($"AI request failed: {failure}.")
 {
     public LlmFailure Failure { get; } = failure;
 
     public LlmUsage? Usage { get; } = usage;
+
+    // Fixed server rule codes only; never include rejected model text.
+    public string? ValidationRule { get; } = validationRule;
 }

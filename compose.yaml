@@ -4,6 +4,13 @@ x-backend-environment: &backend-environment
   ASPNETCORE_ENVIRONMENT: Development
   ConnectionStrings__PlantOps: Host=database;Port=5432;Database=plantops;Username=plantops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the Docker env file};GSS Encryption Mode=Disable
   Documents__StorageRoot: /var/lib/plantops/documents
+  Telemetry__SimulationEnabled: ${TELEMETRY_SIMULATION_ENABLED:-true}
+  Telemetry__RawRetentionDays: ${TELEMETRY_RAW_RETENTION_DAYS:-7}
+  Telemetry__MinuteRetentionDays: ${TELEMETRY_MINUTE_RETENTION_DAYS:-90}
+  Outbox__RetentionEnabled: ${OUTBOX_RETENTION_ENABLED:-false}
+  Outbox__SentRetentionHours: ${OUTBOX_SENT_RETENTION_HOURS:-24}
+  Outbox__CleanupBatchSize: ${OUTBOX_CLEANUP_BATCH_SIZE:-1000}
+  Outbox__CleanupIntervalSeconds: ${OUTBOX_CLEANUP_INTERVAL_SECONDS:-5}
   AI__Provider: ${AI_PROVIDER:-Fake}
   AI__BaseUrl: ${AI_BASE_URL:-}
   AI__Model: ${AI_MODEL:-}

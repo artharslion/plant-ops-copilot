@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 import { ref } from 'vue'
 import { useLeaveProtection } from '../composables/useLeaveProtection'
 const props = defineProps<{
@@ -46,15 +47,17 @@ defineExpose({ requestClose: close })
     <slot />
     <el-dialog
       v-model="confirmClose"
-      title="放弃未保存的内容？"
+      :title="t('放弃未保存的内容？')"
       width="min(420px, calc(100vw - 24px))"
       append-to-body
       :close-on-click-modal="false"
     >
-      <p>有尚未保存的内容，关闭后将丢失。</p>
+      <p>{{ t('有尚未保存的内容，关闭后将丢失。') }}</p>
       <template #footer>
-        <el-button @click="confirmClose = false">继续编辑</el-button>
-        <el-button type="danger" :disabled="busy" @click="discardAndClose">放弃并关闭</el-button>
+        <el-button @click="confirmClose = false">{{ t('继续编辑') }}</el-button>
+        <el-button type="danger" :disabled="busy" @click="discardAndClose">{{
+          t('放弃并关闭')
+        }}</el-button>
       </template>
     </el-dialog>
   </component>

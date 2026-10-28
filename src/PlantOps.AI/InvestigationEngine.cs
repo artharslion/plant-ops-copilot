@@ -13,7 +13,26 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
     public const string SafeSummary = "调查已完成；结论仍需现场验证。";
-    public const string PromptVersion = "investigation-extractive-v9";
+    public const string EnglishSafeSummary = "Investigation completed; conclusions still require on-site verification.";
+    public const string PromptVersion = "investigation-extractive-v11";
+    private const string EnglishInstructions = "\nRespond in English. Keep JSON property names and enum values unchanged. "
+        + "All newly written hypotheses, checks and missingInformation MUST be English. Original evidence, observations and hypothesis basis MUST remain verbatim in their source language; never translate or paraphrase a quoted fact. "
+        + "If factRendering=server, return observations=[] and summary EXACTLY: " + EnglishSafeSummary
+        + " If factRendering=model, observations must equal requiredObservations EXACTLY and summary must be EXACTLY: " + EnglishSafeSummary
+        + " Keep trigger, recovery and current evidence separate. Current normal never replaces the historical event. "
+        + "Hypotheses are optional, default [] unless an observed fact distinguishes a cause. A short excursion, a manual alone or missing data is not a cause. "
+        + "Prefix hypotheses with Possible or To verify, use weak/moderate support, copy ONE ENTIRE observed fact exactly into basis, state limitations and a distinguishing read-only verification. "
+        + "Analyze supplied RelatedTrend and RelatedComparison values and quality before proposing checks. Never ask humans to retrieve these already supplied trends or call them missing. "
+        + "Same-asset candidates do not establish a physical relation; completed-minute extrema do not prove sub-minute synchrony or causation. "
+        + "nextChecks MUST contain two to four targeted read-only checks, including in server rendering mode. Each needs a task, specific evidence to record, a verifiable completion condition and escalation condition with responsible role. "
+        + "Completion must describe when all checks and required review are complete, never a status such as Not completed or Pending evidence. "
+        + "Known weak maintenance records are not missing records. omittedFactCount means facts exist but were omitted from input; never claim they are absent. "
+        + "If raw history is explicitly unavailable, use retained alarm/minute evidence and document retention limits and responsible review; never require reconstruction of lost samples or claim missing history was verified. "
+        + "Only ENTIRE copied cited facts may contain numbers, timestamps, units or equipment IDs. No controls, adjustments, commands or parameter changes, even in negations. "
+        + "Sampling, KeepAlive and constant values prove neither fault nor notification rate. Never claim root cause or asset safety. "
+        + "missingInformation has no citations: describe genuinely missing evidence without digits, timestamps, equipment IDs or control-operation words, even in negations. Use the alarm asset, alarm point or related point instead of identifiers. "
+        + "dataWarnings=[]; omit root evidenceIds. existingEvidenceIds means fully supplied; query only missing data.";
+
     private const string AssessmentInstructions = "\nAssessment and PointStatus are server-computed, authoritative labels scoped to CurrentReadingsAtAsOf. "
         + "Do not rewrite the labels. Keep current assessments separate from historical event/windows. A bad temperature point does not negate trusted vibration evidence. "
         + "Present means observed threshold evidence, not duration, root cause or safety. NotFound is limited to inspected points and enabled thresholds. "
@@ -26,10 +45,11 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         + "nextChecks MUST contain two to four targeted read-only checks, also in server rendering mode; empty nextChecks is rejected. Each: text=task, record=specific evidence to record, completion=verifiable acceptance condition (全部…且…后完成), escalation=condition and responsible role. Never use 未完成/部分完成/待补证 as completion. Reuse supplied facts; do not task humans to re-fetch them. "
         + "Known but weak maintenance records are not missing records. omittedFactCount means facts exist in the ledger but were not supplied due to input limits; NEVER call them absent/empty/unqueryable. MissingInformation names only genuinely missing evidence, not unacknowledged alarm state. "
         + "If raw history is explicitly unqueryable, use retained alarm/minute evidence; record the limit and retention/handoff review. Do not demand reconstruction of lost samples as completion; allow documented unavailability plus responsible review, without claiming the missing history was verified. "
-        + "Numbers/IDs only inside entire cited Facts, including advice and missingInformation. Outside copied facts avoid 设置/设定/改为/调节/调整/写入/停机/开机/启动/停止/复位/修改阈值 even in negations. Demos lack field authority. Sampling, KeepAlive and constant values prove no fault or notification rate. "
+        + "Numbers/IDs only inside entire cited Facts in observations, hypotheses and nextChecks. Outside copied facts avoid 设置/设定/改为/调节/调整/写入/停机/开机/启动/停止/复位/修改阈值 even in negations. Demos lack field authority. Sampling, KeepAlive and constant values prove no fault or notification rate. "
+        + "missingInformation: describe missing evidence without digits, timestamps, equipment IDs or control-operation words, even in negations. Use 告警设备/告警点位/关联测点 instead of IDs. Do not copy numbered facts here because this field has no citations. "
         + "dataWarnings=[]; omit root evidenceIds. existingEvidenceIds=fully supplied; query only missing data.";
 
-    private const string CompactInstructions = "\nChinese. Copy requiredObservations exactly; event/current separate. Summary=observation or 调查已完成；结论仍需现场验证。 Optional hypotheses: 可能/待验证, weak/moderate, entire observed basis, limitations, distinguishing verification. No manual-only causes. Use supplied RelatedTrend/RelatedComparison before checks; do not request them again. Checks cite facts: record, completion condition, escalation. Only whole cited facts may contain numbers/IDs; no controls. Input omissions are not data loss. dataWarnings=[]; omit root evidenceIds. existingEvidenceIds=fully supplied.";
+    private const string CompactInstructions = "\nChinese. Copy requiredObservations exactly; event/current separate. Summary=observation or 调查已完成；结论仍需现场验证。 Optional hypotheses: 可能/待验证, weak/moderate, entire observed basis, limitations, distinguishing verification. No manual-only causes. Use supplied RelatedTrend/RelatedComparison before checks; do not request them again. Checks cite facts: record, completion condition, escalation. Only whole cited facts may contain numbers/IDs; no controls. missingInformation has no citations: no digits, timestamps, equipment IDs or control-operation words even in negations; use 告警设备/告警点位/关联测点. Input omissions are not data loss. dataWarnings=[]; omit root evidenceIds. existingEvidenceIds=fully supplied.";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private static readonly LlmTool[] Tools =
@@ -69,7 +89,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
     }
 
     public static InvestigationResult ValidateFacts(string content, IReadOnlyList<InvestigationEvidence> evidence,
-        ILogger? logger = null)
+        ILogger? logger = null, string language = "zh-CN")
     {
         var ledger = evidence.ToDictionary(x => x.Id, StringComparer.Ordinal);
         InvestigationResult result;
@@ -98,15 +118,31 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             {
                 var data = Regex.Match(text, @"当前数据可信度[：:]\s*(部分可信|不可验证|可信)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
                 var anomaly = Regex.Match(text, @"当前设备异常证据[：:]\s*(证据不足|未发现|存在)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+                var englishData = Regex.Match(text, @"current data trust\s*:\s*(partially trusted|unverifiable|trusted)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+                var englishAnomaly = Regex.Match(text, @"current (?:asset )?anomaly evidence\s*:\s*(insufficient|not found|present)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+                var expectedTrust = assessment.DataTrust switch
+                {
+                    "Trusted" => "trusted",
+                    "Partial" => "partially trusted",
+                    _ => "unverifiable"
+                };
+                var expectedAnomaly = assessment.AnomalyEvidence switch
+                {
+                    "Present" => "present",
+                    "NotFound" => "not found",
+                    _ => "insufficient"
+                };
                 if (data.Success && data.Groups[1].Value != InvestigationAssessmentPolicy.TrustLabel(assessment.DataTrust)
                     || anomaly.Success && anomaly.Groups[1].Value != InvestigationAssessmentPolicy.AnomalyLabel(assessment.AnomalyEvidence)
+                    || englishData.Success && !englishData.Groups[1].Value.Equals(expectedTrust, StringComparison.OrdinalIgnoreCase)
+                    || englishAnomaly.Success && !englishAnomaly.Groups[1].Value.Equals(expectedAnomaly, StringComparison.OrdinalIgnoreCase)
                     || Regex.IsMatch(text, @"(?:已确认|证明|保证|说明|判定|确认)(?:全设备|设备)(?:完全|绝对|运行)?(?:正常|安全|无异常)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
                 {
                     throw new LlmException(LlmFailure.InvalidResponse);
                 }
             }
         }
-        if (result.Summary != SafeSummary && !result.Observations.Any(x => x.Text == summary) && (summaryFacts.Length is < 1 or > 3
+        if (result.Summary != (language == "en" ? EnglishSafeSummary : SafeSummary) && !result.Observations.Any(x => x.Text == summary) && (summaryFacts.Length is < 1 or > 3
             || summaryFacts.Distinct(StringComparer.Ordinal).Count() != summaryFacts.Length
             || summaryFacts.Any(f => !result.Observations.Any(x => x.Text == f))))
         {
@@ -127,7 +163,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 throw new LlmException(LlmFailure.InvalidResponse);
             }
         }
-        bool UnsupportedNumbers(string text, IEnumerable<string> ids)
+        string WithoutQuotedFacts(string text, IEnumerable<string> ids)
         {
             // A repeated number is not sufficient grounding: only complete, cited facts may carry
             // numbers. The remaining connective advice must contain no numeric claims or parameters.
@@ -135,12 +171,17 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             {
                 text = text.Replace(fact, "", StringComparison.Ordinal);
             }
-            return Regex.IsMatch(text, @"\p{N}|设置|设定|改为|调节|调整|写入|停机|开机|启动|停止|复位|修改阈值", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+            return text;
         }
+        bool UnsupportedNumbers(string text, IEnumerable<string> ids) => Regex.IsMatch(WithoutQuotedFacts(text, ids),
+            @"\p{N}|设置|设定|改为|调节|调整|写入|停机|开机|启动|停止|复位|修改阈值|\b(?:adjust|write|shutdown|restart|reset|reconfigure|activate|deactivate)\b|\b(?:shut\s*down|turn\s+(?:on|off))\b|\b(?:set|change|start|stop)\b.{0,30}\b(?:equipment|asset|pump|motor|machine|device|valve|threshold|setpoint|parameter|output)\b|\b(?:confirmed?|proven?|guaranteed?|definite|certain)\s+(?:root\s+)?cause\b|\b(?:asset|equipment|device)\s+(?:is|are)\s+(?:(?:completely|fully|definitely)\s+)?(?:safe|normal|healthy|fault.free)\b",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+        bool WrongLanguage(string text, IEnumerable<string> ids) => language == "en"
+            && Regex.IsMatch(WithoutQuotedFacts(text, ids), @"\p{IsCJKUnifiedIdeographs}", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
         LlmException Invalid(string rule, int index)
         {
             logger?.LogWarning("AI answer invalid: rule={Rule}; item={Item}", rule, index);
-            return new LlmException(LlmFailure.InvalidResponse);
+            return new LlmException(LlmFailure.InvalidResponse, validationRule: rule);
         }
         void CheckAvailability(string text, string field, int index)
         {
@@ -151,23 +192,26 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 // antecedent; assertions in its consequence or later clauses
                 // must still be checked against the full ledger.
                 text = Regex.Replace(text,
-                    @"(^|[。；;\r\n])\s*(?:如果|若|如|当|一旦)[^，,。；;\r\n]*?(?:，|,|则|就)",
-                    "$1", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+                    @"(^|[。；;\r\n])\s*(?:如果|若|如|当|一旦|if\b|when\b|once\b)[^，,。；;\r\n]*?(?:，|,|则|就)",
+                    "$1", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
             }
-            bool Match(string pattern) => Regex.IsMatch(text, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+            bool Match(string pattern) => Regex.IsMatch(text, pattern, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
             // An input omission is not a missing measurement. Check against the
             // full authorized ledger, never just the model's packed projection.
+            var mentionsRecovery = text.Contains("恢复", StringComparison.Ordinal) || Match(@"\brecovery\b");
+            var mentionsTrigger = text.Contains("触发", StringComparison.Ordinal) || Match(@"\btrigger\b");
+            var mentionsEvent = text.Contains("事件", StringComparison.Ordinal) || Match(@"\bevent\b");
             var hasRaw = evidence.Any(e => e.Kind is "EventReadings" or "RecoveryReadings"
-                && (!text.Contains("恢复", StringComparison.Ordinal) || text.Contains("触发", StringComparison.Ordinal) || e.Kind == "RecoveryReadings")
-                && (!text.Contains("事件", StringComparison.Ordinal) && !text.Contains("触发", StringComparison.Ordinal) || text.Contains("恢复", StringComparison.Ordinal) || e.Kind == "EventReadings")
+                && (!mentionsRecovery || mentionsTrigger || e.Kind == "RecoveryReadings")
+                && (!mentionsEvent && !mentionsTrigger || mentionsRecovery || e.Kind == "EventReadings")
                 && e.Facts.Any(f => !f.Contains("不可查询", StringComparison.Ordinal) && !f.Contains("未查询到", StringComparison.Ordinal)));
-            var asksForCompleteRaw = Match(@"(?:完整|全量|全部|连续|更长时段).{0,8}原始(?:观测|样本|读数|数据)");
-            if (hasRaw && !asksForCompleteRaw && Match(@"原始(?:观测|样本|读数|数据)(?:有界)?(?:节选)?(?:为空|缺失|不可查询|未提供|不存在)|(?:缺少|缺失|没有|未提供).{0,12}原始(?:观测|样本|读数|数据)"))
+            var asksForCompleteRaw = Match(@"(?:完整|全量|全部|连续|更长时段).{0,8}原始(?:观测|样本|读数|数据)|\b(?:complete|full|all|continuous|longer).{0,30}\braw\s+(?:observations|samples|readings|data)\b");
+            if (hasRaw && !asksForCompleteRaw && Match(@"原始(?:观测|样本|读数|数据)(?:有界)?(?:节选)?(?:为空|缺失|不可查询|未提供|不存在)|(?:缺少|缺失|没有|未提供).{0,12}原始(?:观测|样本|读数|数据)|\braw\s+(?:observations|samples|readings|data)\s+(?:(?:are|is|were|was)\s+)?(?:missing|empty|unavailable|absent|not\s+(?:provided|available|queryable))\b|\b(?:missing|no|lack\s+of|absence\s+of)\s+(?:event\s+|recovery\s+)?raw\s+(?:observations|samples|readings|data)\b"))
             {
                 throw Invalid(field + "-contradicts-raw-evidence", index);
             }
             if (evidence.Any(e => e.Kind == "Maintenance" && e.Facts.Any(f => f.StartsWith("维护记录：", StringComparison.Ordinal)))
-                && Match(@"维护记录(?:事实)?(?:缺失|为空|不存在)|(?:缺少|缺失|没有)维护记录(?:事实)?[。；，,;]?$"))
+                && Match(@"维护记录(?:事实)?(?:缺失|为空|不存在)|(?:缺少|缺失|没有)维护记录(?:事实)?[。；，,;]?$|\bmaintenance\s+records\s+(?:are\s+)?(?:missing|empty|absent|unavailable)\b|\b(?:missing|no|lack\s+of)\s+maintenance\s+records\b"))
             {
                 throw Invalid(field + "-contradicts-maintenance", index);
             }
@@ -175,7 +219,10 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         for (var i = 0; i < result.Hypotheses.Length; i++)
         {
             var x = result.Hypotheses[i];
-            if (!(x.Text.StartsWith("可能", StringComparison.Ordinal) || x.Text.StartsWith("待验证", StringComparison.Ordinal))
+            var tentative = language == "en"
+                ? x.Text.StartsWith("Possible", StringComparison.OrdinalIgnoreCase) || x.Text.StartsWith("To verify", StringComparison.OrdinalIgnoreCase)
+                : x.Text.StartsWith("可能", StringComparison.Ordinal) || x.Text.StartsWith("待验证", StringComparison.Ordinal);
+            if (!tentative
             || x.Support == "strong" || x.Text.Contains("已确认", StringComparison.Ordinal)
             || x.EvidenceIds.All(id => ledger[id].Kind is "DataQuality" or "Document" or "Asset" or "Assessment" or "PointStatus")
             || string.IsNullOrWhiteSpace(x.Basis) || x.Basis.Length > 2000
@@ -186,7 +233,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             }
             foreach (var (field, text) in new[] { ("text", x.Text), ("limitations", x.Limitations), ("verification", x.Verification) })
             {
-                if (string.IsNullOrWhiteSpace(text) || text.Length > 2000 || UnsupportedNumbers(text, x.EvidenceIds))
+                if (string.IsNullOrWhiteSpace(text) || text.Length > 2000 || UnsupportedNumbers(text, x.EvidenceIds) || WrongLanguage(text, x.EvidenceIds))
                 {
                     throw Invalid("hypothesis-" + field + "-advice", i);
                 }
@@ -202,20 +249,22 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             }
             foreach (var (field, text) in new[] { ("text", x.Text), ("record", x.Record), ("completion", x.Completion), ("escalation", x.Escalation) })
             {
-                if (string.IsNullOrWhiteSpace(text) || text.Length > (field == "text" ? 2000 : 500) || UnsupportedNumbers(text, x.EvidenceIds))
+                if (string.IsNullOrWhiteSpace(text) || text.Length > (field == "text" ? 2000 : 500) || UnsupportedNumbers(text, x.EvidenceIds) || WrongLanguage(text, x.EvidenceIds))
                 {
                     throw Invalid("check-" + field + "-advice", i);
                 }
                 CheckAvailability(text, "check-" + field, i);
             }
-            if (Regex.IsMatch(x.Completion!, @"^\s*(?:未完成|部分完成|待补证|待核查)(?:[；;，,。]|$)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
+            if (Regex.IsMatch(x.Completion!, @"^\s*(?:未完成|部分完成|待补证|待核查|not completed|partially complete[d]?|pending evidence|pending review)(?:[；;，,。.]|$)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
             {
                 throw Invalid("check-completion-is-status", i);
             }
         }
         for (var i = 0; i < result.MissingInformation.Length; i++)
         {
-            if (UnsupportedNumbers(result.MissingInformation[i], []))
+            var serverScopeFact = result.MissingInformation[i].StartsWith("调查取数范围：", StringComparison.Ordinal)
+                && evidence.Any(e => e.Kind == "DataQuality" && e.Facts.Contains(result.MissingInformation[i], StringComparer.Ordinal));
+            if (!serverScopeFact && (UnsupportedNumbers(result.MissingInformation[i], []) || WrongLanguage(result.MissingInformation[i], [])))
             {
                 throw Invalid("missing-information-advice", i);
             }
@@ -270,12 +319,18 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
 
     public async Task<InvestigationExecutionResult> ExecuteAsync(IReadOnlyList<InvestigationEvidence> evidence,
         Func<string, JsonElement, CancellationToken, Task<InvestigationToolResult>> readTool,
-        Func<CancellationToken, Task> authorize, LlmBudget budget, CancellationToken cancellationToken)
+        Func<CancellationToken, Task> authorize, LlmBudget budget, CancellationToken cancellationToken, string language = "zh-CN")
     {
+        if (language is not ("zh-CN" or "en"))
+        {
+            throw new LlmException(LlmFailure.InvalidRequest);
+        }
         var ledger = evidence.ToList();
         var inputLimit = budget.RemainingInputTokens >= 28000 ? 16000 : 8000;
         var renderFacts = options.Value.ServerRenderedFacts;
-        var instructions = renderFacts || budget.RemainingInputTokens >= 28000 ? Instructions : CompactInstructions;
+        var safeSummary = language == "en" ? EnglishSafeSummary : SafeSummary;
+        var instructions = language == "en" ? EnglishInstructions
+            : renderFacts || budget.RemainingInputTokens >= 28000 ? Instructions : CompactInstructions;
         ModelEvidence[] initialEvidence;
         List<LlmMessage> messages;
         while (true)
@@ -284,7 +339,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             messages =
             [
                 new(LlmRole.System, InvestigationContract.SystemPrompt + (ledger.Any(x => x.Kind == "Assessment") ? AssessmentInstructions : "") + instructions),
-                new(LlmRole.User, JsonSerializer.Serialize(new { mode = PromptVersion, factRendering = renderFacts ? "server" : "model", requiredObservations = RequiredObservations(ledger), evidence = initialEvidence }, Json))
+                new(LlmRole.User, JsonSerializer.Serialize(new { mode = PromptVersion, language, factRendering = renderFacts ? "server" : "model", requiredObservations = RequiredObservations(ledger), evidence = initialEvidence }, Json))
             ];
             // Include schema, tools and protected facts in the input reservation,
             // preserving smaller configured budgets instead of raising them.
@@ -300,6 +355,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
         var fullySupplied = initialEvidence.Where(x => x.OmittedFactCount == 0).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
         var suppliedWarnings = ledger.Where(x => x.Kind == "DataQuality").SelectMany(x => x.Facts).ToHashSet(StringComparer.Ordinal);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
+        var correctionAttempted = false;
         while (true)
         {
             budget.CheckDeadline();
@@ -309,12 +365,13 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             }
             await authorize(deadline.Token);
             var request = new LlmRequest(messages, Tools, InvestigationContract.OutputSchema,
-                MaxOutputTokens: budget.RemainingOutputTokens);
+                MaxOutputTokens: budget.RemainingOutputTokens, DisableToolCalls: correctionAttempted);
             string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
             var selected = options.Value;
             await budget.RecordRequestAsync(PromptVersion, JsonSerializer.SerializeToElement(new
             {
                 promptVersion = PromptVersion,
+                language,
                 systemPromptSha256 = Hash(messages[0].Content!),
                 schemaName = InvestigationContract.OutputSchema.Name,
                 schemaSha256 = Hash(InvestigationContract.OutputSchema.Schema.GetRawText()),
@@ -324,7 +381,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     selected.Provider == "Fake" ? "fake" : selected.Model,
                     selected.Provider == "Fake" ? null : selected.ReasoningEffort,
                     selected.Provider != "Fake" && selected.StreamResponses))),
-                trustPolicyVersion = InvestigationAssessmentPolicy.Version + "/authorized-ledger-fact-validation-v8",
+                trustPolicyVersion = InvestigationAssessmentPolicy.Version + "/authorized-ledger-fact-validation-v9",
                 evidencePolicyVersion = "event-recovery-current-related-v1",
                 serverRenderedFacts = renderFacts,
                 provider = selected.Provider,
@@ -333,7 +390,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 streamResponses = selected.Provider != "Fake" && selected.StreamResponses,
                 selected.RequestTimeoutSeconds,
                 selected.MaxRetries,
-                request.MaxOutputTokens
+                request.MaxOutputTokens,
+                validationCorrection = correctionAttempted
             }, Json), deadline.Token);
             var completion = await gateway.CompleteAsync(request, budget, deadline.Token);
             await authorize(deadline.Token);
@@ -353,7 +411,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                         // anything. Unexpected model observations are rejected, never
                         // silently dropped in order to turn a failed answer into success.
                         var draft = InvestigationContract.ParseAndValidateReferences(content, ledger.Select(x => x.Id).ToHashSet(StringComparer.Ordinal), logger, deriveMissingReferences: true);
-                        if (draft.Observations.Length != 0 || draft.Summary != SafeSummary)
+                        if (draft.Observations.Length != 0 || draft.Summary != safeSummary)
                         {
                             logger?.LogWarning("AI answer invalid: rule=server-facts-draft-shape");
                             throw new LlmException(LlmFailure.InvalidResponse);
@@ -366,27 +424,57 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                         content = InvestigationContract.Serialize(draft with
                         {
                             Observations = RequiredObservations(ledger),
-                            Summary = ComposeSummary(ledger),
+                            Summary = language == "en" ? EnglishSafeSummary : ComposeSummary(ledger),
                             MissingInformation = ledger.Where(x => x.Kind == "DataQuality").SelectMany(x => x.Facts)
                                 .Where(f => f.StartsWith("调查取数范围：", StringComparison.Ordinal))
                                 .Concat(ledger.Where(x => x.Kind is "EventReadings" or "RecoveryReadings")
                                     .Where(x => x.Facts.Any(f => f.Contains("不可查询", StringComparison.Ordinal)))
                                     .Select(x => x.Kind == "EventReadings"
-                                        ? "触发事件的原始观测不可查询；历史快照和聚合不能替代完整原始过程。"
-                                        : "恢复事件的原始观测不可查询；需要保留无法核实的范围及责任接续。"))
+                                        ? language == "en" ? "Raw observations for the trigger event are unavailable; historical snapshots and aggregates do not replace the complete raw process." : "触发事件的原始观测不可查询；历史快照和聚合不能替代完整原始过程。"
+                                        : language == "en" ? "Raw observations for the recovery event are unavailable; document the unverifiable scope and responsible handoff." : "恢复事件的原始观测不可查询；需要保留无法核实的范围及责任接续。"))
                                 .Concat(draft.MissingInformation).Distinct(StringComparer.Ordinal).ToArray(),
                             EvidenceIds = null!
                         });
                     }
-                    result = ValidateFacts(content, ledger, logger);
+                    result = ValidateFacts(content, ledger, logger, language);
                 }
                 catch (LlmException exception)
                 {
+                    // Correct only this known wording failure, once, within the original
+                    // run budget. The replacement passes the entire validator again.
+                    if (!correctionAttempted && exception.ValidationRule == "missing-information-advice"
+                        && budget.ModelRounds < budget.Limits.MaxModelRounds && budget.RemainingOutputTokens > 0)
+                    {
+                        var correctionMessages = new List<LlmMessage>(messages)
+                        {
+                            new(LlmRole.Assistant, completion.Content),
+                            new(LlmRole.User, "The previous answer was rejected: rule=missing-information-advice. Return the complete corrected JSON. "
+                                + "missingInformation has no citations: describe only genuinely missing evidence, without any digits, timestamps, equipment IDs or control-operation words (including in negations). "
+                                + (language == "en" ? "Write English; use the alarm asset, alarm point or related point. " : "Use 告警设备、告警点位、关联测点. ")
+                                + "Do not delete a genuine limitation merely to pass validation. Keep the other grounded fields and server fact-rendering rules. No tool calls.")
+                        };
+                        var correctionRequest = new LlmRequest(correctionMessages, Tools, InvestigationContract.OutputSchema,
+                            MaxOutputTokens: budget.RemainingOutputTokens, DisableToolCalls: true);
+                        if (ChatCompletionsProtocol.Serialize(correctionRequest,
+                            selected.Provider == "Fake" ? "fake" : selected.Model,
+                            selected.Provider == "Fake" ? null : selected.ReasoningEffort,
+                            selected.Provider != "Fake" && selected.StreamResponses).Length + 256 <= budget.RemainingInputTokens)
+                        {
+                            logger?.LogWarning("AI answer correction requested: rule={Rule}; maximumCorrections=1", exception.ValidationRule);
+                            messages = correctionMessages;
+                            correctionAttempted = true;
+                            continue;
+                        }
+                    }
                     logger?.LogWarning("AI investigation failed: {Failure}; stage=structured-facts-validation; evidence={EvidenceCount}",
                         exception.Failure, ledger.Count);
                     throw;
                 }
                 return new(InvestigationContract.Serialize(result), completion.Model, options.Value.Provider == "Fake");
+            }
+            if (correctionAttempted)
+            {
+                throw new LlmException(LlmFailure.InvalidResponse);
             }
             messages.Add(new(LlmRole.Assistant, completion.Content, completion.ToolCalls));
             foreach (var call in completion.ToolCalls)

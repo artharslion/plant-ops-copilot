@@ -1,3 +1,4 @@
+import { evidencePresentationUrl, i18nUrl, withI18n } from './i18n-loader.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -8,6 +9,14 @@ import ts from 'typescript'
 // Exercise the actual component setup and lifecycle without a browser or new dependencies.
 const cache = new URL('../node_modules/.cache/', import.meta.url)
 await fs.mkdir(cache, { recursive: true })
+await fs.writeFile(
+  new URL('panel-time.mjs', cache),
+  withI18n(
+    ts.transpileModule(await fs.readFile(new URL('../src/time.ts', import.meta.url), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  ),
+)
 await fs.writeFile(
   new URL('panel-mocks.mjs', cache),
   `
@@ -43,6 +52,8 @@ for (const name of [
   const { descriptor } = parse(source)
   let script = compileScript(descriptor, { id: name }).content
   script = script
+    .replace(/from ['"]\.\.\/evidencePresentation['"]/g, `from '${evidencePresentationUrl}'`)
+    .replace(/from ['"]\.\.\/time['"]/g, "from './panel-time.mjs'")
     .replace(/import (\w+) from ['"].*\.vue['"]/g, 'const $1 = {}')
     .replace(/from ['"]vue-router['"]/g, "from './panel-mocks.mjs'")
     .replace(/from ['"]\.\.\/composables\/useLeaveProtection['"]/g, "from './panel-mocks.mjs'")
@@ -50,9 +61,11 @@ for (const name of [
       /from ['"]\.\.\/(api|realtime|stores\/(session|workOrderDrawer))['"]/g,
       "from './panel-mocks.mjs'",
     )
-  const output = ts.transpileModule(script, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText
+  const output = withI18n(
+    ts.transpileModule(script, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  )
   const path = new URL(`panel-${name}.mjs`, cache)
   await fs.writeFile(path, output)
   const component = (await import(path.href)).default
@@ -70,6 +83,34 @@ const flush = async () => {
   await new Promise((resolve) => setImmediate(resolve))
   await nextTick()
 }
+test('switching languages updates an open work order without losing form input or reloading', async (context) => {
+  const { setLocale } = await import(i18nUrl)
+  context.after(() => setLocale('zh-CN'))
+  let calls = 0
+  const state = await mount(
+    context,
+    'WorkOrderPanel',
+    { assetId: 'asset', plantId: 'plant' },
+    async () => {
+      calls++
+      return { items: [], nextCursor: null }
+    },
+  )
+  state.creating = true
+  state.title = '待处理设备 / Pump'
+  state.note = '保留原始输入'
+  const before = calls
+  assert.equal(state.labels.Draft, '草稿')
+  setLocale('en')
+  await nextTick()
+  assert.equal(state.labels.Draft, 'Draft')
+  assert.equal(state.steps[0], 'Create task')
+  assert.equal(state.title, '待处理设备 / Pump')
+  assert.equal(state.note, '保留原始输入')
+  assert.equal(calls, before)
+  setLocale('zh-CN')
+  assert.equal(state.labels.Draft, '草稿')
+})
 async function mount(t, name, props, request) {
   globalThis.panelHarness = {
     request,
@@ -92,6 +133,40 @@ async function mount(t, name, props, request) {
   return app._instance.setupState
 }
 const order = { id: 'order-1', number: 'WO-1', status: 'InProgress', version: 1, resolution: null }
+
+test('new investigations send the selected language without translating existing results or starting extra runs', async (context) => {
+  const { setLocale } = await import(i18nUrl)
+  context.after(() => setLocale('zh-CN'))
+  const posts = []
+  const state = await mount(
+    context,
+    'InvestigationPanel',
+    { alarmId: 'alarm-1' },
+    async (path, method) => {
+      if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+      if (method === 'POST') {
+        posts.push(path)
+        return {
+          id: `run-${posts.length}`,
+          language: path.includes('language=en') ? 'en' : 'zh-CN',
+          result: { summary: 'Original result' },
+        }
+      }
+      return []
+    },
+  )
+  setLocale('en')
+  await state.start()
+  assert.equal(posts[0], '/alarms/alarm-1/investigations?language=en')
+  assert.equal(state.selected.language, 'en')
+  setLocale('zh-CN')
+  await nextTick()
+  assert.equal(posts.length, 1)
+  assert.equal(state.selected.language, 'en')
+  assert.equal(state.selected.result.summary, 'Original result')
+  await state.start()
+  assert.equal(posts[1], '/alarms/alarm-1/investigations?language=zh-CN')
+})
 
 test('compact investigation overview follows server assessment and keeps legacy conclusions unclassified', async (t) => {
   const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
@@ -892,7 +967,7 @@ test('route leave guard blocks busy work, respects cancellation and cleans refre
     )
     .replace(/import .* from 'element-plus';?/, 'const { ElMessageBox } = globalThis.leaveHarness;')
   const path = new URL('leave-protection-test.mjs', cache)
-  await fs.writeFile(path, compiled)
+  await fs.writeFile(path, withI18n(compiled))
   let beforeUnload,
     removed,
     cleanup,

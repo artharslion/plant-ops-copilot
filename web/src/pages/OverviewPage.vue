@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageRef, t } from '../i18n'
+import { formatDateTime as at } from '../time'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ApiError, listAll, request, type DirectoryRecord } from '../api'
 import { useSession } from '../stores/session'
@@ -14,77 +16,75 @@ const plantId = ref('')
 const overview = ref<Overview | null>(null)
 const loading = ref(true)
 const refreshing = ref(false)
-const error = ref('')
+const error = messageRef()
 const unacknowledgedOnly = ref(false)
 const mine = ref(false)
 const workOrderStatus = ref('')
 const limit = ref(5)
-const service = ref('检查中')
+const service = messageRef()
+service.value = () => t('检查中')
 let generation = 0
 let disposed = false
 let lastRefresh = 0
 let pending = false
-const statusLabels: Record<string, string> = {
-  Draft: '草稿',
-  Open: '待执行',
-  InProgress: '执行中',
-  Completed: '待复核',
-}
-const severityLabels: Record<string, string> = {
-  Critical: '紧急',
-  High: '高',
-  Medium: '中',
-  Low: '低',
-}
-const issueLabels: Record<string, string> = {
-  Disconnected: '采集未连接',
-  Missing: '尚无有效观测',
-  Stale: '数据陈旧',
-  Untrusted: '观测质量异常',
-}
+const statusLabels = computed<Record<string, string>>(() => ({
+  Draft: t('草稿'),
+  Open: t('待执行'),
+  InProgress: t('执行中'),
+  Completed: t('待复核'),
+}))
+const severityLabels = computed<Record<string, string>>(() => ({
+  Critical: t('紧急'),
+  High: t('高'),
+  Medium: t('中'),
+  Low: t('低'),
+}))
+const issueLabels = computed<Record<string, string>>(() => ({
+  Disconnected: t('采集未连接'),
+  Missing: t('尚无有效观测'),
+  Stale: t('数据陈旧'),
+  Untrusted: t('观测质量异常'),
+}))
 const selectedPlant = computed(() => plants.value.find((plant) => plant.id === plantId.value))
 const cards = computed(() => [
   {
-    label: '活动告警',
+    label: t('活动告警'),
     value: overview.value?.counts.activeAlarms,
-    hint: '仍处于活动状态',
+    hint: t('仍处于活动状态'),
     target: 'alarms',
     kind: 'alarm',
   },
   {
-    label: '待确认告警',
+    label: t('待确认告警'),
     value: overview.value?.counts.unacknowledgedAlarms,
-    hint: '活动且尚未人工确认',
+    hint: t('活动且尚未人工确认'),
     target: 'alarms',
     kind: 'unacknowledged',
   },
   {
-    label: '未关闭工单',
+    label: t('未关闭工单'),
     value: overview.value?.counts.openWorkOrders,
-    hint: '含草稿、待执行、执行中与待复核',
+    hint: t('含草稿、待执行、执行中与待复核'),
     target: 'orders',
     kind: 'order',
   },
   {
-    label: '数据异常测点',
+    label: t('数据异常测点'),
     value: overview.value?.counts.dataIssues,
-    hint: '启用测点 · 未归档设备',
+    hint: t('启用测点 · 未归档设备'),
     target: 'data-issues',
     kind: 'data',
   },
 ])
-function at(value?: string | null) {
-  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
-}
 function duration(value: string) {
   const minutes = Math.max(
     0,
     Math.floor((Date.parse(overview.value?.checkedAt ?? value) - Date.parse(value)) / 60000),
   )
-  if (minutes < 1) return '不足 1 分钟'
-  if (minutes < 60) return `${minutes} 分钟`
-  if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
-  return `${Math.floor(minutes / 1440)} 天 ${Math.floor((minutes % 1440) / 60)} 小时`
+  if (minutes < 1) return t('不足 1 分钟')
+  if (minutes < 60) return t('{0} 分钟', [minutes])
+  if (minutes < 1440) return t('{0} 小时 {1} 分钟', [Math.floor(minutes / 60), minutes % 60])
+  return t('{0} 天 {1} 小时', [Math.floor(minutes / 1440), Math.floor((minutes % 1440) / 60)])
 }
 function alarmLink(id: string) {
   return { path: '/alarms', query: { plantId: plantId.value, alarmId: id } }
@@ -100,9 +100,10 @@ async function checkService() {
     })
     const body = await response.text()
     if (!disposed)
-      service.value = response.ok && body.trim() === 'Healthy' ? '连接正常' : '服务或数据库暂不可用'
+      service.value = () =>
+        response.ok && body.trim() === 'Healthy' ? t('连接正常') : t('服务或数据库暂不可用')
   } catch {
-    if (!disposed) service.value = '服务暂不可用'
+    if (!disposed) service.value = () => t('服务暂不可用')
   }
 }
 async function refresh(background = false) {
@@ -132,7 +133,7 @@ async function refresh(background = false) {
   } catch (e) {
     if (current !== generation || disposed) return
     overview.value = null
-    error.value = e instanceof Error ? e.message : '工作台读取失败，请重试。'
+    error.value = () => (e instanceof Error ? e.message : t('工作台读取失败，请重试。'))
     if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
       plants.value = []
       plantId.value = ''
@@ -164,7 +165,7 @@ async function initialize() {
     await refresh()
   } catch (e) {
     if (!disposed && current === generation)
-      error.value = e instanceof Error ? e.message : '工厂读取失败。'
+      error.value = () => (e instanceof Error ? e.message : t('工厂读取失败。'))
   } finally {
     if (!disposed) loading.value = false
   }
@@ -234,49 +235,55 @@ onUnmounted(() => {
 
 <template>
   <header class="topbar">
-    <span>工作空间 / 运维工作台</span><span class="stage-chip">OPERATIONS</span>
+    <span>{{ t('工作空间 / 运维工作台') }}</span
+    ><span class="stage-chip">OPERATIONS</span>
   </header>
   <section class="page-heading overview-heading">
     <div>
       <p class="eyebrow">PLANT OPERATIONS / 01</p>
-      <h1>运维工作台</h1>
-      <p class="intro">查看异常、安排维护，确认当前数据是否可信。</p>
+      <h1>{{ t('运维工作台') }}</h1>
+      <p class="intro">{{ t('查看异常、安排维护，确认当前数据是否可信。') }}</p>
     </div>
-    <el-button type="primary" :loading="refreshing" :disabled="loading" @click="refreshWorkspace"
-      >刷新工作台</el-button
-    >
+    <el-button type="primary" :loading="refreshing" :disabled="loading" @click="refreshWorkspace">{{
+      t('刷新工作台')
+    }}</el-button>
   </section>
   <p v-if="error" role="alert" class="error-banner">
-    {{ error }} 当前业务数据暂不可用。<el-button @click="initialize()">重试</el-button>
+    {{ error }} {{ t('当前业务数据暂不可用。')
+    }}<el-button @click="initialize()">{{ t('重试') }}</el-button>
   </p>
   <section v-if="!session.user && !loading" class="overview-welcome">
-    <h2>登录后查看你的运维工作台</h2>
-    <p>按授权工厂汇总告警、维护待办与数据采集异常。</p>
-    <RouterLink class="directory-link" to="/login">登录工作空间 →</RouterLink>
+    <h2>{{ t('登录后查看你的运维工作台') }}</h2>
+    <p>{{ t('按授权工厂汇总告警、维护待办与数据采集异常。') }}</p>
+    <RouterLink class="directory-link" to="/login">{{ t('登录工作空间 →') }}</RouterLink>
   </section>
   <template v-else>
     <div class="overview-toolbar">
-      <el-form-item label="工厂"
+      <el-form-item :label="t('工厂')"
         ><el-select
           v-model="plantId"
-          aria-label="选择工厂"
+          :aria-label="t('选择工厂')"
           :disabled="loading"
           @change="changePlant"
           ><el-option
             v-for="plant in plants"
             :key="plant.id"
             :value="plant.id"
-            :label="plant.name + (plant.isArchived ? '（已归档）' : '')" /></el-select
+            :label="plant.name + (plant.isArchived ? t('（已归档）') : '')" /></el-select
       ></el-form-item>
       <span role="status">{{
-        loading ? '正在读取…' : overview ? `更新于 ${at(overview.checkedAt)}` : '尚无可用快照'
+        loading
+          ? t('正在读取…')
+          : overview
+            ? t('更新于 {0}', [at(overview.checkedAt)])
+            : t('尚无可用快照')
       }}</span>
     </div>
     <p v-if="!loading && !plants.length && !error" class="overview-empty">
-      暂无授权工厂，请联系管理员分配访问权限。
+      {{ t('暂无授权工厂，请联系管理员分配访问权限。') }}
     </p>
     <p v-if="selectedPlant?.isArchived" class="overview-note">
-      该工厂已归档，告警与未关闭工单仍保留展示；数据异常统计不包含已归档工厂。
+      {{ t('该工厂已归档，告警与未关闭工单仍保留展示；数据异常统计不包含已归档工厂。') }}
     </p>
     <div class="overview-metrics" :aria-busy="loading">
       <button
@@ -297,19 +304,20 @@ onUnmounted(() => {
         <div class="overview-panel-heading">
           <div>
             <p class="eyebrow">ATTENTION</p>
-            <h2>需要关注的告警</h2>
+            <h2>{{ t('需要关注的告警') }}</h2>
           </div>
           <RouterLink
             v-if="plantId"
             class="overview-link"
             :to="{ path: '/alarms', query: { plantId } }"
-            >进入告警台 →</RouterLink
+            >{{ t('进入告警台 →') }}</RouterLink
           >
         </div>
         <div class="overview-filters">
-          <el-checkbox v-model="unacknowledgedOnly" :disabled="!overview" @change="refresh()"
-            >仅待确认</el-checkbox
-          ><span>等级优先 · 同等级未确认优先</span>
+          <el-checkbox v-model="unacknowledgedOnly" :disabled="!overview" @change="refresh()">{{
+            t('仅待确认')
+          }}</el-checkbox
+          ><span>{{ t('等级优先 · 同等级未确认优先') }}</span>
         </div>
         <el-skeleton v-if="loading" :rows="5" animated />
         <template v-else>
@@ -318,20 +326,20 @@ onUnmounted(() => {
             row-key="id"
             :empty-text="
               !overview
-                ? '告警数据暂不可用'
+                ? t('告警数据暂不可用')
                 : unacknowledgedOnly
-                  ? '暂无待确认的活动告警'
-                  : '暂无活动告警，请结合数据采集状态判断'
+                  ? t('暂无待确认的活动告警')
+                  : t('暂无活动告警，请结合数据采集状态判断')
             "
           >
-            <el-table-column label="设备 / 异常" min-width="180"
+            <el-table-column :label="t('设备 / 异常')" min-width="180"
               ><template #default="{ row }"
                 ><RouterLink class="overview-row-title" :to="alarmLink(row.id)"
                   >{{ row.assetCode }} · {{ row.ruleName }}</RouterLink
                 ><small class="overview-subline">{{ row.assetName }}</small></template
               ></el-table-column
             >
-            <el-table-column label="等级" width="65"
+            <el-table-column :label="t('等级')" width="65"
               ><template #default="{ row }"
                 ><el-tag
                   :type="['Critical', 'High'].includes(row.severity) ? 'danger' : 'warning'"
@@ -340,25 +348,25 @@ onUnmounted(() => {
                 ></template
               ></el-table-column
             >
-            <el-table-column label="持续 / 确认" min-width="118"
+            <el-table-column :label="t('持续 / 确认')" min-width="118"
               ><template #default="{ row }"
                 ><span :title="at(row.startedAt)">{{ duration(row.startedAt) }}</span
                 ><small class="overview-subline">{{
-                  row.acknowledgedAt ? '已确认' : '待确认'
+                  row.acknowledgedAt ? t('已确认') : t('待确认')
                 }}</small></template
               ></el-table-column
             >
-            <el-table-column label="操作" width="90"
+            <el-table-column :label="t('操作')" width="90"
               ><template #default="{ row }"
-                ><RouterLink class="overview-link" :to="alarmLink(row.id)"
-                  >查看 / 调查</RouterLink
-                ></template
+                ><RouterLink class="overview-link" :to="alarmLink(row.id)">{{
+                  t('查看 / 调查')
+                }}</RouterLink></template
               ></el-table-column
             >
           </el-table>
           <p class="overview-list-note">
-            展示 {{ overview?.alarms.length ?? '—' }} /
-            {{ overview?.matchingAlarms ?? '—' }} 条活动告警；确认不代表告警恢复。
+            {{ t('展示') }} {{ overview?.alarms.length ?? '—' }} /
+            {{ overview?.matchingAlarms ?? '—' }} {{ t('条活动告警；确认不代表告警恢复。') }}
           </p>
         </template>
       </section>
@@ -366,24 +374,24 @@ onUnmounted(() => {
         <div class="overview-panel-heading">
           <div>
             <p class="eyebrow">MAINTENANCE</p>
-            <h2>维护待办</h2>
+            <h2>{{ t('维护待办') }}</h2>
           </div>
-          <el-checkbox v-model="mine" :disabled="!overview" @change="refresh()"
-            >只看我的</el-checkbox
-          >
+          <el-checkbox v-model="mine" :disabled="!overview" @change="refresh()">{{
+            t('只看我的')
+          }}</el-checkbox>
         </div>
         <div class="overview-filters">
           <el-select
             v-model="workOrderStatus"
-            aria-label="筛选工单状态"
+            :aria-label="t('筛选工单状态')"
             :disabled="!overview"
             @change="refresh()"
-            ><el-option value="" label="全部未关闭" /><el-option
+            ><el-option value="" :label="t('全部未关闭')" /><el-option
               v-for="(label, status) in statusLabels"
               :key="status"
               :value="status"
               :label="label" /></el-select
-          ><span>按优先级与创建时间排序</span>
+          ><span>{{ t('按优先级与创建时间排序') }}</span>
         </div>
         <el-skeleton v-if="loading" :rows="5" animated />
         <template v-else>
@@ -392,13 +400,13 @@ onUnmounted(() => {
             row-key="id"
             :empty-text="
               !overview
-                ? '工单数据暂不可用'
+                ? t('工单数据暂不可用')
                 : mine
-                  ? '当前筛选下没有分配给你的工单'
-                  : '当前筛选下暂无维护待办'
+                  ? t('当前筛选下没有分配给你的工单')
+                  : t('当前筛选下暂无维护待办')
             "
           >
-            <el-table-column label="任务 / 负责人" min-width="180"
+            <el-table-column :label="t('任务 / 负责人')" min-width="180"
               ><template #default="{ row }"
                 ><el-button
                   link
@@ -407,11 +415,12 @@ onUnmounted(() => {
                   @click="workOrderDrawer.open({ assetId: row.assetId, orderId: row.id })"
                   >{{ row.title }}</el-button
                 ><small class="overview-subline"
-                  >{{ row.assetCode }} · {{ row.number }} · {{ row.assignedTo ?? '未分配' }}</small
+                  >{{ row.assetCode }} · {{ row.number }} ·
+                  {{ row.assignedTo ?? t('未分配') }}</small
                 ></template
               ></el-table-column
             >
-            <el-table-column label="优先级" width="75"
+            <el-table-column :label="t('优先级')" width="75"
               ><template #default="{ row }"
                 ><el-tag
                   :type="['Critical', 'High'].includes(row.priority) ? 'danger' : 'info'"
@@ -420,17 +429,16 @@ onUnmounted(() => {
                 ></template
               ></el-table-column
             >
-            <el-table-column label="状态" width="90"
+            <el-table-column :label="t('状态')" width="90"
               ><template #default="{ row }">{{
                 statusLabels[row.status] ?? row.status
               }}</template></el-table-column
             >
           </el-table>
           <p class="overview-list-note">
-            展示 {{ overview?.workOrders.length ?? '—' }} /
-            {{ overview?.matchingWorkOrders ?? '—' }} 条{{
-              mine ? '分配给我的' : ''
-            }}待办；不含已关闭及已取消工单。
+            {{ t('展示') }} {{ overview?.workOrders.length ?? '—' }} /
+            {{ overview?.matchingWorkOrders ?? '—' }} {{ t('条') }}{{ mine ? t('分配给我的') : ''
+            }}{{ t('待办；不含已关闭及已取消工单。') }}
           </p>
         </template>
       </section>
@@ -444,18 +452,18 @@ onUnmounted(() => {
       <div class="overview-panel-heading">
         <div>
           <p class="eyebrow">DATA CONFIDENCE</p>
-          <h2>数据采集异常</h2>
+          <h2>{{ t('数据采集异常') }}</h2>
         </div>
-        <span class="overview-note">没有告警，不等于设备健康</span>
+        <span class="overview-note">{{ t('没有告警，不等于设备健康') }}</span>
       </div>
       <el-skeleton v-if="loading" :rows="3" animated />
       <template v-else>
         <el-table
           :data="overview?.dataIssues ?? []"
           row-key="pointId"
-          :empty-text="!overview ? '测点数据暂不可用' : '当前范围内未发现启用测点的采集异常'"
+          :empty-text="!overview ? t('测点数据暂不可用') : t('当前范围内未发现启用测点的采集异常')"
         >
-          <el-table-column label="设备" min-width="180"
+          <el-table-column :label="t('设备')" min-width="180"
             ><template #default="{ row }"
               ><RouterLink
                 class="overview-row-title"
@@ -464,41 +472,46 @@ onUnmounted(() => {
               ></template
             ></el-table-column
           >
-          <el-table-column prop="pointName" label="测点" min-width="130" />
-          <el-table-column label="异常原因" min-width="130"
+          <el-table-column prop="pointName" :label="t('测点')" min-width="130" />
+          <el-table-column :label="t('异常原因')" min-width="130"
             ><template #default="{ row }"
               ><el-tag type="warning" size="small">{{
                 issueLabels[row.reason] ?? row.reason
               }}</el-tag></template
             ></el-table-column
           >
-          <el-table-column label="最后接收" min-width="180"
+          <el-table-column :label="t('最后接收')" min-width="180"
             ><template #default="{ row }">{{ at(row.lastReceivedAt) }}</template></el-table-column
           >
-          <el-table-column label="操作" width="100"
+          <el-table-column :label="t('操作')" width="100"
             ><template #default="{ row }"
-              ><RouterLink class="overview-link" :to="measurementLink(row.assetId, row.pointId)"
-                >查看测量 →</RouterLink
-              ></template
+              ><RouterLink class="overview-link" :to="measurementLink(row.assetId, row.pointId)">{{
+                t('查看测量 →')
+              }}</RouterLink></template
             ></el-table-column
           >
         </el-table>
         <p class="overview-list-note">
-          展示 {{ overview?.dataIssues.length ?? '—' }} /
-          {{ overview?.counts.dataIssues ?? '—' }} 个异常测点；停用测点与归档设备不计入。
+          {{ t('展示') }} {{ overview?.dataIssues.length ?? '—' }} /
+          {{ overview?.counts.dataIssues ?? '—' }} {{ t('个异常测点；停用测点与归档设备不计入。') }}
         </p>
       </template>
     </section>
     <div v-if="overview" class="overview-bottom-actions">
-      <el-button v-if="limit === 5" @click="expandLists(true)">展开更多（每区最多 50 条）</el-button
-      ><el-button v-else @click="expandLists(false)">收起列表</el-button
-      ><span>摘要为当前工厂完整统计，不受列表条数及待办筛选影响。</span>
+      <el-button v-if="limit === 5" @click="expandLists(true)">{{
+        t('展开更多（每区最多 50 条）')
+      }}</el-button
+      ><el-button v-else @click="expandLists(false)">{{ t('收起列表') }}</el-button
+      ><span>{{ t('摘要为当前工厂完整统计，不受列表条数及待办筛选影响。') }}</span>
     </div>
   </template>
-  <footer class="overview-connection" :class="{ 'connection-error': service.includes('不可用') }">
-    <span>系统状态 · {{ service }}</span
-    ><span v-if="session.user">{{ realtimeStatus }} · 每 15 秒补查</span
-    ><el-button text size="small" @click="checkService">检查连接</el-button>
+  <footer
+    class="overview-connection"
+    :class="{ 'connection-error': service.includes(t('不可用')) }"
+  >
+    <span>{{ t('系统状态 ·') }} {{ service }}</span
+    ><span v-if="session.user">{{ realtimeStatus }} {{ t('· 每 15 秒补查') }}</span
+    ><el-button text size="small" @click="checkService">{{ t('检查连接') }}</el-button>
   </footer>
 </template>
 
