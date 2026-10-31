@@ -247,15 +247,18 @@ public sealed class InvestigationAssessmentTests
         Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
     }
 
-    [Fact]
-    public void ModelCannotRewriteServerLabelsOrAssertEquipmentSafety()
+    [Theory]
+    [InlineData("Trusted", "NotFound")]
+    [InlineData("Unverifiable", "Present")]
+    public void ModelCannotRewriteStructuredServerLabels(string trust, string anomaly)
     {
-        var point = Evidence(Point(), "E1");
-        foreach (var text in new[] { "当前设备异常证据：未发现。", "当前数据可信度：不可验证。", "已确认设备安全。" })
+        var point = Evidence(Point(), "E1") with
         {
-            var answer = new InvestigationResult("1", InvestigationEngine.SafeSummary,
-                [new(point.Facts[0], ["E1"])], [], [new(text, ["E1"], "记录现场结果。", "已记录并经维护人员复核。", "证据不足时交维护工程师复核。")], [], [], ["E1"]);
-            Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
-        }
+            State = new("Available", "Trusted", "Present")
+        };
+        var answer = new InvestigationResult("1", InvestigationEngine.SafeSummary,
+            [new(point.Facts[0], ["E1"])], [], [], [], [], ["E1"],
+            StateClaims: [new("E1", "Available", trust, anomaly)]);
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
     }
 }

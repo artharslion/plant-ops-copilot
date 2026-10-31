@@ -2,15 +2,9 @@
 
 2026-10-21 规划更新：剩余采集任务统一归 [开发计划 P5](../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)。先区分采样/通知/源时间与可信度，交付最小场景/证据/基础故障以服务 P6.1，再补完整可靠性；外部安全 Server 为核心 Demo 后的可选 P5.5。下文旧阶段顺序、百点满量和通用安全部署描述不作为当前已实现能力或前置；实际受控模式及限制仍见运行验收记录。
 
-2026-10-20：新增 [受控本机常驻多点增量](OPCUA_RUNTIME_VALIDATION.md)，使用独立 Adapter 接入普通 Worker；仅显式 Development 回环批准策略可启用。三点停服重连/Namespace 重排/告警恢复真实协议实验通过；下面“业务 Source 未启用”等语句保留历史范围，不表示当前仍只有有限单点。工业网络、证书运维与完整 P2/G0 仍未验收。
-
-2026-10-09 当前范围：按 [AI 优先演示计划](plans/2026-10-09-ai-demo-acceptance.md)，完整 OPC UA 暂缓，AI 先基于 Simulation 实现。旧 G0 长期容量前置已延期且未验收，不阻塞 AI。下面协议要求保留为后续增强契约，不代表当前已经实现；业务 Source 仍未启用。
-
-2026-10-06 当前进度：[P2.1 固定 SDK/许可与安全隔离实验](P2_1_SPIKE.md)、[P2.2 配置/标准化/采样区间增量](P2_2_VALIDATION.md) 已落地。G0 和完整 P2 未通过，业务 Source/重连/证书运维/健康未完成；后文早期“未开始”保留历史标记。
+[受控本机常驻多点采集](OPCUA_RUNTIME_VALIDATION.md) 已通过独立 Adapter 接入普通 Worker；仅显式 Development 回环批准策略可启用。已有三点停服重连、Namespace 重排与告警恢复的有限真实协议验证；工业网络、证书运维与长期容量仍未验收。
 
 日期：2026-10-03。Phase 2 仅实现 Client/Server 模式的数值变量读取与订阅。业务不依赖特定服务器 NodeId；不写变量、不调用设备方法、不提供完整 Alarms & Conditions 客户端。
-
-2026-10-05：实现仍未开始。按 [P1 复盘](P1_REVIEW.md) 与 [P2 可执行计划](plans/2026-10-05-p2-opcua.md) 推进固定 SDK/许可 spike、容量门槛、持续采集生命周期、历史采样语义与显式缺口账本；下文是设计要求，不表示 P1 已实现协议连接/队列/重连。
 
 OPC UA Source 与保留的 Simulation Source 均实现 PlantOps.Application 的 `IMeasurementSource`。Phase 2 是新增来源能力；两种源分别跑通同一 Golden Path，不替换模拟实现，也不在断线时自动使用模拟值。
 

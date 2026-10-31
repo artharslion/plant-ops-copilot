@@ -43,6 +43,7 @@ for (const name of [
   'DirectoryEditor',
   'ActionProposalPanel',
   'InvestigationPanel',
+  'InvestigationAdvicePanel',
   'WorkOrderDrawer',
 ]) {
   const source = await fs.readFile(
@@ -1103,4 +1104,66 @@ test('a delayed work-order asset read cannot replace a newer drawer selection', 
   await flush()
   assert.equal(state.asset.id, 'new')
   assert.equal(state.drawer.target.orderId, 'new-order')
+})
+
+test('v3 investigation decisions come from fields while legacy records remain readable', async (t) => {
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm' }, async (path) =>
+    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  const advice = {
+    schemaVersion: '3',
+    status: 'NeedsMoreEvidence',
+    statusReason: '现场工况待核查',
+    blockingGapIds: ['G1'],
+    summary: '已整理诊断计划',
+    findings: [],
+    hypotheses: [],
+    recommendations: [],
+    gaps: [],
+    workOrder: {
+      status: 'DraftReady',
+      reason: '可安排诊断工作',
+      blockingGapIds: [],
+      draft: {
+        title: '核查',
+        priority: 'High',
+        priorityReason: '核查异常',
+        objective: '取得依据',
+        recommendationIds: ['R1'],
+      },
+    },
+  }
+  state.runs = [{ id: 'v3', evidence: [], warnings: [], result: advice }]
+  state.selectedId = 'v3'
+  assert.equal(state.advice.status, 'NeedsMoreEvidence')
+  assert.equal(state.advice.workOrder.status, 'DraftReady')
+  assert.equal(state.legacyResult, null)
+  state.runs[0].result.summary = '正常、异常、无法确认、禁止写入等文字不决定流程'
+  assert.equal(state.advice.status, 'NeedsMoreEvidence')
+  assert.equal(state.advice.workOrder.status, 'DraftReady')
+  state.runs[0].result = {
+    summary: '旧调查结果',
+    observations: [],
+    nextChecks: [],
+    hypotheses: [],
+    missingInformation: [],
+  }
+  assert.equal(state.advice, null)
+  assert.equal(state.legacyResult.summary, '旧调查结果')
+})
+
+test('v3 draft gating blocks new work orders without disabling investigation review', async (t) => {
+  const calls = []
+  const state = await mount(
+    t,
+    'ActionProposalPanel',
+    { runId: 'run', available: true, canCreateWorkOrder: false },
+    async (path, method) => {
+      calls.push({ path, method })
+      return []
+    },
+  )
+  await state.create()
+  assert.equal(calls.filter((x) => x.method === 'POST').length, 0)
+  assert.equal(state.proposal, null)
 })

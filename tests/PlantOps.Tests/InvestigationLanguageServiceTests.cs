@@ -43,8 +43,8 @@ public sealed class InvestigationLanguageServiceTests
         Assert.Equal("Succeeded", finished.Status);
         Assert.Equal("en", finished.Language);
         Assert.Equal("en", finished.RunRecord!.Value.GetProperty("language").GetString());
-        Assert.Equal("en", Assert.Single(finished.RunRecord.Value.GetProperty("requests").EnumerateArray()).GetProperty("language").GetString());
-        Assert.StartsWith("Review", finished.Result!.Value.GetProperty("nextChecks")[0].GetProperty("text").GetString(), StringComparison.Ordinal);
+        Assert.Equal("en", finished.RunRecord.Value.GetProperty("requests").EnumerateArray().Last().GetProperty("language").GetString());
+        Assert.StartsWith("Review", finished.Result!.Value.GetProperty("recommendations")[0].GetProperty("task").GetString(), StringComparison.Ordinal);
         Assert.Contains(finished.Evidence, item => item.Facts.Any(fact => fact.Contains("告警", StringComparison.Ordinal)));
         var next = (await (await session.Client.PostAsync(path, null)).Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         Assert.NotEqual(run.Id, next.Id);

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
@@ -83,8 +84,10 @@ public sealed class InvestigationAssessmentServiceTests
         var proposalResponse = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
         Assert.True(proposalResponse.IsSuccessStatusCode, await proposalResponse.Content.ReadAsStringAsync());
         var proposal = (await proposalResponse.Content.ReadFromJsonAsync<ActionProposalDto>())!;
-        Assert.Contains("当前数据可信度：部分可信", proposal.Draft!.Description);
-        Assert.Contains("当前设备异常证据：存在", proposal.Draft.Description);
+        var advice = run.Result!.Value.Deserialize<InvestigationAdvice>(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Contains(advice.Findings, x => x.Status == "AnomalySupported" && x.SubjectRefs.Contains(fixture.Point.Id.ToString()));
+        Assert.Contains(advice.Findings, x => x.Status == "Inconclusive" && x.SubjectRefs.Contains(point.Id.ToString()));
+        Assert.Contains(advice.Recommendations[0].Task, proposal.Draft!.Description);
         Assert.Equal(before, await db.WorkOrders.CountAsync());
         var frozenAsOf = assessment.AsOf;
         clock.Now = clock.Now.AddHours(1);

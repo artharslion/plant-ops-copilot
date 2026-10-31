@@ -8,7 +8,15 @@ import { useSession } from '../stores/session'
 import { useWorkOrderDrawer } from '../stores/workOrderDrawer'
 import type { FormInstance } from 'element-plus'
 
-const props = defineProps<{ runId: string; available: boolean; assetId?: string }>()
+const props = withDefaults(
+  defineProps<{
+    runId: string
+    available: boolean
+    assetId?: string
+    canCreateWorkOrder?: boolean
+  }>(),
+  { canCreateWorkOrder: true },
+)
 const emit = defineEmits<{ evidence: [id: string] }>()
 type Draft = {
   title: string
@@ -225,7 +233,8 @@ async function create(actionType = 'CreateWorkOrder') {
     dirty.value ||
     proposal.value?.status === 'Pending' ||
     !canMaintain.value ||
-    !props.available
+    !props.available ||
+    (actionType === 'CreateWorkOrder' && props.canCreateWorkOrder === false)
   )
     return
   const target = targets.value.find((order) => order.id === targetId.value)
@@ -359,7 +368,7 @@ defineExpose({ busy, dirty })
     <div class="section-title">
       <h4>{{ t('根据调查安排维护') }}</h4>
       <el-button
-        v-if="canMaintain && available"
+        v-if="canMaintain && available && canCreateWorkOrder !== false"
         type="primary"
         :disabled="busy || dirty || uncertain || proposal?.status === 'Pending'"
         @click="create()"

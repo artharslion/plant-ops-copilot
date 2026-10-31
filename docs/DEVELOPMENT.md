@@ -80,7 +80,7 @@ Admin 可点击“配置测量”创建/编辑/停用点位、同厂 Simulation 
 
 停止 Worker，超过点位陈旧阈值（种子 5 秒）后刷新：最新观测及 LastGood 均标记陈旧，不显示为当前可信。重启后恢复新观测，停机区间保持可能缺口；不补造历史。设置环境变量 `Telemetry__SimulationEnabled=false` 只关闭模拟源。当前使用单 Worker、每源有界缓冲和 500 条/500 ms 双触发提交，有限重试；过载和失败登记显式缺口并影响趋势、分钟和规则计时。损失摘要在内存中保留，崩溃尾部数量未知。
 
-已发送通知的保留清理默认关闭；需要时显式设置 `Outbox__RetentionEnabled=true`，默认保留 24 小时、每 5 秒最多清理 1,000 条，未发送通知与审计保留。部署前应确定历史期限和备份；配置及证据见 [整改验收](P1_REVIEW_FIX_VALIDATION.md)。只读容量快照可运行 `./deploy/Measure-Capacity.ps1 -Schema p17_ui_20261005`，仅查询测试库；输出不代表七天容量通过。
+已发送通知的保留清理默认关闭；需要时显式设置 `Outbox__RetentionEnabled=true`，默认保留 24 小时、每 5 秒最多清理 1,000 条，未发送通知与审计保留。部署前应确定历史期限和备份；历史整改证据可从 Git 历史查阅。只读容量快照可运行 `./deploy/Measure-Capacity.ps1 -Schema p17_ui_20261005`，仅查询测试库；输出不代表七天容量通过。
 
 ### 告警演示
 
@@ -129,9 +129,9 @@ deploy/.env、appsettings.Local.json 和凭据不会提交。每个终端需要�
 
 终端 Ctrl+C 关闭 Api/Worker/Web；`docker compose -f deploy/compose.yaml stop` 停止数据库并保留数据。密钥、客户端私钥、数据库备份和上传文件不得进入版本库。
 
-维护工单：设备详情的“维护工单 / 维修历史”标签提供列表，创建及处理进入独立页面。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。验收见 [工单验证](P1_5_VALIDATION.md)。
+维护工单：设备详情的“维护工单 / 维修历史”标签提供列表，创建及处理进入独立页面。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。
 
-知识资料：知识资料入口上传工厂资料，设备详情上传设备资料。上传为草稿，发布后授权下载；修改读取角色或撤回立即生效。生产配置 Documents:StorageRoot（持久受控目录，须与数据库一起备份）；Development 默认同用户 LocalApplicationData/PlantOpsCopilot/documents（API/Worker 共用）。API 提供 /hubs/plant-events，只读通知、自动重连与 HTTP 补查。前端去重验证：npm test --prefix web。验收见 [文档与实时通知验证](P1_6_VALIDATION.md)。
+知识资料：知识资料入口上传工厂资料，设备详情上传设备资料。上传为草稿，发布后授权下载；修改读取角色或撤回立即生效。生产配置 Documents:StorageRoot（持久受控目录，须与数据库一起备份）；Development 默认同用户 LocalApplicationData/PlantOpsCopilot/documents（API/Worker 共用）。API 提供 /hubs/plant-events，只读通知、自动重连与 HTTP 补查。前端去重验证：npm test --prefix web。
 
 ### 完整业务演示与保留配置
 
@@ -148,11 +148,11 @@ Worker 在启动和每分钟聚合已完成 UTC 分钟，当前分钟不提供�
 node web/scripts/benchmark-p1.mjs
 ```
 
-完整规模复现须将初始化、API、Worker 的连接统一指向独立测试库，并使用同一独立 Search Path 和文档目录。测量结果、数据库恢复、存储实测与容量边界见 [P1.7 验收](P1_7_VALIDATION.md)。
+完整规模复现须将初始化、API、Worker 的连接统一指向独立测试库，并使用同一独立 Search Path 和文档目录。早期测量、恢复与存储实测保存在 Git 历史中，不代表长期容量已验收；剩余门槛见 [开发计划](../ROADMAP.md)。
 
 ## 可选 AI 调查
 
-不加载 AI 配置时默认使用 Fake Provider，不访问外网；模拟结果不能视为真实模型回答。真实模型配置、密钥加载和探针见 [AI 接入配置](AI_PROVIDER_SETUP.md)。启动 API 与 Worker 前，分别在各自终端加载 `deploy/Use-LocalAi.ps1`。告警调查与证据展开的操作和验证见 [AI 调查验证](AI_INVESTIGATION_VALIDATION.md)。
+不加载 AI 配置时默认使用 Fake Provider，不访问外网；模拟结果不能视为真实模型回答。真实模型配置、密钥加载和探针见 [AI 接入配置](AI_PROVIDER_SETUP.md)。启动 API 与 Worker 前，分别在各自终端加载 `deploy/Use-LocalAi.ps1`。告警调查与证据展开的操作和验证见 [调查建议与证据契约](INVESTIGATION_RESPONSE_V3.md)。
 
 P8.1 新运行的实际版本指纹及用量来源保存在 `AiRuns.RunRecordJson`，调查 API 返回 `runRecord`，详见 [最小运行记录](P8_1_RUN_RECORD_VALIDATION.md)。旧记录为 null，旧 `PromptVersion` 和 Token 字段不能证明当时实际请求或计费用量。`InputTokens`/`OutputTokens` 继续是兼容预算核算值，可能混合已报告用量与未知预留；总实耗未知时新记录明确返回 null。迁移需显式执行，源码更新不代表业务 Docker 已升级。
 

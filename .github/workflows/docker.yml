@@ -37,3 +37,34 @@ jobs:
       - name: Stop containers
         if: always()
         run: docker compose down
+
+  combined:
+    name: Combined images smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      POSTGRES_PASSWORD: docker-ci-database-only
+      DEMO_PASSWORD: Docker-CI-Only-123!
+      PLANTOPS_BASE_URL: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build both combined targets
+        run: |
+          docker build -f deploy/Dockerfile.combined --target web-api -t artharslion/plant-ops-copilot:web-api-20261029 .
+          docker build -f deploy/Dockerfile.combined --target worker-sim -t artharslion/plant-ops-copilot:worker-sim-20261029 .
+      - name: Start two services and database
+        run: docker compose -f deploy/northflank/compose.yaml up -d --wait --wait-timeout 240
+      - name: Connect demo and check combined hosts
+        run: |
+          python3 deploy/northflank/connect-demo.py
+          curl --fail http://127.0.0.1:8080/alarms
+          curl --fail http://127.0.0.1:8080/assets
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/api/missing)" = 404
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/api/v1/plants)" = 401
+          docker compose -f deploy/northflank/compose.yaml exec -T runtime bash /app/runtime-healthcheck.sh
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f deploy/northflank/compose.yaml logs --tail 100
+      - name: Stop isolated combined stack
+        if: always()
+        run: docker compose -f deploy/northflank/compose.yaml down --volumes

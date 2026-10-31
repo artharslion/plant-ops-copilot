@@ -15,9 +15,12 @@ public sealed record InvestigationHypothesis(string Text, string Support, string
 public sealed record InvestigationCheck(string Text, string[] EvidenceIds, string? Record = null,
     string? Completion = null, string? Escalation = null);
 
+public sealed record InvestigationStateClaim(string EvidenceId, string Availability, string? CurrentTrust, string? CurrentAnomaly);
+
 public sealed record InvestigationResult(string SchemaVersion, string Summary, InvestigationObservation[] Observations,
     InvestigationHypothesis[] Hypotheses, InvestigationCheck[] NextChecks, string[] MissingInformation,
-    string[] DataWarnings, string[] EvidenceIds = null!, InvestigationObservation[]? Analysis = null);
+    string[] DataWarnings, string[] EvidenceIds = null!, InvestigationObservation[]? Analysis = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] InvestigationStateClaim[]? StateClaims = null);
 
 public static class InvestigationContract
 {
@@ -131,6 +134,24 @@ public static class InvestigationContract
                 }
                 CheckReferences(item.EvidenceIds, false);
             }
+            if (result.StateClaims is { } claims)
+            {
+                if (claims.Length > 40 || claims.Any(x => x == null)
+                    || claims.Select(x => x.EvidenceId).Distinct(StringComparer.Ordinal).Count() != claims.Length)
+                {
+                    throw Invalid("state-claims-shape");
+                }
+                foreach (var claim in claims)
+                {
+                    CheckReferences([claim.EvidenceId], true);
+                    if (claim.Availability is not ("Available" or "Partial" or "Empty" or "Unavailable" or "Unknown")
+                        || claim.CurrentTrust is not (null or "Trusted" or "Partial" or "Unverifiable")
+                        || claim.CurrentAnomaly is not (null or "Present" or "NotFound" or "Insufficient"))
+                    {
+                        throw Invalid("state-claims-enum");
+                    }
+                }
+            }
             // Every item has already passed membership/shape checks. Derive only an omitted aggregate;
             // explicitly supplied legacy aggregates must still match exactly.
             if (result.EvidenceIds is null)
@@ -175,7 +196,7 @@ public static class InvestigationContract
                   "type":"object","additionalProperties":false,"required":["text","support","evidenceIds","verification","basis","limitations"],
                   "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"support":{"type":"string","enum":["weak","moderate","strong"]},"evidenceIds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}},"verification":{"type":"string","minLength":1,"maxLength":2000},"basis":{"type":"string","minLength":1,"maxLength":2000},"limitations":{"type":"string","minLength":1,"maxLength":2000}}
                 }},
-                "nextChecks":{"type":"array","maxItems":6,"items":{
+                "nextChecks":{"type":"array","minItems":2,"maxItems":4,"items":{
                   "type":"object","additionalProperties":false,"required":["text","evidenceIds","record","completion","escalation"],
                   "properties":{"text":{"type":"string","minLength":1,"maxLength":2000},"evidenceIds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":100}},"record":{"type":"string","minLength":1,"maxLength":500},"completion":{"type":"string","minLength":1,"maxLength":500},"escalation":{"type":"string","minLength":1,"maxLength":500}}
                 }},

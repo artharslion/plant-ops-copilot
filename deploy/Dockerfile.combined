@@ -1,0 +1,61 @@
+# Build from the repository root. The two final targets are independently usable.
+ARG INDUSTRIALSIM_IMAGE=artharslion/industrial-device-simulation-framework:3d5e7c0@sha256:3478c1ef06de57fd8c07d7b6942b0b4b674ac81b076430b7a2d0d3a04ecd045c
+FROM ${INDUSTRIALSIM_IMAGE} AS simulator
+
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS web-build
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:4beef5b8919dcaa2dc924233bd069257e883cc7a061e09088a97d152d6a48510 AS build
+WORKDIR /source
+COPY Directory.Build.props .editorconfig ./
+COPY src/ src/
+RUN dotnet restore src/PlantOps.Api/PlantOps.Api.csproj --locked-mode \
+    && dotnet restore src/PlantOps.Worker/PlantOps.Worker.csproj --locked-mode
+RUN dotnet publish src/PlantOps.Api/PlantOps.Api.csproj -c Release --no-restore -o /out/api /p:UseAppHost=false \
+    && dotnet publish src/PlantOps.Worker/PlantOps.Worker.csproj -c Release --no-restore -o /out/worker /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:d5633778c754e89a386882eddf8dbee6942447a8a4b8267c19cf1e1158d0b0ac AS base
+USER root
+RUN mkdir -p /var/lib/plantops/documents /home/app/.aspnet/DataProtection-Keys /app/simulator-data \
+    && chown -R app:app /var/lib/plantops /home/app /app/simulator-data
+WORKDIR /app
+COPY deploy/healthcheck.sh /app/healthcheck.sh
+ENV ASPNETCORE_HTTP_PORTS=8080 \
+    Documents__StorageRoot=/var/lib/plantops/documents \
+    Telemetry__SimulationEnabled=false \
+    Telemetry__RawRetentionDays=1 \
+    Outbox__RetentionEnabled=true \
+    Outbox__SentRetentionHours=24 \
+    OpcUa__LocalRuntimeEnabled=true \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__Url=opc.tcp://127.0.0.1:48481 \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__ApplicationUri=urn:industrial-sim:server \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__NamespaceUri=urn:industrial-sim:runtime \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__0=String:plantops-p101/vibration \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__1=String:plantops-p101/temperature \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__2=String:plantops-p101/referenceTemperature \
+    OpcUa__ApprovedEndpoints__industrial-sim-workbench__CertificateRoot=/tmp/plantops-opcua
+EXPOSE 8080
+USER app:app
+
+FROM base AS web-api
+COPY --from=build /out/api/ /app/
+COPY --from=build /out/worker/ /app/tools/
+COPY --from=web-build /web/dist/ /app/wwwroot/
+COPY deploy/northflank/web-entrypoint.sh /app/
+ENV Web__ServeStaticFiles=true
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
+    CMD ["bash", "/app/healthcheck.sh"]
+ENTRYPOINT ["bash", "/app/web-entrypoint.sh"]
+
+FROM base AS worker-sim
+COPY --from=build /out/worker/ /app/worker/
+COPY --from=simulator /app/ /app/simulator/
+COPY deploy/northflank/plantops-three-point.yaml /app/config/device.yaml
+COPY deploy/northflank/runtime-entrypoint.sh deploy/northflank/runtime-healthcheck.sh /app/
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
+    CMD ["bash", "/app/runtime-healthcheck.sh"]
+ENTRYPOINT ["bash", "/app/runtime-entrypoint.sh"]

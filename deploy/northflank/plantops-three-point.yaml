@@ -1,0 +1,25 @@
+device:
+  id: plantops-p101
+  type: custom
+  name: Plant Ops P5.3 three-point simulator
+  datapoints:
+    temperature:
+      type: double
+      unit: degC
+      initial: 60
+      access: read
+    referenceTemperature:
+      type: double
+      unit: degC
+      initial: 62
+      access: read
+    vibration:
+      type: double
+      unit: mm/s
+      initial: 4
+      access: read
+protocols:
+  opcua:
+    enabled: true
+    endpoint: "opc.tcp://127.0.0.1:48481"
+    observationIntervalMs: 1000

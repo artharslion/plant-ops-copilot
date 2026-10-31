@@ -54,6 +54,13 @@ builder.Services.ConfigureApplicationCookie(o =>
 
 var app = builder.Build();
 app.UseExceptionHandler();
+var serveWeb = builder.Configuration.GetValue("Web:ServeStaticFiles", false);
+if (serveWeb)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+
 app.UseStatusCodePages(async status => await Results.Problem(statusCode: status.HttpContext.Response.StatusCode)
     .ExecuteAsync(status.HttpContext));
 // Health probes must remain independent of cookie validation and Identity storage.
@@ -116,6 +123,23 @@ app.MapInvestigations();
 app.MapAiSettings();
 app.MapActionProposals();
 app.MapHub<PlantEventsHub>("/hubs/plant-events");
+if (serveWeb)
+{
+    app.MapFallback(async context =>
+    {
+        // Unknown service routes must retain HTTP 404 rather than return the SPA.
+        if ((!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method))
+            || new[] { "/api", "/hubs", "/health", "/openapi" }.Any(prefix => context.Request.Path.StartsWithSegments(prefix)))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "index.html"));
+    });
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

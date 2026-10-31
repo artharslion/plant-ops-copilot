@@ -188,7 +188,7 @@ public sealed class InvestigationEngineTests
     {
         using var budget = new LlmBudget();
         var authorizations = 0;
-        var engine = new InvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions()));
+        var engine = new LegacyInvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions()));
         var result = await engine.ExecuteAsync([Evidence], (_, _, _) => throw new InvalidOperationException(),
             _ =>
             {
@@ -235,7 +235,7 @@ public sealed class InvestigationEngineTests
             new(InvestigationContract.Serialize(corrected), replacement == "tool-call" ? [new("unexpected", "get_asset_details", "{}")] : [], "fake", new(100, 20))
         ]));
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var engine = new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }));
+        var engine = new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }));
         var reads = 0;
         Task<InvestigationExecutionResult> Execute() => engine.ExecuteAsync([Evidence],
             (_, _, _) =>
@@ -272,7 +272,7 @@ public sealed class InvestigationEngineTests
         };
         var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", unknownUsage ? null : new(100, 20))]);
         using var budget = new LlmBudget(new(MaxModelRounds: rounds, MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var error = await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions()))
+        var error = await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions()))
             .ExecuteAsync([Evidence], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
         Assert.Equal(LlmFailure.InvalidResponse, error.Failure);
         Assert.Equal(1, budget.ModelRounds);
@@ -310,7 +310,7 @@ public sealed class InvestigationEngineTests
         using var budget = new LlmBudget();
         var reads = 0;
         var authorizations = 0;
-        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
+        var result = await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
             (name, args, _) =>
             {
                 Assert.Equal("search_documents", name);
@@ -348,7 +348,7 @@ public sealed class InvestigationEngineTests
             new(InvestigationContract.Serialize(valid), [], "fake", null)
         ]));
         using var budget = new LlmBudget();
-        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
+        var result = await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
             (_, _, _) => Task.FromResult(new InvestigationToolResult([Evidence, added], ["新的范围提示。"])),
             _ => Task.CompletedTask, budget, CancellationToken.None);
         var second = Assert.IsType<LlmRequest>(gateway.LastRequest);
@@ -375,7 +375,7 @@ public sealed class InvestigationEngineTests
         evidence.AddRange(Enumerable.Range(5, 6).Select(i => Evidence with { Id = "E" + i, Kind = "Document", Facts = [new string('资', 900) + "完整片段末尾。"] }));
         var gateway = new InspectingGateway(new FakeLlmGateway());
         using var budget = new LlmBudget();
-        await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(evidence,
+        await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(evidence,
             (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         var input = gateway.LastRequest!.Messages.Single(x => x.Role == LlmRole.User).Content!;
         using var json = JsonDocument.Parse(input);
@@ -398,7 +398,7 @@ public sealed class InvestigationEngineTests
             new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", null)
         ]));
         using var budget = new LlmBudget();
-        var exception = await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions()))
+        var exception = await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions()))
             .ExecuteAsync([Evidence], (_, _, _) => Task.FromResult(new InvestigationToolResult([], [])),
                 _ => Task.CompletedTask, budget, CancellationToken.None));
         Assert.Equal(LlmFailure.BudgetExceeded, exception.Failure);
@@ -439,7 +439,7 @@ public sealed class InvestigationEngineTests
         using var budget = new LlmBudget();
         var gateway = new FakeLlmGateway([new(null, [new("call1", name, arguments)], "fake", null)]);
         var reads = 0;
-        await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
+        await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
             (_, _, _) =>
             {
                 reads++;
@@ -452,7 +452,7 @@ public sealed class InvestigationEngineTests
     public async Task CancellationAndAuthorizationFailureStopBeforeSending()
     {
         using var budget = new LlmBudget();
-        var engine = new InvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions()));
+        var engine = new LegacyInvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions()));
         using var cancel = new CancellationTokenSource();
         cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => engine.ExecuteAsync([Evidence], (_, _, _) => throw new InvalidOperationException(),

@@ -4,6 +4,8 @@
 
 只需 Docker Engine 和 Docker Compose（Windows 推荐 Docker Desktop Linux engine）。API、Worker、前端和 PostgreSQL 均在容器中运行，无需宿主机安装 .NET 或 Node。
 
+需要向用户分发已发布镜像及 IndustrialSim 时，使用 [Docker Hub 联合部署](../deploy/dockerhub/README.md)：一份独立 Compose 加本地 `.env`，自动完成数据库初始化、服务启动与三点 OPC UA 接入，无需相邻模拟器源码仓库。以下内容为原有源码构建流程。
+
 ## 一次启动
 
 在仓库根目录使用 PowerShell 7：
@@ -99,7 +101,7 @@ Nginx 保留请求 Host，处理 SignalR 的 Upgrade 头与长连接；上传限
 
 当前版本可由Admin在侧栏“设置”中切换新调查模式，见 [设置与部署验证](AI_SETTINGS_VALIDATION.md)。先向API/Worker注入下面的服务端连接信息；可以保留 `AI_PROVIDER=Fake`，然后从页面手动启用真实LLM。已有设置记录时页面选择优先于环境变量的缺省Provider，改变配置后仍须重建容器以加载新的密钥/模型；单纯切换模式不需要重启。
 
-隔离的一次性Docker + IndustrialSim + 真实模型测试可使用 `deploy/Test-DockerIndustrialSimLlm.ps1`，需要先构建专用镜像并显式调用，会产生真实模型请求；它不会切换此处工作台的配置。[2026-10-22 实测](DOCKER_REAL_LLM_VALIDATION.md)：协议采集通过，唯一真实请求HTTP502失败，未重试。
+隔离的一次性Docker + IndustrialSim + 真实模型测试可使用 `deploy/Test-DockerIndustrialSimLlm.ps1`，需要先构建专用镜像并显式调用，会产生真实模型请求；它不会切换此处工作台的配置。2026-10-22 历史实测：协议采集通过，唯一真实请求HTTP502失败，未重试。
 
 默认 `AI_PROVIDER=Fake`，不会请求外部模型。需要真实模型时，在本机 `deploy/.env.docker` 配置：
 
@@ -118,4 +120,4 @@ Compose 明确使用 Development：初始化器仅允许该环境，本地 HTTP 
 
 构建上下文使用白名单，仅包含必需源码、前端资源和构建配置；本地凭据、Git 历史、验证产物和备份不会进入镜像。
 
-已执行的构建、登录、资料、实时连接与容器重建检查见 [Docker 本地验证](DOCKER_VALIDATION.md)。
+早期构建、登录、资料、实时连接与容器重建检查保存在 Git 历史中；升级后仍须按当前环境核查。

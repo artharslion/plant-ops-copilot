@@ -21,7 +21,7 @@ internal sealed class SseCompletionReader
     private int maximumPayloadBytes;
 
     public static async Task<LlmCompletion> ReadAsync(HttpContent http, int maximumBytes, LlmRequest request, CancellationToken ct,
-        ILogger? logger = null, Action? onActivity = null)
+        ILogger? logger = null, Action? onActivity = null, LlmBudget? budget = null)
     {
         var reader = new SseCompletionReader { maximumPayloadBytes = maximumBytes };
         // SSE repeats metadata for every token. Bound that framing separately from the assembled response.
@@ -134,18 +134,46 @@ internal sealed class SseCompletionReader
             }
             reader.phase = "completion-validation";
             var completion = ChatCompletionsProtocol.Parse(bytes, request);
+            budget?.RecordDiagnostic("stream", "Validated", new
+            {
+                phase = reader.phase,
+                elapsedMs = elapsed.ElapsedMilliseconds,
+                wireBytes = total,
+                reader.events,
+                reader.payloadBytes,
+                hasUsage = reader.usage.HasValue
+            });
             logger?.LogInformation("AI stream activity: stage=validated; elapsedMs={ElapsedMs}; bytes={Bytes}; events={Events}; payloadBytes={PayloadBytes}; usage={HasUsage}",
                 elapsed.ElapsedMilliseconds, total, reader.events, reader.payloadBytes, reader.usage.HasValue);
             return completion;
         }
         catch (OperationCanceledException)
         {
+            budget?.RecordDiagnostic("stream", "CancelledOrTimedOut", new
+            {
+                phase = reader.phase,
+                elapsedMs = elapsed.ElapsedMilliseconds,
+                idleMs = elapsed.ElapsedMilliseconds - lastActivityMs,
+                wireBytes = total,
+                reader.events,
+                reader.payloadBytes
+            });
             logger?.LogWarning("AI stream stopped: stage={Stage}; elapsedMs={ElapsedMs}; idleMs={IdleMs}; bytes={Bytes}; events={Events}; payloadBytes={PayloadBytes}",
                 reader.phase, elapsed.ElapsedMilliseconds, elapsed.ElapsedMilliseconds - lastActivityMs, total, reader.events, reader.payloadBytes);
             throw;
         }
         catch (LlmException exception)
         {
+            budget?.RecordDiagnostic("stream", "Rejected", new
+            {
+                phase = reader.phase,
+                failureCode = exception.Failure.ToString(),
+                wireBytes = total,
+                reader.events,
+                reader.payloadBytes,
+                hasFinish = reader.finish != null,
+                hasUsage = reader.usage.HasValue
+            });
             // Only fixed stage names and counters; never log upstream content, identifiers or exception bodies.
             logger?.LogWarning("AI stream failed: {Failure}; stage={Stage}; bytes={Bytes}; events={Events}; finish={HasFinish}; usage={HasUsage}",
                 exception.Failure, reader.phase, total, reader.events, reader.finish != null, reader.usage.HasValue);
@@ -154,6 +182,15 @@ internal sealed class SseCompletionReader
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException
             or FormatException or OverflowException or ArgumentException)
         {
+            budget?.RecordDiagnostic("stream", "Invalid", new
+            {
+                phase = reader.phase,
+                wireBytes = total,
+                reader.events,
+                reader.payloadBytes,
+                hasFinish = reader.finish != null,
+                hasUsage = reader.usage.HasValue
+            });
             logger?.LogWarning("AI stream invalid: stage={Stage}; bytes={Bytes}; events={Events}; finish={HasFinish}; usage={HasUsage}",
                 reader.phase, total, reader.events, reader.finish != null, reader.usage.HasValue);
             throw new LlmException(LlmFailure.InvalidResponse);

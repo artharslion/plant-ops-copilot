@@ -1,0 +1,278 @@
+# Standalone download: this file and .env are sufficient; no source checkout.
+# Requires Docker Compose >= 2.23.1 (inline configs).
+name: plantops-hub
+
+x-backend-environment: &backend-environment
+  ASPNETCORE_ENVIRONMENT: Development
+  ConnectionStrings__PlantOps: Host=database;Port=5432;Database=plantops;Username=plantops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env};GSS Encryption Mode=Disable
+  Documents__StorageRoot: /var/lib/plantops/documents
+  Telemetry__SimulationEnabled: "false"
+  Telemetry__RawRetentionDays: ${TELEMETRY_RAW_RETENTION_DAYS:-1}
+  Telemetry__MinuteRetentionDays: ${TELEMETRY_MINUTE_RETENTION_DAYS:-90}
+  Outbox__RetentionEnabled: "true"
+  Outbox__SentRetentionHours: ${OUTBOX_SENT_RETENTION_HOURS:-24}
+  Outbox__CleanupBatchSize: "5000"
+  Outbox__CleanupIntervalSeconds: "5"
+  AI__Provider: ${AI_PROVIDER:-Fake}
+  AI__BaseUrl: ${AI_BASE_URL:-}
+  AI__Model: ${AI_MODEL:-}
+  AI__ApiKey: ${AI_API_KEY:-}
+  AI__MaxInputTokens: ${AI_MAX_INPUT_TOKENS:-32000}
+  AI__MaxOutputTokens: ${AI_MAX_OUTPUT_TOKENS:-6000}
+  AI__StreamResponses: "true"
+  AI__RequestTimeoutSeconds: "120"
+  AI__RunTimeoutSeconds: "600"
+  AI__ServerRenderedFacts: "true"
+  OpcUa__LocalRuntimeEnabled: "true"
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Url: opc.tcp://127.0.0.1:48481
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__ApplicationUri: urn:industrial-sim:server
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__NamespaceUri: urn:industrial-sim:runtime
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__0: String:plantops-p101/vibration
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__1: String:plantops-p101/temperature
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__2: String:plantops-p101/referenceTemperature
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__CertificateRoot: /tmp/plantops-opcua
+
+services:
+  database:
+    image: postgres:17@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    environment:
+      POSTGRES_DB: plantops
+      POSTGRES_USER: plantops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U plantops -d plantops]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  db-init:
+    image: ${DOCKERHUB_NAMESPACE:-artharslion}/plant-ops-copilot:worker-${PLANTOPS_VERSION:-2cf19c8}
+    environment:
+      <<: *backend-environment
+      Demo__Password: ${DEMO_PASSWORD:?Set DEMO_PASSWORD in .env}
+      Demo__SeedHistory: "false"
+    command: [--initialize-db]
+    volumes:
+      - documents:/var/lib/plantops/documents
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  api:
+    image: ${DOCKERHUB_NAMESPACE:-artharslion}/plant-ops-copilot:api-${PLANTOPS_VERSION:-2cf19c8}
+    environment:
+      <<: *backend-environment
+    volumes:
+      - documents:/var/lib/plantops/documents
+      - api-keys:/home/app/.aspnet/DataProtection-Keys
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    image: ${DOCKERHUB_NAMESPACE:-artharslion}/plant-ops-copilot:worker-${PLANTOPS_VERSION:-2cf19c8}
+    environment:
+      <<: *backend-environment
+    ports:
+      - "127.0.0.1:${SIMULATOR_PORT:-8081}:8081"
+    volumes:
+      - documents:/var/lib/plantops/documents
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  industrial-sim:
+    image: ${DOCKERHUB_NAMESPACE:-artharslion}/industrial-device-simulation-framework:${INDUSTRIALSIM_VERSION:-3d5e7c0}
+    # Preserve the existing Development loopback-only OPC UA policy.
+    network_mode: service:worker
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8081
+      INDUSTRIALSIM_DEVICE_CONFIG: /app/config/device.yaml
+      ConnectionStrings__IndustrialSim: Data Source=/app/data/industrial-sim.db
+      Auth__Mode: Disabled
+    configs:
+      - source: simulator-device
+        target: /app/config/device.yaml
+    volumes:
+      - industrial-sim-data:/app/data
+    depends_on:
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/8081
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          IFS= read -r status <&3
+          [[ "$$status" == *" 200 "* ]]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+    restart: unless-stopped
+
+  demo-connect:
+    image: python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916
+    # API permits localhost/127.0.0.1 Host values; keep that existing restriction.
+    network_mode: service:api
+    command: [python, /bootstrap.py]
+    environment:
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?Set DEMO_PASSWORD in .env}
+    configs:
+      - source: demo-bootstrap
+        target: /bootstrap.py
+    depends_on:
+      api:
+        condition: service_healthy
+      industrial-sim:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    image: ${DOCKERHUB_NAMESPACE:-artharslion}/plant-ops-copilot:web-${PLANTOPS_VERSION:-2cf19c8}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    depends_on:
+      demo-connect:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  database-data:
+  documents:
+  api-keys:
+  industrial-sim-data:
+
+configs:
+  simulator-device:
+    content: |
+      device:
+        id: plantops-p101
+        type: custom
+        name: Plant Ops P5.3 three-point simulator
+        datapoints:
+          temperature:
+            type: double
+            unit: degC
+            initial: 60
+            access: read
+          referenceTemperature:
+            type: double
+            unit: degC
+            initial: 62
+            access: read
+          vibration:
+            type: double
+            unit: mm/s
+            initial: 4
+            access: read
+      protocols:
+        opcua:
+          enabled: true
+          endpoint: "opc.tcp://127.0.0.1:48481"
+          observationIntervalMs: 1000
+  demo-bootstrap:
+    content: |
+      """Connect the local demo through authenticated, audited application APIs."""
+      import http.cookiejar
+      import json
+      import os
+      import urllib.error
+      import urllib.request
+
+      base = "http://127.0.0.1:8080/api/v1/"
+      plant = "10000000-0000-0000-0000-000000000001"
+      asset = "30000000-0000-0000-0000-000000000001"
+      opener = urllib.request.build_opener(
+          urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+      csrf = None
+
+      def request(path, method="GET", body=None):
+          headers = {}
+          if body is not None:
+              headers["Content-Type"] = "application/json"
+          if method != "GET":
+              headers["X-CSRF-TOKEN"] = csrf
+          data = None if body is None else json.dumps(body).encode()
+          req = urllib.request.Request(base + path, data, headers, method=method)
+          try:
+              with opener.open(req, timeout=30) as response:
+                  payload = response.read()
+                  return json.loads(payload) if payload else None
+          except urllib.error.HTTPError as error:
+              # Do not log request bodies, cookies or the login password.
+              raise RuntimeError(f"{method} {path}: HTTP {error.code}") from None
+
+      def unique(items, description):
+          if len(items) > 1:
+              raise RuntimeError(f"Duplicate {description}; inspect configuration.")
+          return items[0] if items else None
+
+      csrf = request("auth/csrf")["token"]
+      request("auth/login", "POST", {
+          "userName": "admin", "password": os.environ.pop("DEMO_PASSWORD")})
+      csrf = request("auth/csrf")["token"]
+      sources_path = f"plants/{plant}/data-sources"
+      sources = request(sources_path)
+      source = unique([s for s in sources if s["kind"] == "OpcUa"
+          and s["opcUa"]["endpointReference"] == "industrial-sim-workbench"], "source")
+      source_body = {"name": "IndustrialSim P-101", "kind": "OpcUa", "enabled": True,
+          "opcUa": {"endpointReference": "industrial-sim-workbench", "publishingIntervalMs": 1000}}
+      if source is None:
+          source = request(sources_path, "POST", source_body)
+      elif not source["enabled"]:
+          source_body.update(name=source["name"], version=source["version"], opcUa=source["opcUa"])
+          source = request(f"{sources_path}/{source['id']}", "PATCH", source_body)
+
+      points_path = f"assets/{asset}/measurement-points"
+      points = request(points_path)
+      targets = [
+          ("VIBRATION_RMS", "Vibration RMS", "Vibration", "mm/s", "vibration"),
+          ("TEMPERATURE", "IndustrialSim temperature", "Temperature", "degC", "temperature"),
+          ("REFERENCE_TEMPERATURE", "IndustrialSim reference temperature", "Temperature", "degC", "referenceTemperature"),
+      ]
+      for code, name, quantity, unit, node in targets:
+          point = unique([p for p in points if p["code"] == code], f"point {code}")
+          if point is None:
+              point = request(points_path, "POST", {"code": code, "name": name,
+                  "quantity": quantity, "canonicalUnit": unit, "expectedIntervalMs": 1000,
+                  "staleAfterMs": 5000, "enabled": True})
+          if not point["enabled"] or point["quantity"] != quantity or point["canonicalUnit"] != unit:
+              raise RuntimeError(f"Incompatible point {code}; inspect configuration.")
+          path = f"{points_path}/{point['id']}/source-mappings"
+          mappings = request(path)
+          identifier = f"plantops-p101/{node}"
+          matching = unique([m for m in mappings if m["dataSourceId"] == source["id"]
+              and json.loads(m["sourceParameters"])["Identifier"] == identifier], f"mapping {code}")
+          for old in mappings:
+              if not old["enabled"] or (matching and old["id"] == matching["id"]):
+                  continue
+              old_source = next((s for s in sources if s["id"] == old["dataSourceId"]), None)
+              if old_source is None or old_source["kind"] != "Simulation":
+                  raise RuntimeError(f"Conflicting custom mapping for {code}; inspect configuration.")
+              body = {k: old[k] for k in ("dataSourceId", "sourceKey", "rawUnit", "scale", "offset", "version")}
+              body["enabled"] = False
+              request(f"{path}/{old['id']}", "PATCH", body)
+          body = {"dataSourceId": source["id"], "sourceKey": "industrial-sim", "rawUnit": unit,
+              "scale": 1, "offset": 0, "enabled": True, "opcUa": {
+                  "namespaceUri": "urn:industrial-sim:runtime", "identifierType": "String",
+                  "identifier": identifier, "samplingIntervalMs": 1000, "queueSize": 10,
+                  "samplingMode": "Periodic"}}
+          if matching is None:
+              request(path, "POST", body)
+          elif not matching["enabled"]:
+              body["version"] = matching["version"]
+              request(f"{path}/{matching['id']}", "PATCH", body)
+          print(f"Configured {code}", flush=True)
+      print("IndustrialSim demo connected. No model requests were made.", flush=True)

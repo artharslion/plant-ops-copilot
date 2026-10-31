@@ -83,13 +83,13 @@ public sealed class InvestigationServiceTests
         await Process(s);
         run = (await Get(s, run.Id))!;
         Assert.Equal("Succeeded", run.Status);
-        Assert.Equal(1, gateway.Calls);
+        Assert.Equal(2, gateway.Calls);
         Assert.True(run.Simulated);
         Assert.Equal("fake", run.Model);
         Assert.NotNull(run.Result);
         var record = run.RunRecord!.Value;
         Assert.Equal(PlantOps.AI.InvestigationEngine.PromptVersion, record.GetProperty("promptVersion").GetString());
-        var requestRecord = Assert.Single(record.GetProperty("requests").EnumerateArray());
+        var requestRecord = record.GetProperty("requests").EnumerateArray().Last();
         Assert.Equal(64, requestRecord.GetProperty("requestSha256").GetString()!.Length);
         Assert.Equal(64, requestRecord.GetProperty("systemPromptSha256").GetString()!.Length);
         Assert.Equal(64, requestRecord.GetProperty("schemaSha256").GetString()!.Length);
@@ -366,7 +366,7 @@ public sealed class InvestigationServiceTests
         var run = await Create(s, alarm.Id);
         await Process(s);
         run = (await Get(s, run.Id))!;
-        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode + ":" + run.RunRecord?.GetRawText());
         var related = run.Evidence.Where(x => x.Kind == "RelatedTrend").ToArray();
         Assert.Equal(2, related.Length);
         Assert.DoesNotContain(related, x => new[] { capped.Id, disabled.Id, foreign.Id }.Contains(x.ResourceId));
@@ -378,14 +378,15 @@ public sealed class InvestigationServiceTests
         Assert.Contains(run.Warnings, x => x.Contains("TEMPERATURE") && x.Contains("低质量"));
         Assert.Contains(run.Warnings, x => x.Contains("超过自动读取上限"));
         var comparison = Assert.Single(run.Evidence, x => x.Kind == "RelatedComparison");
-        Assert.Contains(run.Result!.Value.GetProperty("observations").EnumerateArray(), x => x.GetProperty("text").GetString() == comparison.Facts[0]);
+        Assert.Equal("3", run.Result!.Value.GetProperty("schemaVersion").GetString());
+        Assert.Contains(run.Evidence, x => x.Id == comparison.Id);
         Assert.Equal(5, run.ToolCalls);
         Assert.Equal(comparison.Sha256, (await s.Client.GetFromJsonAsync<InvestigationEvidence>($"/api/v1/investigations/{run.Id}/evidence/{comparison.Id}"))!.Sha256);
         var proposalResponse = await s.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
         Assert.Equal(HttpStatusCode.OK, proposalResponse.StatusCode);
         var proposal = (await proposalResponse.Content.ReadFromJsonAsync<ActionProposalDto>())!;
-        Assert.Contains("已自动读取的关联趋势", proposal.Draft!.Description);
-        Assert.Contains(comparison.Facts[0], proposal.Draft.Description);
+        Assert.Contains(run.Result.Value.GetProperty("recommendations")[0].GetProperty("task").GetString()!, proposal.Draft!.Description);
+        Assert.Contains(comparison.Facts[0], run.Evidence.Single(x => x.Id == comparison.Id).Facts);
         Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders.CountAsync());
     }
 
@@ -405,8 +406,8 @@ public sealed class InvestigationServiceTests
         var run = await Create(s, alarm.Id);
         await Process(s);
         run = (await Get(s, run.Id))!;
-        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
-        Assert.Equal(1, run.ModelRounds);
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode + ":" + run.RunRecord?.GetRawText());
+        Assert.Equal(2, run.ModelRounds);
         Assert.Equal(5, run.ToolCalls);
         Assert.Equal(6000, run.OutputTokens); // Fake reports no usage, so the full allowance remains reserved.
         Assert.InRange(run.InputTokens, 1, 32000);
@@ -453,7 +454,7 @@ public sealed class InvestigationServiceTests
         var run = await Create(s, alarm.Id);
         await Process(s);
         run = (await Get(s, run.Id))!;
-        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode + ":" + run.RunRecord?.GetRawText());
         Assert.Contains(run.Evidence.Single(x => x.Kind == "Alarm").Facts, x => x.Contains("Recovered") && !x.Contains("恢复时间为 未记录"));
         var eventTrend = run.Evidence.Single(x => x.Kind == "EventTrend");
         Assert.Contains(eventTrend.Facts, x => x.Contains("最大值为 12.6"));

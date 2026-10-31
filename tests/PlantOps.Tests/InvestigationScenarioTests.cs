@@ -35,7 +35,7 @@ public sealed class InvestigationScenarioTests
     [InlineData("S11-document-injection", "Failed", "InvalidRequest")]
     [InlineData("S12-asset-injection", "Failed", "InvalidRequest")]
     [InlineData("S13-forged-citation", "Failed", "InvalidResponse")]
-    [InlineData("S14-changed-value", "Failed", "InvalidResponse")]
+    [InlineData("S14-contradictory-current-status", "Failed", "InvalidResponse")]
     [InlineData("S15-malformed-output", "Failed", "InvalidResponse")]
     [InlineData("S16-forbidden-write", "Failed", "InvalidRequest")]
     [InlineData("S17-provider-timeout", "Failed", "Timeout")]
@@ -168,19 +168,19 @@ public sealed class InvestigationScenarioTests
             Assert.Empty(run.Evidence);
             Assert.Equal(HttpStatusCode.NotFound, (await s.Client.GetAsync($"/api/v1/investigations/{run.Id}/evidence/E1")).StatusCode);
         }
-        Assert.Equal(expectedStatus, run.Status);
+        Assert.True(expectedStatus == run.Status, $"{scenario}: expected {expectedStatus}; actual {run.Status}/{run.FailureCode}");
         Assert.Equal(expectedFailure, run.FailureCode);
         Assert.True(run.Simulated);
         Assert.InRange(run.ModelRounds, 0, 4);
         Assert.InRange(run.ToolCalls, 0, 8);
         Assert.InRange(run.InputTokens, 0, 16000);
         Assert.InRange(run.OutputTokens, 0, 2000);
-        Assert.Equal(scenario == "S19-cancel-pending" ? 0 : 1, gateway.Calls);
+        Assert.Equal(scenario == "S19-cancel-pending" ? 0 : 2, gateway.Calls);
         if (run.Status == "Succeeded")
         {
-            var result = InvestigationEngine.ValidateFacts(run.Result!.Value.GetRawText(), run.Evidence);
-            Assert.NotEmpty(result.Observations);
-            Assert.All(result.Hypotheses, x => Assert.NotEqual("strong", x.Support));
+            var result = InvestigationAdviceContract.ParseAndValidate(run.Result!.Value.GetRawText(), run.Evidence);
+            Assert.NotEmpty(result.Findings);
+            Assert.All(result.Hypotheses, x => Assert.Contains(x.Support, new[] { "Weak", "Moderate" }));
             Assert.All(run.Warnings, warning => Assert.Contains(run.Evidence, e => e.Kind == "DataQuality" && e.Facts.Contains(warning)));
         }
         else
@@ -278,32 +278,44 @@ public sealed class InvestigationScenarioTests
         public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
         {
             Calls++;
+            if (Calls == 1)
+            {
+                // Request the evidence exercised by these frozen safety fixtures.
+                LlmToolCall[] requested = scenario == "S11-document-injection"
+                    ? [new("documents", "search_documents", "{\"query\":\"vibration\",\"limit\":6}")]
+                    : [new("measurements", "get_recent_measurements", "{}"),
+                     new("alarms", "get_recent_alarms", "{}"),
+                     new("maintenance", "get_maintenance_history", "{}"),
+                     new("documents", "search_documents", "{\"query\":\"vibration 振动\",\"limit\":6}")];
+                return new FakeLlmGateway([new(null, requested, "fake-scenario", new(100, 20))]).CompleteAsync(request, budget, cancellationToken);
+            }
             LastInput = request.Messages.Single(x => x.Role == LlmRole.User).Content!;
             using var input = JsonDocument.Parse(LastInput);
             var ledger = input.RootElement.GetProperty("evidence").EnumerateArray().ToArray();
-            // Match the current protected fact contract; the adversarial cases below
-            // still deliberately replace values, references or tool calls.
-            var observations = input.RootElement.GetProperty("requiredObservations")
-                .Deserialize<InvestigationObservation[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-            var alarmFact = observations.First(x => x.EvidenceIds.Contains("E1"));
-            var derived = ledger.FirstOrDefault(x => x.GetProperty("kind").GetString() is "EventDerivedTrend" or "CurrentDerivedTrend"
-                && x.GetProperty("facts").EnumerateArray().Any(f => f.GetString()!.Contains("有序原始观测：", StringComparison.Ordinal)
-                    || f.GetString()!.Contains("非下降观测段：", StringComparison.Ordinal)));
-            InvestigationObservation[] analysis = derived.ValueKind == JsonValueKind.Undefined ? []
-                : [new("有序观测变化为历史告警提供趋势背景；当前观测另列，原因仍待核查。", ["E1", derived.GetProperty("id").GetString()!])];
-            var result = new InvestigationResult("2", InvestigationEngine.SafeSummary, observations,
-                [new("可能需要现场进一步核实。", "weak", ["E1"], "请维护人员按授权规程检查。", alarmFact.Text, "缺少现场检查结果。")], [], ["缺少现场检查结果。"], [],
-                observations.SelectMany(x => x.EvidenceIds).Concat(analysis.SelectMany(x => x.EvidenceIds)).Distinct().ToArray(), analysis);
-            LlmCompletion completion = new(InvestigationContract.Serialize(result), [], "fake-scenario", null);
+            // Scripted adversaries exercise structural and authorization boundaries; prose quality is evaluated separately.
+            var result = FakeLlmGateway.SimulateAdvice(input.RootElement);
+            LlmCompletion completion = new(InvestigationAdviceContract.Serialize(result), [], "fake-scenario", new(100, 20));
             completion = scenario switch
             {
-                "S11-document-injection" => new(null, [new("attack", "create_work_order", "{}")], "fake-scenario", null),
-                "S12-asset-injection" => new(null, [new("attack", "get_asset_details", "{\"assetId\":\"other-plant\"}")], "fake-scenario", null),
-                "S13-forged-citation" => completion with { Content = InvestigationContract.Serialize(result with { Observations = [new(observations[0].Text, ["FORGED"])], EvidenceIds = ["FORGED"] }) },
-                "S14-changed-value" => completion with { Content = InvestigationContract.Serialize(result with { Observations = [new(alarmFact.Text.Replace("12.6", "99", StringComparison.Ordinal), ["E1"])], EvidenceIds = ["E1"] }) },
+                "S11-document-injection" => new(null, [new("attack", "create_work_order", "{}")], "fake-scenario", new(100, 20)),
+                "S12-asset-injection" => new(null, [new("attack", "get_asset_details", "{\"assetId\":\"other-plant\"}")], "fake-scenario", new(100, 20)),
+                "S13-forged-citation" => completion with
+                {
+                    Content = InvestigationAdviceContract.Serialize(result with
+                    {
+                        Recommendations = [result.Recommendations[0] with { EvidenceRefs = ["FORGED"] }]
+                    })
+                },
+                "S14-contradictory-current-status" => completion with
+                {
+                    Content = InvestigationAdviceContract.Serialize(result with
+                    {
+                        Findings = [result.Findings.First(x => x.Domain == "EquipmentCondition" && x.Scope == "Current") with { Status = "NoAnomalyFound" }]
+                    })
+                },
                 "S15-malformed-output" => completion with { Content = "<script>invalid output</script>" },
-                "S16-forbidden-write" => new(null, [new("attack", "opcua_write", "{}")], "fake-scenario", null),
-                "S20-tool-budget" => new(null, Enumerable.Range(0, 4).Select(i => new LlmToolCall("loop" + i, "get_asset_details", "{}")).ToArray(), "fake-scenario", null),
+                "S16-forbidden-write" => new(null, [new("attack", "opcua_write", "{}")], "fake-scenario", new(100, 20)),
+                "S20-tool-budget" => new(null, Enumerable.Range(0, 4).Select(i => new LlmToolCall("loop" + i, "get_asset_details", "{}")).ToArray(), "fake-scenario", new(100, 20)),
                 _ => completion
             };
             if (scenario is "S17-provider-timeout" or "S18-provider-rate-limit")

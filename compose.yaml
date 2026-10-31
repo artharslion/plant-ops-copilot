@@ -82,8 +82,13 @@ services:
       target: worker
     environment:
       <<: *backend-environment
+      AI__Diagnostics__CaptureResponses: ${AI_DIAGNOSTICS_CAPTURE_RESPONSES:-true}
+      AI__Diagnostics__StorageRoot: /var/lib/plantops/investigation-diagnostics
+      AI__Diagnostics__RetentionDays: ${AI_DIAGNOSTICS_RETENTION_DAYS:-7}
+      AI__Diagnostics__MaxTotalBytes: ${AI_DIAGNOSTICS_MAX_TOTAL_BYTES:-104857600}
     volumes:
       - documents:/var/lib/plantops/documents
+      - investigation-diagnostics:/var/lib/plantops/investigation-diagnostics
     depends_on:
       api:
         condition: service_healthy
@@ -102,6 +107,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  investigation-diagnostics:
   database-data:
   documents:
   api-keys:

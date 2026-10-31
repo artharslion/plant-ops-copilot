@@ -87,7 +87,7 @@ public sealed class InvestigationHeatingServiceTests
         var run = (await created.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
         run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
-        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode + ":" + run.RunRecord?.GetRawText());
         Assert.Equal(3, run.Assessment!.Points.Length);
         Assert.Equal(5, run.ToolCalls);
         Assert.InRange(run.InputTokens, 1, 16000);
@@ -104,15 +104,21 @@ public sealed class InvestigationHeatingServiceTests
             new
             {
                 facts = evidence.Facts,
-                derivedTrend = trend
+                pointStatus = evidence.PointStatus,
+                derivedTrend = trend,
+                state = evidence.State
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web)))));
         Assert.Equal(expectedHash, evidence.Sha256);
-        Assert.Equal("2", run.Result!.Value.GetProperty("schemaVersion").GetString());
-        Assert.NotEmpty(run.Result.Value.GetProperty("analysis").EnumerateArray());
+        Assert.Equal("3", run.Result!.Value.GetProperty("schemaVersion").GetString());
+        Assert.NotEmpty(run.Result.Value.GetProperty("findings").EnumerateArray());
         var proposalResponse = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
         Assert.Equal(HttpStatusCode.OK, proposalResponse.StatusCode);
         var proposal = (await proposalResponse.Content.ReadFromJsonAsync<ActionProposalDto>())!;
-        Assert.Contains("趋势分析（待人工核查）", proposal.Draft!.Description);
+        Assert.Contains(language == "en" ? "Findings (limited to the listed subjects and time scopes)" : "调查发现（仅限所列对象与时间范围）", proposal.Draft!.Description);
+        if (language == "zh-CN")
+        {
+            Assert.Contains(run.Result.Value.GetProperty("recommendations")[0].GetProperty("task").GetString()!, proposal.Draft!.Description);
+        }
         Assert.Equal(0, await db.WorkOrders.CountAsync(x => x.AssetId == asset.Id));
         clock.Now = clock.Now.AddHours(1);
         var expanded = (await session.Client.GetFromJsonAsync<InvestigationEvidence>($"/api/v1/investigations/{run.Id}/evidence/{evidence.Id}"))!;

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
@@ -11,6 +12,30 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
     ILogger<OpenAiCompatibleGateway>? logger = null) : ILlmGateway
 {
     public async Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
+    {
+        using var logScope = logger?.BeginScope(new Dictionary<string, object?>
+        {
+            ["RunId"] = budget.RunId,
+            ["LeaseId"] = budget.LeaseId
+        });
+        try
+        {
+            return await CompleteCoreAsync(request, budget, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            budget.RecordDiagnostic("model-call", "Failed", new
+            {
+                failureCode = exception is LlmException llm ? llm.Failure.ToString()
+                    : exception is OperationCanceledException ? "Cancelled" : "Unexpected",
+                validationRule = (exception as LlmException)?.ValidationRule,
+                exceptionType = exception.GetType().Name
+            });
+            throw;
+        }
+    }
+
+    private async Task<LlmCompletion> CompleteCoreAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var options = settings.Value;
@@ -31,6 +56,10 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             {
                 if (retryFailure.HasValue)
                 {
+                    budget.RecordDiagnostic("attempt-reservation", "RetrySuppressed", new
+                    {
+                        failureCode = retryFailure.Value.ToString()
+                    });
                     // Unknown usage keeps its reservation. If that leaves no room
                     // for a retry, preserve the original service/transport failure.
                     logger?.LogWarning("AI retry suppressed: stage=attempt-reservation; failure={Failure}; attempt={Attempt}",
@@ -39,6 +68,11 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 }
                 logger?.LogWarning("AI budget rejected: stage=attempt-reservation; inputReservation={InputReservation}; outputAllowance={OutputAllowance}; reservedInput={ReservedInput}; reservedOutput={ReservedOutput}; rounds={Rounds}; tools={Tools}",
                     inputReservation, request.MaxOutputTokens, budget.ReservedInputTokens, budget.ReservedOutputTokens, budget.ModelRounds, budget.ToolCalls);
+                budget.RecordDiagnostic("attempt-reservation", "Rejected", new
+                {
+                    inputReservation,
+                    outputAllowance = request.MaxOutputTokens
+                });
                 throw;
             }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
@@ -49,15 +83,30 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
             var receivedHeaders = false;
             var elapsed = Stopwatch.StartNew();
+            var stage = "dispatch";
             try
             {
                 using var outgoing = new HttpRequestMessage(HttpMethod.Post, endpoint);
                 outgoing.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
                 outgoing.Content = new ByteArrayContent(body);
                 outgoing.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                ExternalRequestLedger.Reserve(options.Model, body);
                 logger?.LogInformation("AI request dispatched: round={Round}; attempt={Attempt}; stream={Stream}", budget.ModelRounds, attempt + 1, options.StreamResponses);
+                budget.RecordDiagnostic("dispatch", "Started", new
+                {
+                    requestSha256 = Convert.ToHexStringLower(SHA256.HashData(body)),
+                    stream = options.StreamResponses,
+                    inputReservation,
+                    outputAllowance = request.MaxOutputTokens
+                });
+                stage = "response-headers";
                 using var response = await client.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
                 receivedHeaders = true;
+                budget.RecordDiagnostic("response-headers", "Received", new
+                {
+                    httpStatus = (int)response.StatusCode,
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
                 if (!response.IsSuccessStatusCode)
                 {
                     logger?.LogWarning("AI transport failed: stage=http-status; status={Status}; attempt={Attempt}; cloudflare={Cloudflare}; via={Via}",
@@ -71,11 +120,12 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                     timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
                 }
                 LlmCompletion result;
+                stage = "response-protocol";
                 try
                 {
                     result = options.StreamResponses
                         ? await SseCompletionReader.ReadAsync(response.Content, options.MaxResponseBytes, request, timeout.Token, logger,
-                            () => timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds)))
+                            () => timeout.CancelAfter(TimeSpan.FromSeconds(options.RequestTimeoutSeconds)), budget)
                         : ChatCompletionsProtocol.Parse(await ReadBoundedAsync(response.Content, options.MaxResponseBytes, timeout.Token), request);
                 }
                 catch (LlmException ex) when (ex.Usage is not null)
@@ -85,6 +135,9 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 }
                 try
                 {
+                    await budget.RecordResponseAsync(result, Convert.ToHexStringLower(SHA256.HashData(body)), cancellationToken);
+                    ExternalRequestLedger.RecordCompletion(body, result);
+                    stage = "usage-reconciliation";
                     budget.ReconcileUsage(result.Usage, inputReservation, request.MaxOutputTokens);
                 }
                 catch (LlmException exception) when (exception.Failure == LlmFailure.BudgetExceeded)
@@ -95,10 +148,21 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 }
                 cancellationToken.ThrowIfCancellationRequested();
                 budget.RecordToolCalls(result.ToolCalls.Count);
+                budget.RecordDiagnostic("model-call", "Completed", new
+                {
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
                 return result;
             }
             catch (OperationCanceledException)
             {
+                budget.RecordDiagnostic(stage, "CancelledOrTimedOut", new
+                {
+                    receivedHeaders,
+                    runDeadline = budget.Deadline.IsCancellationRequested,
+                    cancelled = cancellationToken.IsCancellationRequested,
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
                 logger?.LogWarning("AI transport ended: stage=cancel-or-timeout; headers={Headers}; cancelled={Cancelled}; runDeadline={RunDeadline}; elapsedMs={ElapsedMs}; attempt={Attempt}",
                     receivedHeaders, cancellationToken.IsCancellationRequested, budget.Deadline.IsCancellationRequested, elapsed.ElapsedMilliseconds, attempt + 1);
                 if (cancellationToken.IsCancellationRequested)
@@ -109,6 +173,11 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (HttpRequestException ex)
             {
+                budget.RecordDiagnostic(stage, "TransportFailed", new
+                {
+                    error = ex.HttpRequestError.ToString(),
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
                 retryFailure = LlmFailure.Unavailable;
                 logger?.LogWarning("AI transport failed: stage=http-transport; error={Error}; socket={Socket}; headers={Headers}; attempt={Attempt}",
                     ex.HttpRequestError, ex.InnerException is System.Net.Sockets.SocketException socket ? socket.SocketErrorCode.ToString() : "none",
@@ -120,6 +189,10 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             }
             catch (IOException)
             {
+                budget.RecordDiagnostic(stage, "IoFailed", new
+                {
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
                 retryFailure = LlmFailure.Unavailable;
                 logger?.LogWarning("AI transport failed: stage=io; headers={Headers}; attempt={Attempt}", receivedHeaders, attempt + 1);
                 if (attempt >= options.MaxRetries)
@@ -130,7 +203,22 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
             catch (LlmException ex) when (attempt < options.MaxRetries && ex.Failure is LlmFailure.Unavailable or LlmFailure.RateLimited)
             {
                 retryFailure = ex.Failure;
+                budget.RecordDiagnostic(stage, "RetryScheduled", new
+                {
+                    failureCode = ex.Failure.ToString(),
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
                 // Do not repeat invalid schemas, auth failures, refusals or truncated responses.
+            }
+            catch (LlmException ex)
+            {
+                budget.RecordDiagnostic(stage, "Rejected", new
+                {
+                    failureCode = ex.Failure.ToString(),
+                    ex.ValidationRule,
+                    elapsedMs = elapsed.ElapsedMilliseconds
+                });
+                throw;
             }
             using var backoff = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Deadline);
             try

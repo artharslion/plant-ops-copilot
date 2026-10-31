@@ -2,7 +2,7 @@
 
 2026-10-20：[受控本机常驻运行](../../docs/OPCUA_RUNTIME_VALIDATION.md)新增明确开关、精确节点白名单及普通 Worker 入口；`local-runtime.example.json` 仅为部署配置示意，不自动加载。下文 secure selftest/server 仍维持原加密策略；只有独立 `runtime` 验收模式显式使用本机 None。
 
-应用预配置示例见 `appsettings.example.json`（需由部署端加载），停用配置可使用 NamespaceUri + String IdentifierPrefix 或 Nodes 精确 `Type:Identifier` 列表。启用常驻采集另须满足 `local-runtime.example.json` 所示的显式 Development 回环策略及精确节点列表；通用远程或前缀范围不能直接启用。当前没有工业凭据解析、浏览命令或证书运维入口；当前任务归入 [开发计划 P5](../../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)，旧 [P2.2 验收](../../docs/P2_2_VALIDATION.md)仅记录当时范围。
+应用预配置示例见 `appsettings.example.json`（需由部署端加载），停用配置可使用 NamespaceUri + String IdentifierPrefix 或 Nodes 精确 `Type:Identifier` 列表。启用常驻采集另须满足 `local-runtime.example.json` 所示的显式 Development 回环策略及精确节点列表；通用远程或前缀范围不能直接启用。当前没有工业凭据解析、浏览命令或证书运维入口；当前任务归入 [开发计划 P5](../../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)。
 
 固定 SDK Client/Server **1.5.378.182**，源码 tag 对应 commit `6cca32dd6d79c8b57d2e00e4d2071b991d2cf71b`；.NET SDK 10.0.112 / net10.0。使用官方 Server 库及原创 NodeManager，不复制示例项目、不使用第三方镜像。版本与内容哈希见 spike 的 `packages.lock.json`，许可与通知随此目录保存。
 
@@ -22,7 +22,7 @@ dotnet run --project spikes/PlantOps.OpcUa.Spike --no-build -- server artifacts/
 
 100 个业务节点，Namespace URI `urn:plant-ops:simulator`。首节点 `North.Utilities.P101.VibrationRms`；其他为 `North.Point001.VibrationRms` 至 `North.Point049.VibrationRms` 和 `South.Point050.VibrationRms` 至 `South.Point099.VibrationRms`。全部 Double / Scalar，已发布 `0:EngineeringUnits` HasProperty / EUInformation（UN/CEFACT Namespace URI、C16 UnitId 4403510、mm/s）。
 
-额外 `Metadata.*` 原创静态节点用于对象/数组/读权限/字符串/单位缺失、未知、冲突、畸形和读取拒绝实验，`Metadata.Missing` 故意不存在。默认自检逐映射校验 17 个结果，包括 Namespace 缺失/非法标识符；错误后有效映射仍通过。元数据读取仅针对确切节点/属性，不是授权 Worker Browse 或持续源；详见 [独立验收](../../docs/P2_NODE_METADATA_VALIDATION.md)。自检元数据阶段最长 15 秒，随后订阅 8 秒；应使用默认参数或仅 ReorderNamespaces 复现成功自检，其他故障配置可能故意使订阅断言失败。
+额外 `Metadata.*` 原创静态节点用于对象/数组/读权限/字符串/单位缺失、未知、冲突、畸形和读取拒绝实验，`Metadata.Missing` 故意不存在。默认自检逐映射校验 17 个结果，包括 Namespace 缺失/非法标识符；错误后有效映射仍通过。元数据读取仅针对确切节点/属性，不是授权 Worker Browse 或持续源；历史实验记录可从 Git 历史查阅。自检元数据阶段最长 15 秒，随后订阅 8 秒；应使用默认参数或仅 ReorderNamespaces 复现成功自检，其他故障配置可能故意使订阅断言失败。
 
 示例配置为确定性 120 秒周期：0–9 秒 4.0，10–29 秒 12.6，其余 7.0；40–49 秒 Bad，50–59 秒 Uncertain；默认自检用恒值 4.0，每秒更新源时间。可设 `Constant`、`Quality`（Good/Bad/Uncertain/Cycle）、`Timestamp`（Normal/Missing/Future/Frozen）、`Overflow`、`DenyRead`、`MinimumSamplingMs` 和 `ReorderNamespaces`。重排将业务 Namespace 从 2 移至 3，客户端每次新会话按 URI 解析。Missing/Frozen 故障可能使恒值订阅静默；不应把通知数量等同物理采样。Overflow 注入保留 DataValue 信息位，真实队列溢出另行验收。
 

@@ -6,11 +6,17 @@ public sealed class InvestigationWorker(IServiceScopeFactory scopes, ILogger<Inv
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var nextPrune = DateTimeOffset.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
+                if (DateTimeOffset.UtcNow >= nextPrune)
+                {
+                    await scope.ServiceProvider.GetRequiredService<IInvestigationResponseStore>().PruneAsync(stoppingToken);
+                    nextPrune = DateTimeOffset.UtcNow.AddHours(1);
+                }
                 var processed = await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync(stoppingToken);
                 if (!processed)
                 {
@@ -18,9 +24,9 @@ public sealed class InvestigationWorker(IServiceScopeFactory scopes, ILogger<Inv
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception)
+            catch (Exception exception)
             {
-                logger.LogWarning("Investigation queue is temporarily unavailable; retrying without exposing request data.");
+                logger.LogWarning("Investigation queue is temporarily unavailable: errorType={ErrorType}; retrying without exposing request data.", exception.GetType().Name);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }

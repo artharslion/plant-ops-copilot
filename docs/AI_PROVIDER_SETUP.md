@@ -2,7 +2,7 @@
 
 2026-10-22新增：[工作台AI设置](AI_SETTINGS_VALIDATION.md)。Admin可在8080侧栏“设置”中切换新调查使用模拟AI或服务端已配置的真实LLM，API/Worker共用数据库中的选择，无需每次重启。已有设置记录时优先于AI.Provider；排队/运行中的调查保留创建时模式。密钥仍只通过下面的服务端配置注入，不在页面中填写或显示。
 
-当前增量：独立 `PlantOps.AI` 已提供 Chat Completions 适配、Fake、调用预算和版本化输出；[P3.2 授权资料检索](AI_EVIDENCE_VALIDATION.md) 与 [告警业务调查接入](AI_INVESTIGATION_VALIDATION.md) 已实现。现在告警页经 API/AiRun/Worker 实际调用 Gateway，保存并展示授权证据及校验结果。135项专项/回归通过；早先真实超时记录保留，[IndustrialSim联合演示](INDUSTRIALSIM_AI_VALIDATION.md) 的一次真实业务调查约11.22秒成功。响应稳定性及完整P3质量验收仍未通过。
+独立 `PlantOps.AI` 提供 Chat Completions 适配、Fake、调用预算和版本化输出。告警页经 API/AiRun/Worker 调用 Gateway，保存并展示授权证据及校验结果。当前调查契约见 [调查建议 v3](INVESTIGATION_RESPONSE_V3.md)，近期真实模型样本、失败与限制见 [真实验证记录](INVESTIGATION_V3_REAL_VALIDATION_20261030.md)；有限成功不代表完整质量或稳定性验收。
 
 ## 密钥放哪里
 
@@ -62,7 +62,7 @@ Fake 报告始终 `Simulated=true`、`RealProviderVerified=false`。只有真实
 - 瞬态网络/服务错误后，若保留的未知用量预留使剩余额度不足以重试，不发送额外请求，并保留最初的 Unavailable/RateLimited 错误。该情形不会再误报为 BudgetExceeded；实际首次预留失败或返回用量超限仍按预算错误处理。
 - 临时 DNS `TryAgain` 在建立连接、发送 HTTP 之前最多查询三次，间隔 300/600 ms；连接阶段最多 20 秒，并服从更短的请求/调查取消期限。这是连接准备重试，不能重放模型 POST，也不额外占模型轮次或预算预留。非临时 DNS 错误、HTTP 错误和响应期间断流不走此路径；原有未知用量预留策略保持不变。
 - 使用量缺失或尝试结果未知时，汇总 usage/cost 保留未知。未配置并验证中转单价，`EstimatedCost=null`，不标记为免费。取消/超时只能停止本地等待，不能保证上游停止计算或不计费。
-- 业务调查另行验证实时 actor/资料权限，observations 必须逐字选用证据事实句，将数字、单位、时间一起校验。它是保守摘录契约，不证明通用自然语言推理正确；详见调查验收记录。供应商协议层自身仍只负责结构与引用集合检查。
+- 新调查使用[建议 v3](INVESTIGATION_RESPONSE_V3.md)：模型返回独立的建议与工单状态、发现、假设、核查任务及缺项；业务服务验证实时权限、结构、引用、状态关系与权威当前测点事实，不从自然语言词句推断状态。逐字摘录的 observations 契约仅保留在 v1/v2 历史兼容路径。结构校验不证明建议语义正确，须结合真实样本复核。
 
 ## 验证记录
 

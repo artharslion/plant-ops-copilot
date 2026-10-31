@@ -352,6 +352,47 @@ templates(
   ],
 )
 
+templates(
+  ['DataQuality'],
+  [
+    [
+      '趋势窗口不晚于取证截止；完成分钟统计反映实际查询水位，可能含截止后迟到的历史观测，不证明统计在截止前已经可用。原始变化另按接收时间过滤。',
+      'Trend windows end by the evidence cutoff. Completed-minute statistics reflect the actual query watermark and may include historical observations arriving after the cutoff; they do not prove the statistics existed before the cutoff. Raw changes are filtered separately by receipt time.',
+    ],
+    [
+      '维护工单创建时间不晚于取证截止；状态与处理结果为实际读取时版本，不能追认为截止时历史状态。',
+      'Maintenance work orders were created by the evidence cutoff. Their status and resolution reflect the version at actual retrieval, not a reconstructed historical state at the cutoff.',
+    ],
+    [
+      '近期告警只展开最多五条触发快照；数量最多检查一百条，不代表全部事件过程。',
+      'At most five recent alarm trigger snapshots are expanded and at most one hundred records are counted; this does not represent complete event histories.',
+    ],
+    [
+      '检索匹配资料的发布时间晚于取证截止，未用于本次调查。',
+      'A matching document was published after the evidence cutoff and was excluded from this investigation.',
+    ],
+    [
+      '按需工具 {0} 本次读取不可用；未取得的证据保持未知，不据此判断设备恢复或正常。',
+      'On-demand tool {0} was unavailable for this read. Unretrieved evidence remains unknown and does not establish equipment recovery or normal operation.',
+    ],
+    [
+      '调查取数范围：已捕获取证时刻告警点位及同设备对照候选 {0} 的当前值、质量和来源健康；详细趋势、告警历史、维护和资料按需读取。趋势使用固定事件、恢复及当前窗口，候选按点位编号排序最多两个，不能据此确认物理关联；其余候选、跨设备趋势及现场工况未读取。{1}',
+      'Evidence scope: current values, quality and source health were captured for the alarm point and same-asset candidates {0}. Detailed trends, alarm history, maintenance and documents are read on demand. Trends use fixed event, recovery and current windows. Up to two candidates are selected by point code; this does not establish a physical relation. Other candidates, cross-asset trends and field conditions were not read. {1}',
+      [1],
+    ],
+  ],
+)
+templates(
+  ['PointStatus'],
+  [
+    [
+      '历史窗口 {0} [{1}, {2})；实际查询 {3}；数据{4}；Good {5}，Bad {6}，Uncertain {7}；缺口 {8}；仅描述该历史窗口，不替代当前判断。',
+      'Historical window {0} [{1}, {2}); retrieved {3}; data trust: {4}; Good {5}, Bad {6}, Uncertain {7}; gap: {8}. This describes the historical window only and does not replace the current assessment.',
+      [4],
+    ],
+  ],
+)
+
 const titles: Record<string, Record<string, string>> = {
   Alarm: { 所选告警的历史快照: 'Historical snapshot of the selected alarm' },
   TriggerReading: { 告警原始触发样本与来源: 'Original alarm trigger sample and source' },
@@ -364,7 +405,11 @@ const titles: Record<string, Record<string, string>> = {
   Assessment: {
     '服务端双维度判断（取证时快照）': 'Server two-dimensional assessment (evidence snapshot)',
   },
-  DataQuality: { 服务端数据质量与范围提示: 'Server data quality and scope notices' },
+  DataQuality: {
+    服务端数据质量与范围提示: 'Server data quality and scope notices',
+    按需取证质量与范围提示: 'On-demand evidence quality and scope notices',
+    按需工具读取失败: 'On-demand evidence read failed',
+  },
 }
 
 export function formatEvidenceTitle(evidence: EvidenceSource): string {
@@ -373,6 +418,11 @@ export function formatEvidenceTitle(evidence: EvidenceSource): string {
   const kind = evidence.kind ?? ''
   if (titles[kind]?.[title]) return titles[kind][title]
   if (['EventTrend', 'RecoveryTrend', 'Trend'].includes(kind)) return terms[title] ?? title
+  if (kind === 'PointStatus' && title.startsWith('测点证据状态与按需历史窗口 · '))
+    return (
+      'Point evidence status and requested historical windows · ' +
+      title.slice('测点证据状态与按需历史窗口 · '.length)
+    )
   if (kind === 'PointStatus' && title.startsWith('测点证据状态 · '))
     return 'Point evidence status · ' + title.slice('测点证据状态 · '.length)
   if (

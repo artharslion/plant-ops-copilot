@@ -1,0 +1,67 @@
+# Local verification of the same two service images used on Northflank.
+name: plantops-combined
+x-environment: &environment
+  ASPNETCORE_ENVIRONMENT: Development
+  ConnectionStrings__PlantOps: Host=database;Port=5432;Database=plantops;Username=plantops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD};GSS Encryption Mode=Disable
+  AI__Provider: Fake
+  Telemetry__SimulationEnabled: "false"
+  Telemetry__RawRetentionDays: "1"
+  Outbox__RetentionEnabled: "true"
+  Outbox__SentRetentionHours: "24"
+  OpcUa__LocalRuntimeEnabled: "true"
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Url: opc.tcp://127.0.0.1:48481
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__ApplicationUri: urn:industrial-sim:server
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__NamespaceUri: urn:industrial-sim:runtime
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__0: String:plantops-p101/vibration
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__1: String:plantops-p101/temperature
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__Nodes__2: String:plantops-p101/referenceTemperature
+  OpcUa__ApprovedEndpoints__industrial-sim-workbench__CertificateRoot: /tmp/plantops-opcua
+services:
+  database:
+    image: postgres:17@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    environment:
+      POSTGRES_DB: plantops
+      POSTGRES_USER: plantops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U plantops -d plantops]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  app:
+    image: artharslion/plant-ops-copilot:web-api-20261029
+    environment:
+      <<: *environment
+      PLANTOPS_INITIALIZE_DB: "true"
+      Demo__Password: ${DEMO_PASSWORD:?Set DEMO_PASSWORD}
+      Demo__SeedHistory: "false"
+      AllowedHosts: localhost;127.0.0.1;app;plantops.test
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    volumes:
+      - documents:/var/lib/plantops/documents
+      - api-keys:/home/app/.aspnet/DataProtection-Keys
+    depends_on:
+      database:
+        condition: service_healthy
+  runtime:
+    image: artharslion/plant-ops-copilot:worker-sim-20261029
+    stop_grace_period: 25s
+    environment:
+      <<: *environment
+    ports:
+      - "127.0.0.1:${SIMULATOR_PORT:-8081}:8081"
+    volumes:
+      - documents:/var/lib/plantops/documents
+      - simulator:/app/simulator-data
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  database:
+  documents:
+  api-keys:
+  simulator:

@@ -5,11 +5,11 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using PlantOps.Application.AI;
 using PlantOps.Application.Alarms;
 using PlantOps.Application.Assets;
 using PlantOps.Application.Knowledge;
-using PlantOps.Application.Maintenance;
 using PlantOps.Application.Telemetry;
 using PlantOps.Domain.AI;
 using PlantOps.Infrastructure.Persistence;
@@ -17,9 +17,10 @@ using PlantOps.Infrastructure.Persistence;
 namespace PlantOps.Infrastructure.AI;
 
 public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmService alarms, IAssetDirectory assets,
-    ITelemetryService telemetry, IWorkOrderService maintenance, IDocumentEvidenceService documents,
+    ITelemetryService telemetry, IDocumentEvidenceService documents,
     IServiceProvider executionServices, IAiSettingsService settings, IAiRunConfiguration runConfiguration,
-    IConfiguration configuration, IServiceScopeFactory scopes, TimeProvider clock) : IInvestigationService
+    IConfiguration configuration, IServiceScopeFactory scopes, TimeProvider clock,
+    ILogger<InvestigationService>? logger = null, IInvestigationResponseStore? responseStore = null) : IInvestigationService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -194,6 +195,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             run.Status = "Failed";
             run.FailureCode = "LeaseExpired";
             run.CompletedAt = now;
+            logger?.LogWarning("Investigation lease expired: runId={RunId}; attempts={Attempts}", run.Id, run.Attempts);
         }
         else
         {
@@ -225,6 +227,15 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
         {
             return true;
         }
+        using var logScope = logger?.BeginScope(new Dictionary<string, object?>
+        {
+            ["RunId"] = run.Id,
+            ["LeaseId"] = run.LeaseId,
+            ["LeaseAttempt"] = run.Attempts,
+            ["AlarmId"] = run.AlarmId
+        });
+        logger?.LogInformation("Investigation started: runId={RunId}; leaseId={LeaseId}; leaseAttempt={Attempt}; provider={Provider}; model={Model}",
+            run.Id, run.LeaseId, run.Attempts, run.Provider, run.Model);
         var ledger = new List<InvestigationEvidence>();
         var warnings = new HashSet<string>(StringComparer.Ordinal);
         using var budget = new LlmBudget(new(
@@ -233,6 +244,20 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             MaxToolCalls: configuration.GetValue("AI:MaxToolCalls", 8),
             MaxInputTokens: configuration.GetValue("AI:MaxInputTokens", 16000),
             MaxOutputTokens: configuration.GetValue("AI:MaxOutputTokens", 2000)));
+        budget.RunId = run.Id;
+        budget.LeaseId = run.LeaseId;
+        budget.RecordDiagnostic("investigation", "Started", new
+        {
+            run.Attempts,
+            run.Language,
+            run.Provider,
+            run.Model
+        });
+        if (responseStore != null && run.Provider != "Fake")
+        {
+            budget.ResponseObserver = (round, attempt, hash, completion, token) => responseStore.SaveAsync(
+                new(run.Id, run.LeaseId!.Value, round, attempt, hash, clock.GetUtcNow(), completion), token);
+        }
         budget.CheckpointAsync = async token =>
         {
             if (await CheckpointAsync(run, ledger, warnings, budget, token) != 1)
@@ -260,6 +285,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             await Authorize(active.Token);
             var actor = new Actor(run.ActorUserId, run.CorrelationId);
             var capturedAt = clock.GetUtcNow();
+            budget.EvidenceAsOf = capturedAt;
             AlarmDto selectedAlarm;
             PointOverview point;
             PointOverview[] relatedCandidates;
@@ -279,9 +305,12 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             }
             var pointWindows = pointSnapshots.ToDictionary(x => x.PointId, _ => new List<InvestigationWindowAssessment>());
             InvestigationEvidence Add(string kind, string title, Guid resource, string[] facts, string? sourceHash = null, Guid? version = null, Guid? chunk = null,
-                InvestigationPointSnapshot? pointStatus = null, InvestigationDerivedTrend? derivedTrend = null)
+                InvestigationPointSnapshot? pointStatus = null, InvestigationDerivedTrend? derivedTrend = null,
+                string availability = "Available", InvestigationEvidenceState? state = null)
             {
-                var existing = ledger.SingleOrDefault(x => x.Kind == kind && x.ResourceId == resource && x.VersionId == version && x.ChunkId == chunk);
+                state ??= new InvestigationEvidenceState(availability, pointStatus?.CurrentTrust, pointStatus?.CurrentAnomaly);
+                var existing = ledger.SingleOrDefault(x => x.State == state && x.Kind == kind && x.ResourceId == resource && x.VersionId == version && x.ChunkId == chunk
+                    && x.Facts.SequenceEqual(facts, StringComparer.Ordinal));
                 if (existing != null)
                 {
                     return existing;
@@ -290,19 +319,16 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                 {
                     throw new LlmException(LlmFailure.BudgetExceeded);
                 }
-                var hash = sourceHash ?? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(derivedTrend != null
-                    ? JsonSerializer.Serialize(new
+                var hash = sourceHash ?? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+                    JsonSerializer.Serialize(new
                     {
                         facts,
-                        derivedTrend
-                    }, Json) : pointStatus == null
-                    ? JsonSerializer.Serialize(facts, Json) : JsonSerializer.Serialize(new
-                    {
-                        facts,
-                        pointStatus
+                        pointStatus,
+                        derivedTrend,
+                        state
                     }, Json))));
                 var item = new InvestigationEvidence("E" + (ledger.Count + 1).ToString(CultureInfo.InvariantCulture), kind, title,
-                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus, derivedTrend);
+                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus, derivedTrend, state);
                 ledger.Add(item);
                 return item;
             }
@@ -339,7 +365,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             {
                 warnings.Add("观测来源：" + point.SourceKind + "；请区分模拟与现场观测。");
             }
-            async Task<InvestigationToolResult> ReadTool(string name, JsonElement arguments, CancellationToken token)
+            async Task<InvestigationToolResult> ReadUncachedTool(string name, JsonElement arguments, CancellationToken token)
             {
                 await Authorize(token);
                 var supplied = new List<InvestigationEvidence>();
@@ -350,6 +376,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         supplied.Add(Add("Asset", "设备资料", run.AssetId, [$"设备编号为 {asset.Code}，设备名称为 {Excerpt(asset.Name, 100)}，类型为 {asset.AssetType}。"]));
                         break;
                     case "get_recent_measurements":
+                        warnings.Add("趋势窗口不晚于取证截止；完成分钟统计反映实际查询水位，可能含截止后迟到的历史观测，不证明统计在截止前已经可用。原始变化另按接收时间过滤。");
                         foreach (var selectedPoint in new[] { point }.Concat(relatedPoints))
                         {
                             var snapshot = pointSnapshots.Single(x => x.PointId == selectedPoint.Id);
@@ -373,14 +400,14 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                                     IsAlarmPoint = selectedPoint.Id == point.Id
                                 };
                                 supplied.Add(Add(window.Kind, "原始观测变化 · " + selectedPoint.Code + " · " + window.Label,
-                                    selectedPoint.Id, TrendFacts(derived), derivedTrend: derived));
+                                    selectedPoint.Id, TrendFacts(derived), derivedTrend: derived, availability: derived.Samples.Length == 0 ? "Empty" : "Partial"));
                             }
                         }
                         foreach (var window in InvestigationWindows.Create(selectedAlarm.StartedAt, selectedAlarm.RecoveredAt, capturedAt))
                         {
                             var trend = await telemetry.TrendAsync(actor, run.AssetId, point.Id, window.From, window.To, "1m");
                             pointWindows[point.Id].Add(InvestigationAssessmentPolicy.Window(window.Kind, trend));
-                            var facts = new List<string> { $"{window.Label}：点位 {point.Code}，窗口 [{Time(trend.From)}, {Time(trend.To)})，单位 {trend.Unit}；仅含已完成分钟，不能由当前窗口替代事件过程。" };
+                            var facts = new List<string> { $"{window.Label}：点位 {point.Code}，窗口 [{Time(trend.From)}, {Time(trend.To)})，单位 {trend.Unit}；实际查询 {Time(trend.CheckedAt)}；仅含已完成分钟，不能由当前窗口替代事件过程。" };
                             if (window.Kind != "Trend" && window.To <= (window.Kind == "EventTrend" ? selectedAlarm.StartedAt : selectedAlarm.RecoveredAt))
                             {
                                 facts.Add("事件所在分钟尚未结束，未列入完成分钟聚合；事件过程请核对原始样本，不能把此窗口当作完整事件。");
@@ -401,7 +428,8 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                             {
                                 facts.Add($"{window.Label}无可用分钟聚合；可能未聚合、已清理或未入库，不能据此断言设备或通信故障。");
                             }
-                            supplied.Add(Add(window.Kind, window.Label, point.Id, facts.ToArray()));
+                            supplied.Add(Add(window.Kind, window.Label, point.Id, facts.ToArray(),
+                                availability: trend.Buckets.Any(x => x.Min.HasValue) ? "Partial" : "Empty"));
                         }
                         // A separate bounded raw window preserves the sub-minute event sequence and provenance.
                         // Retained aggregates and the alarm snapshot still stand if raw partitions have expired.
@@ -409,12 +437,14 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         {
                             var end = anchor.At.AddMinutes(1) < capturedAt ? anchor.At.AddMinutes(1) : capturedAt;
                             var raw = await telemetry.TrendAsync(actor, run.AssetId, point.Id, anchor.At.AddMinutes(-1), end, "raw");
-                            var selected = raw.Samples.Where(x => x.EffectiveAt >= anchor.At).Take(1)
-                                .Concat(raw.Samples.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
-                                .Concat(raw.Samples.Take(1)).Concat(raw.Samples.TakeLast(1)).DistinctBy(x => x.Id);
+                            var atCutoff = raw.Samples.Where(x => x.ReceivedAt <= capturedAt && x.EffectiveAt <= capturedAt).ToArray();
+                            var selected = atCutoff.Where(x => x.EffectiveAt >= anchor.At).Take(1)
+                                .Concat(atCutoff.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
+                                .Concat(atCutoff.Take(1)).Concat(atCutoff.TakeLast(1)).DistinctBy(x => x.Id);
                             supplied.Add(Add(anchor.Kind, "事件原始观测（有界节选）", point.Id,
                                 selected.Select(x => $"点位 {point.Code}，样本 {x.Id}，有效时间 {Time(x.EffectiveAt)}，值 {(x.Value.HasValue ? Number(x.Value.Value) : "无值")} {point.CanonicalUnit}，质量 {x.Quality}，时间异常 {x.TimeAnomaly}，前置缺口 {x.GapBefore}，来源 {x.DataSourceId}，映射 {x.SourceMappingId}，映射版本 {x.MappingVersion}，协议 {x.SourceKind}；协议源时间不等于物理采样时间。")
-                                    .DefaultIfEmpty("事件原始观测不可查询；使用历史告警快照和可用分钟聚合，不补造事件样本。").ToArray()));
+                                    .DefaultIfEmpty("事件原始观测不可查询；使用历史告警快照和可用分钟聚合，不补造事件样本。").ToArray(),
+                                availability: atCutoff.Length == 0 ? "Empty" : "Partial"));
                         }
                         if (relatedPoints.Length > 0 && !ledger.Any(x => x.Kind == "RelatedComparison"))
                         {
@@ -461,21 +491,27 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         }
                         break;
                     case "get_recent_alarms":
-                        var alarmPage = await alarms.ListAsync(actor, run.PlantId, null, run.AssetId, 100, null);
-                        var recent = alarmPage.Items.Where(x => x.StartedAt >= capturedAt.AddDays(-30) && x.StartedAt <= capturedAt).ToArray();
+                        var recent = await db.Alarms.AsNoTracking().Where(x => x.PlantId == run.PlantId && x.AssetId == run.AssetId
+                            && x.StartedAt >= capturedAt.AddDays(-30) && x.StartedAt <= capturedAt)
+                            .OrderByDescending(x => x.StartedAt).ThenBy(x => x.Id).Take(101).ToArrayAsync(token);
                         supplied.Add(Add("AlarmHistory", "近期告警", run.AssetId,
-                            [$"最近三十天查询到 {recent.Length} 条设备告警；每次最多检查一百条，人工确认与恢复分别记录。"]));
-                        if (alarmPage.NextCursor != null)
+                            new[] { $"最近三十天查询到 {Math.Min(recent.Length, 100)} 条设备告警；每次最多检查一百条，人工确认与恢复分别记录。" }
+                                .Concat(recent.Take(5).Select(x => $"相关告警 {x.Id}；点位 {x.PointId}；触发 {Time(x.StartedAt)}；触发值 {Number(x.TriggerValue)}；历史规则 {x.ThresholdSnapshot}。")).ToArray(),
+                            availability: recent.Length == 0 ? "Empty" : "Partial"));
+                        if (recent.Length > 5)
                         {
-                            warnings.Add("近期告警超过读取上限，数量仅代表已读记录。");
+                            warnings.Add("近期告警只展开最多五条触发快照；数量最多检查一百条，不代表全部事件过程。");
                         }
                         break;
                     case "get_maintenance_history":
-                        var work = await maintenance.ListAsync(actor, run.AssetId, false, 20, null);
+                        var work = await db.WorkOrders.AsNoTracking().Where(x => x.PlantId == run.PlantId && x.AssetId == run.AssetId && x.CreatedAt <= capturedAt)
+                            .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(6).ToArrayAsync(token);
                         supplied.Add(Add("Maintenance", "维护记录摘要", run.AssetId,
-                            work.Items.Count == 0 ? ["没有查询到设备维护工单；不代表现场从未维护。"]
-                            : work.Items.Take(5).Select(x => $"维护记录：{Excerpt(x.Title, 80)}；状态为 {x.Status}；处理结果摘录：{Excerpt(x.Resolution ?? "未记录", 120)}。").ToArray()));
-                        if (work.NextCursor != null || work.Items.Count > 5)
+                            work.Length == 0 ? ["没有查询到设备维护工单；不代表现场从未维护。"]
+                            : work.Take(5).Select(x => $"维护记录：{Excerpt(x.Title, 80)}；状态为 {x.Status}；处理结果摘录：{Excerpt(x.Resolution ?? "未记录", 120)}。").ToArray(),
+                            availability: work.Length == 0 ? "Empty" : "Partial"));
+                        warnings.Add("维护工单创建时间不晚于取证截止；状态与处理结果为实际读取时版本，不能追认为截止时历史状态。");
+                        if (work.Length > 5)
                         {
                             warnings.Add("维护记录仅发送最多五条摘要，其余记录请人工查阅。");
                         }
@@ -484,6 +520,11 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         var docs = await documents.SearchAsync(actor, run.AssetId, arguments.GetProperty("query").GetString()!, arguments.GetProperty("limit").GetInt32(), token);
                         foreach (var doc in docs.Items)
                         {
+                            if (!await db.DocumentVersions.AsNoTracking().AnyAsync(x => x.Id == doc.VersionId && x.PublishedAt <= capturedAt, token))
+                            {
+                                warnings.Add("检索匹配资料的发布时间晚于取证截止，未用于本次调查。");
+                                continue;
+                            }
                             supplied.Add(Add("Document", Excerpt(doc.Title, 100) + $" · 版本 {doc.VersionNumber} · {doc.Section} · 行 {doc.StartLine}–{doc.EndLine}", doc.DocumentId,
                                 [doc.Text], doc.Sha256, doc.VersionId, doc.ChunkId));
                         }
@@ -502,19 +543,127 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                 await Authorize(token);
                 return new(supplied, warnings.Order().ToArray());
             }
-            foreach (var tool in new[] { "get_asset_details", "get_recent_measurements", "get_recent_alarms", "get_maintenance_history", "search_documents" })
+            // Cache only within this lease attempt: the cutoff, point/configuration scope and
+            // response content hashes travel with every trace entry. Authorization is never cached.
+            var toolCache = new Dictionary<string, (InvestigationToolResult Result, string Outcome)>(StringComparer.Ordinal);
+            var scopeHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(pointSnapshots, Json))));
+            async Task<InvestigationToolResult> ReadTool(string name, JsonElement arguments, CancellationToken token)
             {
-                budget.RecordToolCalls(1);
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(active.Token);
+                InvestigationToolPolicy.Validate(name, arguments);
+                await Authorize(token);
+                var canonical = JsonSerializer.Serialize(arguments.EnumerateObject().OrderBy(x => x.Name, StringComparer.Ordinal)
+                    .ToDictionary(x => x.Name, x => x.Value), Json);
+                var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(name + canonical + capturedAt.ToString("O") + scopeHash)));
+                var startedAt = clock.GetUtcNow();
+                var cacheHit = toolCache.TryGetValue(key, out var cached);
+                var traceIndex = budget.ToolTrace.Count;
+                JsonElement Trace(string outcome, InvestigationToolResult? response = null) => JsonSerializer.SerializeToElement(new
+                {
+                    name,
+                    key,
+                    scopeHash,
+                    arguments = JsonSerializer.Deserialize<JsonElement>(canonical),
+                    asOf = capturedAt,
+                    startedAt,
+                    completedAt = outcome == "Started" ? (DateTimeOffset?)null : clock.GetUtcNow(),
+                    cacheHit,
+                    outcome,
+                    evidence = response?.Evidence.Select(x => new { x.Id, x.Sha256, x.RetrievedAt }).ToArray(),
+                    warningCount = response?.Warnings.Count
+                }, Json);
+                void ToolDiagnostic(string outcome, InvestigationToolResult? response = null, string? errorType = null)
+                {
+                    budget.RecordDiagnostic("read-tool", outcome, new
+                    {
+                        name,
+                        errorType,
+                        cacheHit,
+                        elapsedMs = (clock.GetUtcNow() - startedAt).TotalMilliseconds,
+                        evidenceCount = response?.Evidence.Count,
+                        warningCount = response?.Warnings.Count,
+                        availability = response?.Evidence.Select(x => new { x.Id, x.Kind, x.State?.Availability })
+                    });
+                    logger?.LogInformation("Investigation tool: runId={RunId}; tool={Tool}; outcome={Outcome}; cacheHit={CacheHit}; evidence={EvidenceCount}",
+                        run.Id, name, outcome, cacheHit, response?.Evidence.Count);
+                }
+                budget.ToolTrace.Add(Trace("Started"));
+                ToolDiagnostic("Started");
+                await CheckpointAsync(run, ledger, warnings, budget, active.Token);
+                var beforeCount = ledger.Count;
+                var beforeWarnings = warnings.ToHashSet(StringComparer.Ordinal);
+                try
+                {
+                    InvestigationToolResult response;
+                    if (cacheHit)
+                    {
+                        response = cached.Result;
+                    }
+                    else
+                    {
+                        response = await ReadUncachedTool(name, arguments, token);
+                        if (name == "get_recent_measurements")
+                        {
+                            var windowEvidence = pointSnapshots.Select(snapshot =>
+                            {
+                                var frozen = snapshot with
+                                {
+                                    Windows = pointWindows[snapshot.PointId].ToArray()
+                                };
+                                return Add("PointStatus", "测点证据状态与按需历史窗口 · " + frozen.Code, frozen.PointId,
+                                    PointFacts(frozen).Concat(frozen.Windows.Select(window =>
+                                        $"历史窗口 {window.Kind} [{Time(window.From)}, {Time(window.To)})；实际查询 {Time(window.RetrievedAt)}；数据{InvestigationAssessmentPolicy.TrustLabel(window.Trust)}；Good {window.GoodCount}，Bad {window.BadCount}，Uncertain {window.UncertainCount}；缺口 {window.HasGap}；仅描述该历史窗口，不替代当前判断。")).ToArray(), pointStatus: frozen);
+                            }).ToArray();
+                            response = response with
+                            {
+                                Evidence = response.Evidence.Concat(windowEvidence).ToArray()
+                            };
+                        }
+                        var addedWarnings = warnings.Except(beforeWarnings, StringComparer.Ordinal)
+                            .OrderBy(x => x.StartsWith("趋势窗口不晚于", StringComparison.Ordinal) ? 0 : 1).ThenBy(x => x, StringComparer.Ordinal).ToArray();
+                        if (addedWarnings.Length > 0)
+                        {
+                            response = response with
+                            {
+                                Evidence = response.Evidence.Append(Add("DataQuality", "按需取证质量与范围提示", run.AlarmId, addedWarnings)).ToArray()
+                            };
+                        }
+                        toolCache.Add(key, (response, "Succeeded"));
+                    }
+                    await Authorize(token);
+                    budget.ToolTrace[traceIndex] = Trace(cacheHit ? cached.Outcome : "Succeeded", response);
+                    ToolDiagnostic("Succeeded", response);
+                    await CheckpointAsync(run, ledger, warnings, budget, active.Token);
+                    return response;
+                }
+                catch (Exception exception) when (exception is OperationCanceledException && !active.IsCancellationRequested
+                    || exception is IOException || exception is DirectoryException { Status: 400 or >= 500 })
+                {
+                    // Never expose exception text or mask authorization, run cancellation or budget failures.
+                    ledger.RemoveRange(beforeCount, ledger.Count - beforeCount);
+                    warnings.IntersectWith(beforeWarnings);
+                    var warning = "按需工具 " + name + " 本次读取不可用；未取得的证据保持未知，不据此判断设备恢复或正常。";
+                    warnings.Add(warning);
+                    var response = new InvestigationToolResult([Add("DataQuality", "按需工具读取失败", run.AlarmId, [warning], availability: "Unavailable")], [warning]);
+                    toolCache[key] = (response, exception is OperationCanceledException ? "TimedOut" : "Unavailable");
+                    budget.ToolTrace[traceIndex] = Trace(exception is OperationCanceledException ? "TimedOut" : "Unavailable", response);
+                    ToolDiagnostic(exception is OperationCanceledException ? "TimedOut" : "Unavailable", response);
+                    await CheckpointAsync(run, ledger, warnings, budget, active.Token);
+                    return response;
+                }
+                catch (Exception exception)
+                {
+                    budget.ToolTrace[traceIndex] = Trace("Aborted");
+                    ToolDiagnostic("Aborted", errorType: exception.GetType().Name);
+                    throw;
+                }
+            }
+            budget.RecordToolCalls(1);
+            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(active.Token))
+            {
                 timeout.CancelAfter(TimeSpan.FromSeconds(5));
-                var args = tool == "search_documents" ? JsonSerializer.SerializeToElement(new
+                await ReadTool("get_asset_details", JsonSerializer.SerializeToElement(new
                 {
-                    query = Excerpt(selectedAlarm.AssetCode, 64) + " " + Excerpt(point.Code, 48) + " " + Excerpt(point.Quantity, 32) + " 排查 记录 完成",
-                    limit = 6
-                }) : JsonSerializer.SerializeToElement(new
-                {
-                });
-                await ReadTool(tool, args, timeout.Token);
+                }), timeout.Token);
             }
             foreach (var snapshot in pointSnapshots)
             {
@@ -525,12 +674,20 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                 Add("PointStatus", "测点证据状态 · " + frozen.Code, frozen.PointId, PointFacts(frozen), pointStatus: frozen);
             }
             var assessment = InvestigationAssessmentPolicy.FromEvidence(ledger)!;
-            Add("Assessment", "服务端双维度判断（取证时快照）", run.AlarmId, [InvestigationAssessmentPolicy.Summary(assessment)]);
+            budget.RecordDiagnostic("evidence", "Captured", new
+            {
+                evidenceCount = ledger.Count,
+                assessment.DataTrust,
+                assessment.AnomalyEvidence,
+                points = pointSnapshots.Select(x => new { x.PointId, x.CurrentTrust, x.CurrentAnomaly, x.Reasons })
+            });
+            Add("Assessment", "服务端双维度判断（取证时快照）", run.AlarmId, [InvestigationAssessmentPolicy.Summary(assessment)],
+                state: new("Available", assessment.DataTrust, assessment.AnomalyEvidence));
             warnings.Add("双维度判断仅适用于取证时刻的已检查点位和启用阈值；历史事件与完成分钟窗口另列，不能用历史告警推断当前异常，也不确认持续超限、根因或安全。");
             warnings.Add(relatedPoints.Length == 0
                 ? "调查取数范围：已自动查询同设备授权点位目录，未找到其他启用的对照候选；不能据此断言现场不存在关联测点。"
-                : "调查取数范围：已自动读取告警点位及同设备对照候选 " + string.Join("、", relatedPoints.Select(x => x.Code))
-                    + " 的事件、恢复及当前完成分钟趋势；具体窗口和缺项见证据。候选按点位编号排序最多两个，不能据此确认物理关联；其余候选、跨设备趋势及现场工况未自动读取。"
+                : "调查取数范围：已捕获取证时刻告警点位及同设备对照候选 " + string.Join("、", relatedPoints.Select(x => x.Code))
+                    + " 的当前值、质量和来源健康；详细趋势、告警历史、维护和资料按需读取。趋势使用固定事件、恢复及当前窗口，候选按点位编号排序最多两个，不能据此确认物理关联；其余候选、跨设备趋势及现场工况未读取。"
                     + (relatedCandidates.Length > relatedPoints.Length ? "同设备候选超过自动读取上限，目录并非完整现场关联清单。" : ""));
             if (warnings.Count > 0)
             {
@@ -548,21 +705,36 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
         {
             status = "Failed";
             failure = "AuthorizationChanged";
+            budget.RecordDiagnostic("authorization", "Changed");
         }
         catch (LlmException exception)
         {
             status = "Failed";
             failure = exception.Failure.ToString();
+            budget.RecordDiagnostic("investigation", "Failed", new
+            {
+                failureCode = failure,
+                exception.ValidationRule,
+                exception.ValidationDetails
+            });
+            logger?.LogWarning("Investigation failed: runId={RunId}; failure={Failure}; rule={Rule}; branch={Branch}; path={Path}",
+                run.Id, failure, exception.ValidationRule, exception.ValidationDetails?.Branch, exception.ValidationDetails?.Path);
         }
         catch (OperationCanceledException)
         {
             status = "Failed";
             failure = active.IsCancellationRequested && !budget.Deadline.IsCancellationRequested ? "Cancelled" : "Timeout";
+            budget.RecordDiagnostic("investigation", failure);
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             status = "Failed";
             failure = "InvestigationUnavailable";
+            budget.RecordDiagnostic("investigation", "UnexpectedFailure", new
+            {
+                exceptionType = exception.GetType().Name
+            });
+            logger?.LogWarning("Investigation unexpected failure: runId={RunId}; errorType={ErrorType}", run.Id, exception.GetType().Name);
         }
         finally
         {
@@ -571,13 +743,23 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
         }
         if (cancellationToken.IsCancellationRequested)
         {
+            budget.RecordDiagnostic("investigation", "ShutdownInterrupted");
+            await CheckpointAsync(run, ledger, warnings, budget, CancellationToken.None);
+            logger?.LogInformation("Investigation interrupted by shutdown: runId={RunId}; leaseId={LeaseId}", run.Id, run.LeaseId);
             return true; // Keep the lease for restart recovery; no partial success on shutdown.
         }
+        budget.RecordDiagnostic("investigation", "Finished", new
+        {
+            status,
+            failureCode = failure
+        });
         await CheckpointAsync(run, ledger, warnings, budget, CancellationToken.None);
         await db.AiRuns.Where(x => x.Id == run.Id && x.Status == "Running" && x.LeaseId == run.LeaseId)
             .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, status).SetProperty(x => x.FailureCode, failure)
                 .SetProperty(x => x.ResultJson, result).SetProperty(x => x.Model, run.Model).SetProperty(x => x.Simulated, run.Simulated)
                 .SetProperty(x => x.CompletedAt, clock.GetUtcNow()), CancellationToken.None);
+        logger?.LogInformation("Investigation finished: runId={RunId}; status={Status}; failure={Failure}; rounds={Rounds}; tools={Tools}; evidence={EvidenceCount}",
+            run.Id, status, failure, budget.ModelRounds, budget.ToolCalls, ledger.Count);
         return true;
     }
 
@@ -590,6 +772,9 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                 .SetProperty(x => x.RunRecordJson, JsonSerializer.Serialize(new
                 {
                     version = "investigation-run-record-v1",
+                    evidencePolicyVersion = "on-demand-frozen-scope-v1",
+                    asOf = budget.EvidenceAsOf,
+                    toolTrace = budget.ToolTrace,
                     run.LeaseId,
                     leaseAttempt = run.Attempts,
                     previousAttemptUnknown = run.Attempts > 1 && run.RunRecordJson == null,
@@ -598,6 +783,8 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                     language = run.Language,
                     limits = budget.Limits,
                     requests = budget.Requests,
+                    diagnostics = budget.Diagnostics,
+                    omittedDiagnosticCount = budget.OmittedDiagnosticCount,
                     evidenceSha256 = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(ledger, Json)))),
                     usage = new
                     {

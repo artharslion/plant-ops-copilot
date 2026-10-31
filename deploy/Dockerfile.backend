@@ -10,7 +10,8 @@ RUN dotnet publish src/PlantOps.Api/PlantOps.Api.csproj -c Release --no-restore 
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:d5633778c754e89a386882eddf8dbee6942447a8a4b8267c19cf1e1158d0b0ac AS runtime
 USER root
-RUN mkdir -p /var/lib/plantops/documents /home/app/.aspnet/DataProtection-Keys \
+RUN mkdir -p /var/lib/plantops/documents /var/lib/plantops/investigation-diagnostics /home/app/.aspnet/DataProtection-Keys \
+    && chmod 700 /var/lib/plantops/investigation-diagnostics \
     && chown -R app:app /var/lib/plantops /home/app
 WORKDIR /app
 COPY deploy/healthcheck.sh ./healthcheck.sh

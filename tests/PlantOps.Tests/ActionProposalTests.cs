@@ -55,7 +55,7 @@ public sealed class ActionProposalTests
     private static ConfirmActionProposal Confirm(ActionProposalDto proposal, string key = "confirm-one") =>
         new(proposal.Version, proposal.PayloadHash, key);
 
-    private static async Task<InvestigationRunDto> Investigate(AssetManagementTests.Session session, AlarmTests.Clock clock, bool document = false)
+    private static async Task<InvestigationRunDto> Investigate(AssetManagementTests.Session session, AlarmTests.Clock clock, bool document = false, string language = "zh-CN")
     {
         var fixture = await AlarmTests.Configure(session);
         var alarm = await AlarmTests.Raise(session, fixture, clock);
@@ -65,7 +65,7 @@ public sealed class ActionProposalTests
                 content: Encoding.UTF8.GetBytes("# vibration 振动\n\n维护工程师应核查机械松动，不能将假设当作确诊。"));
             await DocumentTests.Publish(session, (await upload.Content.ReadFromJsonAsync<DocumentDto>())!, 1);
         }
-        var response = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations", null);
+        var response = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations?language={language}", null);
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var run = (await response.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         await using var scope = session.Factory.Services.CreateAsyncScope();
@@ -80,6 +80,30 @@ public sealed class ActionProposalTests
         var response = await session.Client.PostAsync($"/api/v1/investigations/{runId}/proposals", null);
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         return (await response.Content.ReadFromJsonAsync<ActionProposalDto>())!;
+    }
+
+    [DatabaseFact]
+    public async Task EnglishSimulatedInvestigationCreatesAnEnglishWorkOrderAndNoteWithoutChangingApprovedContent()
+    {
+        var clock = new AlarmTests.Clock();
+        await using var session = new AssetManagementTests.Session(clock, await IsolatedConnection());
+        await session.Initialize();
+        await session.Login();
+        var run = await Investigate(session, clock, language: "en");
+        Assert.Equal("en", run.Language);
+        Assert.True(run.Simulated);
+        var proposal = await Propose(session, run.Id);
+        Assert.Equal(run.Result!.Value.GetProperty("workOrder").GetProperty("draft").GetProperty("title").GetString(), proposal.Draft!.Title);
+        Assert.DoesNotMatch(@"\p{IsCJKUnifiedIdeographs}", proposal.Draft.Description);
+        var response = await session.Client.PostAsJsonAsync(Path(proposal.Id) + "/execute", Confirm(proposal));
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var receipt = (await response.Content.ReadFromJsonAsync<ActionProposalDto>())!;
+        await using var scope = session.Factory.Services.CreateAsyncScope();
+        var order = await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders.SingleAsync(x => x.Id == receipt.ResultEntityId);
+        Assert.Equal(proposal.Draft.Title, order.Title);
+        Assert.Equal(proposal.Draft.Description, order.Description);
+        var note = await ProposeNote(session, run, order);
+        Assert.Equal(proposal.Draft.Description, note.NoteDraft!.Text);
     }
 
     private static async Task<WorkOrder> NoteTarget(AssetManagementTests.Session session, Guid assetId)
@@ -110,7 +134,7 @@ public sealed class ActionProposalTests
         Assert.Null(proposal.Draft);
         Assert.Equal(order.Id, proposal.TargetWorkOrderId);
         Assert.Equal(order.Version, proposal.TargetWorkOrderVersion);
-        Assert.Contains("待验证假设", proposal.NoteDraft!.Text);
+        Assert.Contains("调查发现（仅限所列对象与时间范围）", proposal.NoteDraft!.Text);
         await using var scope = session.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         Assert.Empty(await db.WorkOrderNotes.ToListAsync());
@@ -286,14 +310,14 @@ public sealed class ActionProposalTests
         var run = await Investigate(session, clock, true);
         var proposal = await Propose(session, run.Id);
         Assert.Equal("Pending", proposal.Status);
-        Assert.Contains("待验证假设", proposal.Draft!.Description);
+        Assert.Contains("调查发现（仅限所列对象与时间范围）", proposal.Draft!.Description);
         Assert.Contains("Simulation", proposal.Draft.Description);
         Assert.Contains("按序检查与记录", proposal.Draft.Description);
-        Assert.Contains("本项完成条件", proposal.Draft.Description);
-        Assert.Contains("本项升级条件", proposal.Draft.Description);
-        Assert.Contains("需记录：记录对象", proposal.Draft.Description);
-        var sourceWarning = run.Warnings.Single(x => x.StartsWith("历史触发观测来源：", StringComparison.Ordinal));
-        Assert.Equal(1, proposal.Draft.Description.Split(sourceWarning, StringSplitOptions.None).Length - 1);
+        var recommendation = run.Result!.Value.GetProperty("recommendations")[0];
+        Assert.Contains(recommendation.GetProperty("completionCriteria").GetString()!, proposal.Draft.Description);
+        Assert.Contains(recommendation.GetProperty("escalation").GetProperty("condition").GetString()!, proposal.Draft.Description);
+        Assert.Contains(recommendation.GetProperty("record").GetString()!, proposal.Draft.Description);
+        Assert.Equal(1, proposal.Draft.Description.Split("观测来源：", StringSplitOptions.None).Length - 1);
         Assert.Equal(run.AlarmId, proposal.AlarmId);
         Assert.Equal(run.AssetId, proposal.AssetId);
         await using var scope = session.Factory.Services.CreateAsyncScope();

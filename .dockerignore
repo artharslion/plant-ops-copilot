@@ -20,6 +20,12 @@
 !deploy/Dockerfile.web
 !deploy/nginx.conf
 !deploy/healthcheck.sh
+!deploy/Dockerfile.combined
+!deploy/northflank/
+!deploy/northflank/runtime-entrypoint.sh
+!deploy/northflank/web-entrypoint.sh
+!deploy/northflank/runtime-healthcheck.sh
+!deploy/northflank/plantops-three-point.yaml
 **/bin/
 **/obj/
 **/node_modules/

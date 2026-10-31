@@ -108,7 +108,7 @@ internal static partial class ChatCompletionsProtocol
                     strict = true
                 }
             }).ToArray();
-            payload["parallel_tool_calls"] = false;
+            payload["parallel_tool_calls"] = request.AllowParallelToolCalls;
             payload["tool_choice"] = request.DisableToolCalls ? (object)"none" : request.RequiredTool is null ? (object)"auto"
                 : new
                 {

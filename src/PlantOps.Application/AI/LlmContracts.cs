@@ -16,7 +16,8 @@ public sealed record LlmTool(string Name, string Description, JsonElement Parame
 public sealed record LlmOutputSchema(string Name, JsonElement Schema);
 
 public sealed record LlmRequest(IReadOnlyList<LlmMessage> Messages, IReadOnlyList<LlmTool>? Tools = null,
-    LlmOutputSchema? OutputSchema = null, string? RequiredTool = null, int MaxOutputTokens = 500, bool DisableToolCalls = false);
+    LlmOutputSchema? OutputSchema = null, string? RequiredTool = null, int MaxOutputTokens = 500, bool DisableToolCalls = false,
+    bool AllowParallelToolCalls = false);
 
 public sealed record LlmUsage(int InputTokens, int OutputTokens);
 
@@ -34,7 +35,8 @@ public enum LlmFailure
 }
 
 // Never include provider response bodies, messages, URLs with credentials or inner exceptions.
-public sealed class LlmException(LlmFailure failure, LlmUsage? usage = null, string? validationRule = null) : Exception($"AI request failed: {failure}.")
+public sealed class LlmException(LlmFailure failure, LlmUsage? usage = null, string? validationRule = null,
+    LlmValidationDetails? validationDetails = null) : Exception($"AI request failed: {failure}.")
 {
     public LlmFailure Failure { get; } = failure;
 
@@ -42,4 +44,6 @@ public sealed class LlmException(LlmFailure failure, LlmUsage? usage = null, str
 
     // Fixed server rule codes only; never include rejected model text.
     public string? ValidationRule { get; } = validationRule;
+
+    public LlmValidationDetails? ValidationDetails { get; } = validationDetails;
 }

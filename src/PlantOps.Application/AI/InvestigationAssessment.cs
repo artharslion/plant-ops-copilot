@@ -216,7 +216,7 @@ public static class InvestigationAssessmentPolicy
 
     public static InvestigationAssessment? FromEvidence(IReadOnlyList<InvestigationEvidence> evidence)
     {
-        var items = evidence.Where(x => x.PointStatus != null).ToArray();
+        var items = evidence.Where(x => x.PointStatus != null).GroupBy(x => x.PointStatus!.PointId).Select(x => x.Last()).ToArray();
         if (items.Length == 0)
         {
             return null;

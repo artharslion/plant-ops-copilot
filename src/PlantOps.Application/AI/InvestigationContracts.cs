@@ -5,7 +5,12 @@ namespace PlantOps.Application.AI;
 
 public sealed record InvestigationEvidence(string Id, string Kind, string Title, string[] Facts, string Sha256,
     DateTimeOffset RetrievedAt, Guid ResourceId, Guid? VersionId = null, Guid? ChunkId = null,
-    InvestigationPointSnapshot? PointStatus = null, InvestigationDerivedTrend? DerivedTrend = null);
+    InvestigationPointSnapshot? PointStatus = null, InvestigationDerivedTrend? DerivedTrend = null,
+    InvestigationEvidenceState? State = null);
+
+// Availability describes the queried evidence, not measurement trust or equipment health.
+// Partial means a bounded excerpt; Empty means a successful query returned no records.
+public sealed record InvestigationEvidenceState(string Availability, string? CurrentTrust = null, string? CurrentAnomaly = null);
 
 public sealed record InvestigationToolResult(IReadOnlyList<InvestigationEvidence> Evidence, IReadOnlyList<string> Warnings);
 

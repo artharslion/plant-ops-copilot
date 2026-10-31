@@ -50,7 +50,8 @@ internal static class RuntimeExperiment
         {
             throw new InvalidOperationException("Runtime experiment requires 2 GiB free before setup.");
         }
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(150));
+        var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(liveHeating ? 900 : 150));
         var ct = deadline.Token;
         var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -187,7 +188,7 @@ internal static class RuntimeExperiment
                 }
                 await using var scope = provider.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
-                if (await db.MeasurementReadings.CountAsync(ct) > 500)
+                if (await db.MeasurementReadings.CountAsync(ct) > (liveHeating ? 3000 : 500))
                 {
                     throw new InvalidOperationException("Runtime experiment sample budget exceeded.");
                 }
@@ -209,6 +210,34 @@ internal static class RuntimeExperiment
                 await application!.StartAsync(server);
             }
             await worker.StartAsync(ct);
+            if (liveHeating)
+            {
+                await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= 150));
+                await using var liveScope = provider.CreateAsyncScope();
+                var liveDb = liveScope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+                async Task SaveLive(string name)
+                {
+                    liveDb.ChangeTracker.Clear();
+                    await File.WriteAllTextAsync(Path.Combine(root, name), JsonSerializer.Serialize(new
+                    {
+                        StartedAt = started,
+                        At = DateTimeOffset.UtcNow,
+                        Schema = parsed.SearchPath,
+                        ObservationSimulated = true,
+                        RealOpcUa = true,
+                        Provider = "PlantOps original scenario / OPC Foundation SDK",
+                        Scenario = "p61-live-heating-v1: 60 at 0s, 75 at 60s, 90 at 120s; reference 62; independent vibration",
+                        SourceId = sourceId,
+                        PointIds = pointIds,
+                        Readings = await liveDb.MeasurementReadings.AsNoTracking().Where(x => pointIds.Contains(x.PointId)).ToArrayAsync(ct),
+                        Alarms = await liveDb.Alarms.AsNoTracking().Where(x => pointIds.Contains(x.PointId)).ToArrayAsync(ct)
+                    }, new JsonSerializerOptions { WriteIndented = true }), ct);
+                }
+                await SaveLive("live-ready.json");
+                await WaitAsync(_ => Task.FromResult(File.Exists(Path.Combine(root, "release"))));
+                await SaveLive("live-final.json");
+                return;
+            }
             await WaitAsync(db => db.Alarms.AnyAsync(alarm => alarm.State == "Active" && pointIds.Contains(alarm.PointId), ct));
             phases.Add(new
             {

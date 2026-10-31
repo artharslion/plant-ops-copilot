@@ -7,6 +7,8 @@ import {
   formatInvestigationText,
 } from '../evidencePresentation'
 import SidePanel from './SidePanel.vue'
+import InvestigationAdvicePanel from './InvestigationAdvicePanel.vue'
+import type { InvestigationAdvice } from '../investigationAdvice'
 import ActionProposalPanel from './ActionProposalPanel.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { request } from '../api'
@@ -19,6 +21,7 @@ defineExpose({ busy: proposalBusy, dirty: proposalDirty })
 type Evidence = {
   id: string
   kind: string
+  resourceId?: string
   title: string
   facts: string[]
   retrievedAt: string
@@ -96,7 +99,7 @@ type Run = {
   model: string
   simulated: boolean
   failureCode: string | null
-  result: Answer | null
+  result: Answer | InvestigationAdvice | null
   evidence: Evidence[]
   warnings: string[]
   modelRounds?: number
@@ -131,6 +134,22 @@ const elapsed = computed(() =>
     : 0,
 )
 const selected = computed(() => runs.value.find((run) => run.id === selectedId.value) ?? null)
+const advice = computed(() => {
+  const result = selected.value?.result
+  return result && 'schemaVersion' in result && result.schemaVersion === '3'
+    ? (result as InvestigationAdvice)
+    : null
+})
+const legacyResult = computed(() =>
+  advice.value ? null : (selected.value?.result as Answer | null),
+)
+const subjects = computed(
+  () =>
+    selected.value?.evidence
+      .filter((x) => x.resourceId)
+      .map((x) => ({ ref: x.resourceId!, label: formatEvidenceTitle(x) })) ?? [],
+)
+
 function evidenceText(value: string) {
   return formatInvestigationText(value, selected.value?.evidence ?? [])
 }
@@ -433,10 +452,16 @@ onUnmounted(() => {
           {{ t('项数据或范围提示，可在“事实、依据与限制”中核对。') }}
         </p>
       </article>
-      <article v-if="selected.result?.analysis?.length" :aria-label="t('趋势分析')">
+      <InvestigationAdvicePanel
+        v-if="advice"
+        :advice="advice"
+        :subjects="subjects"
+        @evidence="expand"
+      />
+      <article v-if="legacyResult?.analysis?.length" :aria-label="t('趋势分析')">
         <h4>{{ t('趋势分析') }}</h4>
         <div
-          v-for="(item, index) in selected.result.analysis"
+          v-for="(item, index) in legacyResult.analysis"
           :key="index"
           class="investigation-statement"
         >
@@ -453,13 +478,13 @@ onUnmounted(() => {
           </el-button>
         </div>
       </article>
-      <article v-if="selected.result" class="investigation-next" :aria-label="t('下一步核查')">
+      <article v-if="legacyResult" class="investigation-next" :aria-label="t('下一步核查')">
         <h4>{{ t('下一步核查') }}</h4>
-        <p v-if="!selected.result.nextChecks.length" class="path-note">
+        <p v-if="!legacyResult.nextChecks.length" class="path-note">
           {{ t('暂无有依据的核查建议，请先查看证据与缺项。') }}
         </p>
         <ol class="next-checks">
-          <li v-for="(item, index) in selected.result.nextChecks" :key="index">
+          <li v-for="(item, index) in legacyResult.nextChecks" :key="index">
             <p>{{ evidenceText(item.text) }}</p>
             <details class="check-details">
               <summary>{{ t('查看依据与执行条件') }}</summary>
@@ -544,12 +569,12 @@ onUnmounted(() => {
             >
           </div>
         </article>
-        <div v-if="selected.result" class="investigation-columns">
+        <div v-if="legacyResult" class="investigation-columns">
           <article>
             <h4>{{ t('有据可查的事实') }}</h4>
-            <p v-if="!selected.result.observations.length">{{ t('本次未生成事实结论。') }}</p>
+            <p v-if="!legacyResult.observations.length">{{ t('本次未生成事实结论。') }}</p>
             <div
-              v-for="(item, index) in selected.result.observations"
+              v-for="(item, index) in legacyResult.observations"
               :key="index"
               class="investigation-statement"
             >
@@ -565,10 +590,10 @@ onUnmounted(() => {
               </el-button>
             </div>
           </article>
-          <article v-if="selected.result.hypotheses.length">
+          <article v-if="legacyResult.hypotheses.length">
             <h4>{{ t('待验证假设') }}</h4>
             <div
-              v-for="(item, index) in selected.result.hypotheses"
+              v-for="(item, index) in legacyResult.hypotheses"
               :key="index"
               class="investigation-statement"
             >
@@ -594,10 +619,10 @@ onUnmounted(() => {
               </div>
             </div>
           </article>
-          <article v-if="selected.result.missingInformation.length">
+          <article v-if="legacyResult.missingInformation.length">
             <h4>{{ t('仍缺少的信息') }}</h4>
             <ul>
-              <li v-for="item in selected.result.missingInformation" :key="item">
+              <li v-for="item in legacyResult.missingInformation" :key="item">
                 {{ evidenceText(item) }}
               </li>
             </ul>
@@ -652,6 +677,7 @@ onUnmounted(() => {
           :run-id="selected.id"
           :asset-id="selected.assetId"
           :available="selected.status === 'Succeeded'"
+          :can-create-work-order="!advice || advice.workOrder.status === 'DraftReady'"
           @evidence="expand"
         />
       </details>

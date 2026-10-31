@@ -50,9 +50,13 @@ public sealed class InvestigationQualityTests
     [InlineData("事件原始观测节选缺失。")]
     [InlineData("缺少维护记录事实。")]
     [InlineData("原始观测缺失，输入裁剪。")]
-    public void ExistingFactsCannotBeReportedMissing(string claim)
+    public void StructuredClaimsCannotReportExistingFactsMissing(string claim)
     {
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { MissingInformation = [claim] }), [Alarm, Raw, Maintenance]));
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        {
+            MissingInformation = [claim],
+            StateClaims = [new("E2", "Empty", null, null)]
+        }), [Alarm, Raw with { State = new("Partial") }, Maintenance]));
     }
 
     [Fact]
@@ -60,7 +64,8 @@ public sealed class InvestigationQualityTests
     {
         var unavailable = Raw with
         {
-            Facts = ["事件原始观测不可查询；使用历史告警快照。"]
+            Facts = ["事件原始观测不可查询；使用历史告警快照。"],
+            State = new("Empty")
         };
         var result = Valid() with
         {
@@ -106,10 +111,14 @@ public sealed class InvestigationQualityTests
     [InlineData("若出现异常，原始观测缺失，交维护工程师复核。")]
     [InlineData("若原始观测缺失，交维护工程师复核；现有原始观测缺失。")]
     [InlineData("若原始观测缺失，交维护工程师复核。维护记录缺失。")]
-    public void EscalationStillRejectsContradictoryAssertionsOutsideTheConditionalAntecedent(string escalation)
+    public void ContradictoryStateClaimsAreRejectedRegardlessOfEscalationWording(string escalation)
     {
         var check = new InvestigationCheck("核查事件。", ["E1"], "记录来源和时间。", "全部对应关系核对且差异已记录后完成。", escalation);
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { NextChecks = [check] }), [Alarm, Raw, Maintenance]));
+        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        {
+            NextChecks = [check],
+            StateClaims = [new("E2", "Empty", null, null)]
+        }), [Alarm, Raw with { State = new("Partial") }, Maintenance]));
     }
 
     [Fact]
@@ -129,7 +138,8 @@ public sealed class InvestigationQualityTests
     {
         var unavailable = Raw with
         {
-            Facts = ["事件原始观测不可查询；使用历史告警快照。"]
+            Facts = ["事件原始观测不可查询；使用历史告警快照。"],
+            State = new("Empty")
         };
         var hypothesis = new InvestigationHypothesis("可能存在通信故障。", "weak", ["E2"], "核对采集事件日志。", unavailable.Facts[0], "缺少独立故障记录。");
         Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { Hypotheses = [hypothesis] }), [Alarm, unavailable]));
@@ -170,7 +180,7 @@ public sealed class InvestigationQualityTests
             return fake.CompleteAsync(request, budget, ct);
         });
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true })).ExecuteAsync([Alarm, Raw, Maintenance],
+        var result = await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true })).ExecuteAsync([Alarm, Raw, Maintenance],
             (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         var request = Assert.IsType<LlmRequest>(captured);
         using var input = JsonDocument.Parse(request.Messages.Single(x => x.Role == LlmRole.User).Content!);
@@ -198,7 +208,7 @@ public sealed class InvestigationQualityTests
             : Valid();
         var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
+        await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
     }
 
@@ -216,7 +226,7 @@ public sealed class InvestigationQualityTests
         };
         var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
+        await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
     }
 
@@ -225,7 +235,8 @@ public sealed class InvestigationQualityTests
     {
         var unavailable = Raw with
         {
-            Facts = ["事件原始观测不可查询；使用历史告警快照。"]
+            Facts = ["事件原始观测不可查询；使用历史告警快照。"],
+            State = new("Empty")
         };
         var recovery = unavailable with
         {
@@ -233,7 +244,7 @@ public sealed class InvestigationQualityTests
             Kind = "RecoveryReadings"
         };
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var result = await new InvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions { ServerRenderedFacts = true }))
+        var result = await new LegacyInvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm, unavailable, recovery], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, new HashSet<string>(["E1", "E2", "E4"]));
         Assert.Equal(new[] { "E2", "E4" }, Assert.Single(report.Observations, x => x.Text == unavailable.Facts[0]).EvidenceIds);
@@ -259,7 +270,7 @@ public sealed class InvestigationQualityTests
         };
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
         var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
-        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
+        var result = await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm, scope], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, new HashSet<string>(["E1", "E4"]));
         Assert.Contains(scopeFact, report.MissingInformation);
@@ -299,7 +310,7 @@ public sealed class InvestigationQualityTests
         };
         InvestigationEvidence[] evidence = [Alarm, trigger, eventRaw, recoveryRaw, .. trends, comparison];
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var result = await new InvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions { ServerRenderedFacts = true }))
+        var result = await new LegacyInvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync(evidence, (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, evidence.Select(x => x.Id).ToHashSet());
         Assert.Equal(8, report.Observations.Length);

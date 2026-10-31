@@ -238,86 +238,133 @@ public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationSe
         };
     }
 
+    private static WorkOrderDraft AdviceTemplate(InvestigationRunDto run, bool requireDraft = true)
+    {
+        var advice = run.Result!.Value.Deserialize<InvestigationAdvice>(Json)!;
+        if (requireDraft && (advice.WorkOrder.Status != "DraftReady" || advice.WorkOrder.Draft == null))
+        {
+            throw new DirectoryException(409, advice.WorkOrder.Reason);
+        }
+        var draft = InvestigationDraftContent.Build(advice, run.Language, requireDraft);
+        var source = run.Simulated ? run.Language == "en" ? "Simulated model result" : "模拟模型结果" : run.Model;
+        var prefix = run.Language == "en" ? $"Investigation {run.Id} · {run.CreatedAt:O}\nModel source: {source}\n"
+            : $"调查 {run.Id} · {run.CreatedAt:O}\n模型来源：{source}\n";
+        var sourceKinds = run.Evidence.Where(x => x.PointStatus != null).Select(x => x.PointStatus!.SourceKind)
+            .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal).ToArray();
+        if (sourceKinds.Length > 0)
+        {
+            prefix += (run.Language == "en" ? "Observation sources: " : "观测来源：") + string.Join(" / ", sourceKinds) + "\n";
+        }
+        return Normalize(draft with
+        {
+            Description = prefix + draft.Description
+        });
+    }
+
     private static WorkOrderDraft Template(InvestigationRunDto run)
     {
         var result = run.Result!.Value;
+        if (result.TryGetProperty("schemaVersion", out var schemaVersion) && schemaVersion.GetString() == "3")
+        {
+            return AdviceTemplate(run);
+        }
+        var english = run.Language == "en";
+        string L(string value) => english ? InvestigationEnglish.Label(value) : value;
+        string F(string kind, string value) => english ? InvestigationEnglish.Fact(kind, value) : value;
+        string Prose(string value)
+        {
+            if (!english)
+            {
+                return value;
+            }
+
+            foreach (var evidence in run.Evidence.Where(x => x.Kind != "Document"))
+            {
+                foreach (var fact in evidence.Facts.OrderByDescending(x => x.Length))
+                {
+                    value = value.Replace(fact, F(evidence.Kind, fact), StringComparison.Ordinal);
+                }
+            }
+
+            return value;
+        }
         var asset = run.Evidence.FirstOrDefault(x => x.Kind == "Asset");
         var alarm = run.Evidence.FirstOrDefault(x => x.Kind == "Alarm");
-        var text = new StringBuilder($"调查 {run.Id} · {run.CreatedAt:O}\n模型来源：{(run.Simulated ? "模拟模型结果" : run.Model)}\n人工审核草稿；检查结果与现场规程由维护人员核实。\n");
-        text.AppendLine("\n对象与事件摘要");
+        var text = new StringBuilder(english ? $"Investigation {run.Id} · {run.CreatedAt:O}\nModel source: {(run.Simulated ? "Simulated model result" : run.Model)}\nDraft for human review; maintenance personnel must verify inspection results and field procedures.\n" : $"调查 {run.Id} · {run.CreatedAt:O}\n模型来源：{(run.Simulated ? L("模拟模型结果") : run.Model)}\n人工审核草稿；检查结果与现场规程由维护人员核实。\n");
+        text.AppendLine(("\n" + L("对象与事件摘要")));
         foreach (var item in new[] { asset, alarm }.Where(x => x != null))
         {
             foreach (var fact in item!.Facts.Take(2))
             {
-                text.AppendLine($"[{item.Id}] {fact}");
+                text.AppendLine($"[{item.Id}] {F(item.Kind, fact)}");
             }
         }
         foreach (var comparison in run.Evidence.Where(x => x.Kind == "RelatedComparison"))
         {
-            text.AppendLine("\n已自动读取的关联趋势（调查时快照）");
+            text.AppendLine(("\n" + L("已自动读取的关联趋势（调查时快照）")));
             foreach (var fact in comparison.Facts)
             {
-                text.AppendLine($"[{comparison.Id}] {fact}");
+                text.AppendLine($"[{comparison.Id}] {F(comparison.Kind, fact)}");
             }
         }
         foreach (var assessment in run.Evidence.Where(x => x.Kind == "Assessment"))
         {
-            text.AppendLine("\n数据可信度与设备异常证据（截至取证时间）");
+            text.AppendLine(("\n" + L("数据可信度与设备异常证据（截至取证时间）")));
             foreach (var fact in assessment.Facts)
             {
-                text.AppendLine($"[{assessment.Id}] {fact}");
+                text.AppendLine($"[{assessment.Id}] {F(assessment.Kind, fact)}");
             }
-            foreach (var status in run.Evidence.Where(x => x.Kind == "PointStatus"))
+            foreach (var status in run.Evidence.Where(x => x.Kind == "PointStatus").GroupBy(x => x.ResourceId).Select(x => x.Last()))
             {
-                text.AppendLine($"[{status.Id}] {status.Facts[0]}");
+                text.AppendLine($"[{status.Id}] {F(status.Kind, status.Facts[0])}");
             }
         }
         if (result.TryGetProperty("analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Array && analysis.GetArrayLength() > 0)
         {
-            text.AppendLine("\n趋势分析（待人工核查）");
+            text.AppendLine(("\n" + L("趋势分析（待人工核查）")));
             foreach (var item in analysis.EnumerateArray())
             {
                 text.AppendLine(string.Join(" ", item.GetProperty("evidenceIds").EnumerateArray().Select(x => $"[{x.GetString()}]"))
                     + " " + item.GetProperty("text").GetString());
             }
         }
-        text.AppendLine("\n按序检查与记录");
+        text.AppendLine(("\n" + L("按序检查与记录")));
         var index = 0;
         foreach (var check in result.GetProperty("nextChecks").EnumerateArray())
         {
-            text.AppendLine($"{++index}. {check.GetProperty("text").GetString()}");
+            text.AppendLine($"{++index}. {Prose(check.GetProperty("text").GetString()!)}");
             var ids = check.GetProperty("evidenceIds").EnumerateArray().Select(x => x.GetString()).ToHashSet();
-            text.AppendLine("依据：" + string.Join("；", run.Evidence.Where(x => ids.Contains(x.Id)).Select(x => $"[{x.Id}] {x.Title}")));
+            text.AppendLine(L("依据：") + string.Join("；", run.Evidence.Where(x => ids.Contains(x.Id)).Select(x => $"[{x.Id}] {(english ? InvestigationEnglish.Title(x.Kind, x.Title) : x.Title)}")));
             string Field(string key, string fallback) => check.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
-                ? value.GetString()! : fallback;
-            text.AppendLine("需记录：" + Field("record", "检查时间、人员、点位/工况、观察值及单位、质量与来源、支持或排除的证据；资料不适用或未取得时明确记录。"));
-            text.AppendLine("本项完成条件：" + Field("completion", "补全检查证据并由维护工程师复核。"));
-            text.AppendLine("本项升级条件：" + Field("escalation", "证据不足、资料不适用或异常复发时交维护工程师复核。"));
+                ? Prose(value.GetString()!) : fallback;
+            text.AppendLine(L("需记录：") + Field("record", L("检查时间、人员、点位/工况、观察值及单位、质量与来源、支持或排除的证据；资料不适用或未取得时明确记录。")));
+            text.AppendLine(L("本项完成条件：") + Field("completion", L("补全检查证据并由维护工程师复核。")));
+            text.AppendLine(L("本项升级条件：") + Field("escalation", L("证据不足、资料不适用或异常复发时交维护工程师复核。")));
         }
         if (index == 0)
         {
-            text.AppendLine("尚无有依据的检查项；由维护人员补充适用资料并审核后再安排。");
+            text.AppendLine(L("尚无有依据的检查项；由维护人员补充适用资料并审核后再安排。"));
         }
-        text.AppendLine("\n完成与升级条件");
-        text.AppendLine("逐项填写证据及结论，区分历史事件、恢复记录和当前观测；核实资料版本及适用范围。告警恢复本身不等于工单完成或根因消除。");
-        text.AppendLine("事件证据不足、再次异常、观测不可信或资料不适用时，记录缺项并交维护工程师复核；不得凭本草稿执行设备控制、修改阈值或改变告警状态。");
+        text.AppendLine(("\n" + L("完成与升级条件")));
+        text.AppendLine(L("逐项填写证据及结论，区分历史事件、恢复记录和当前观测；核实资料版本及适用范围。告警恢复本身不等于工单完成或根因消除。"));
+        text.AppendLine(L("事件证据不足、再次异常、观测不可信或资料不适用时，记录缺项并交维护工程师复核；不得凭本草稿执行设备控制、修改阈值或改变告警状态。"));
         var missing = result.GetProperty("missingInformation").EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
-        text.AppendLine("\n待补证据：" + string.Join("；", missing));
+        text.AppendLine(("\n" + L("待补证据：")) + string.Join(english ? "; " : "；", missing.Select(x => Prose(x!))));
         var quality = run.Evidence.Where(x => x.Kind == "DataQuality").SelectMany(x => x.Facts).Concat(run.Warnings).Distinct(StringComparer.Ordinal).ToArray();
         if (quality.Length > 0)
         {
-            text.AppendLine("\n质量与来源提示（去重）");
+            text.AppendLine(("\n" + L("质量与来源提示（去重）")));
             foreach (var warning in quality.Take(8))
             {
-                text.AppendLine(warning);
+                text.AppendLine(F("DataQuality", warning));
             }
             if (quality.Length > 8)
             {
-                text.AppendLine("其余提示见完整调查证据台账。");
+                text.AppendLine(L("其余提示见完整调查证据台账。"));
             }
         }
-        text.AppendLine($"\n完整事实、待验证假设及全部引用：调查 {run.Id}（工作台调查详情，可展开原始证据）。");
-        return Normalize(new("核查告警事件并记录排查证据", text.ToString()));
+        text.AppendLine(english ? $"\nComplete facts, hypotheses to verify and all citations: investigation {run.Id} (workbench investigation details; original evidence can be expanded)." : $"\n完整事实、待验证假设及全部引用：调查 {run.Id}（工作台调查详情，可展开原始证据）。");
+        return Normalize(new(L("核查告警事件并记录排查证据"), text.ToString()));
     }
 
     public Task<ActionProposalDto> CreateAsync(Actor actor, Guid runId, CancellationToken cancellationToken = default) =>
@@ -367,7 +414,12 @@ public sealed class ActionProposalService(PlantOpsDbContext db, IInvestigationSe
         proposal.AssetVersion = await db.Assets.Where(x => x.Id == run.AssetId).Select(x => x.Version).SingleAsync(cancellationToken);
         proposal.AlarmVersion = await db.Alarms.Where(x => x.Id == run.AlarmId).Select(x => x.Version).SingleAsync(cancellationToken);
         proposal.InvestigationHash = InvestigationHash(run);
-        var draft = Template(investigation);
+        var isAdvice = investigation.Result.Value.TryGetProperty("schemaVersion", out var responseVersion) && responseVersion.GetString() == "3";
+        // Storage origin denotes server-rendered investigation content; response schema/version is retained in the run hash.
+
+        var draft = input != null && isAdvice
+            ? AdviceTemplate(investigation, requireDraft: false)
+            : Template(investigation);
         if (input == null)
         {
             proposal.PayloadJson = JsonSerializer.Serialize(draft, Json);

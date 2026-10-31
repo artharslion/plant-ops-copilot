@@ -1,37 +1,29 @@
 # 文档导航
 
-[返回项目首页](../README.md)
+[项目首页](../README.md) · [当前开发计划](../ROADMAP.md)
+
+按任务选择所需文档，不需要通读整个目录。首页提供功能与启动入口；路线图集中管理待办。设计文档中的后续契约不代表已经实现，近期验收记录也不代表完整质量或生产可靠性通过。
 
 ## 运行与开发
 
-- [Docker 指南](DOCKER.md)：容器构建、完整演示栈、持久化与可选 AI 配置。
-- [本地开发指南](DEVELOPMENT.md)：环境准备、账号、模拟演示、配置、健康检查、测试与关闭服务。
-- [代码风格](CODE_STYLE.md)：格式化、检查命令与持续检查。
-- [AI 接入配置](AI_PROVIDER_SETUP.md)：可选模型配置、密钥加载与能力探针。
-- [OPC UA 集成](OPCUA_INTEGRATION.md)：映射、质量、重连与模拟器实验。
-- [受控 OPC UA 常驻采集](OPCUA_RUNTIME_VALIDATION.md)：本机多点 Worker、连接健康、停服重连与复现范围。
+- [Northflank 部署](../deploy/northflank/README.md) · [Docker Hub 联合部署](../deploy/dockerhub/README.md)
+- [Docker 指南](DOCKER.md) · [本地开发](DEVELOPMENT.md) · [代码风格与检查](CODE_STYLE.md)
+- [AI 接入配置](AI_PROVIDER_SETUP.md) · [AI 模式设置](AI_SETTINGS_VALIDATION.md)
+- [IndustrialSim 工作台接入](INDUSTRIALSIM_WORKBENCH.md) · [P-101 演示规程](INDUSTRIALSIM_P101_DEMO_MANUAL.md)（发布脚本使用）
 
-## 设计与规划
+## 设计与契约
 
-- [项目规格](../PROJECT_SPEC.md)：业务范围、场景、权限、API 与验收契约。
-- [系统架构](../ARCHITECTURE.md)：模块、部署、数据流、故障处理与架构决策。
-- [领域模型](DOMAIN_MODEL.md)：实体、字段、关系与状态机。
-- [AI 设计](AI_DESIGN.md)：证据检索、工具、输出、权限与审批边界。
-- [开发计划（当前执行入口）](../ROADMAP.md)：代码基线、最小 OPC UA→AI 闭环顺序、观测时效/双维度判断、P5–P8 验收及可选外部安全 Server 里程碑。
-- [历史增量计划](plans/)：按日期保留的设计与实施快照；当前优先级和剩余任务统一以开发计划为准。
+- [项目规格](../PROJECT_SPEC.md) · [系统架构](../ARCHITECTURE.md) · [领域模型](DOMAIN_MODEL.md)
+- [AI 基础设计](AI_DESIGN.md) · [证据与工单质量](AI_INVESTIGATION_QUALITY.md)
+- [调查建议 v3](INVESTIGATION_RESPONSE_V3.md) · [调查诊断](INVESTIGATION_DIAGNOSTICS.md)
+- [OPC UA 集成](OPCUA_INTEGRATION.md) · [最小三点场景](P5_3_MINIMAL_SCENARIO.md)
 
-## 历史与验证
+## 当前验收证据（按需查阅）
 
-- [P4 创建工单首增量](P4_WORK_ORDER_VALIDATION.md)与[追加调查备注](P4_NOTE_VALIDATION.md)：人工确认、固定目标与版本、事务重校验、幂等执行、审计与执行结果恢复。
+- 调查：[逐点可信度](P6_POINT_TRUST_VALIDATION.md) · [升温分析](P6_HEATING_VALIDATION.md) · [按需取证](P6_2_ON_DEMAND_VALIDATION.md) · [运行版本与用量](P8_1_RUN_RECORD_VALIDATION.md)
+- 真实模型：[10 月 29 日](P6_1_REAL_VALIDATION_20261029.md) · [10 月 30 日](P6_1_REAL_VALIDATION_20261030.md) · [调查 v3](INVESTIGATION_V3_REAL_VALIDATION_20261030.md)；包括失败与未验收范围。
+- 采集：[受控 OPC UA](OPCUA_RUNTIME_VALIDATION.md) · [IndustrialSim 三点协议](INDUSTRIALSIM_RUNTIME_VALIDATION.md)
+- 人工工单：[创建](P4_WORK_ORDER_VALIDATION.md) · [追加备注](P4_NOTE_VALIDATION.md) · [页面交互](UI_INTERACTION_VALIDATION.md)
+- [近期增量计划](plans/)：仅保留当前工作区的按需取证与调查 v3 计划；优先级以路线图为准。
 
-- [Docker 本地验证](DOCKER_VALIDATION.md)：容器构建、认证、实时连接、资料与重建持久化检查。
-- [开发日志](DEVELOPMENT_HISTORY.md)：从旧 README 迁出的阶段更新与历史验收摘要。
-- [P1 整体验收](P1_7_VALIDATION.md)与[P1 复盘整改](P1_REVIEW_FIX_VALIDATION.md)：业务闭环、规模、恢复与采集管道验证。
-- [AI 授权证据验证](AI_EVIDENCE_VALIDATION.md)与[告警调查验证](AI_INVESTIGATION_VALIDATION.md)：检索、授权、引用、调查编排与页面接入。
-- [AI 固定场景验证](AI_SCENARIO_VALIDATION.md)、[流式调查验证](AI_STREAMING_VALIDATION.md)与[真实模型质量验证](AI_REAL_QUALITY_VALIDATION.md)：确定性测试、流式样本与有限真实质量复核。
-- [P8.1 最小运行记录](P8_1_RUN_RECORD_VALIDATION.md)：实际 Prompt/Schema/工具指纹、旧版本未知、报告用量与保守预留，以及本轮回归/失败边界。
-- [P6 逐测点可信度](P6_POINT_TRUST_VALIDATION.md)：取证时的双维度标签、配置版本、局部失效反例及页面/工单兼容。
-- [P6.1 原始观测变化与趋势分析](P6_HEATING_VALIDATION.md)：首末值/变化率、非下降观测段、引用分析、中英文计算样本及验证边界。
-- [IndustrialSim 协议演示](INDUSTRIALSIM_DEMO_VALIDATION.md)与[AI 联合演示](INDUSTRIALSIM_AI_VALIDATION.md)：有限 OPC UA 采集及调查联调。
-
-历史日志、计划和验收报告记录的是对应时间与范围内的结果；旧测试数量、失败记录和阶段结论不代表当前完整能力。当前功能概览见项目首页，具体证据与限制以对应验收文档为准。
+已结束的早期计划、P1/P2 与早期 AI/Docker 验收报告、旧开发日志已从工作树删除，可从 Git 历史查阅。许可证、运行指南、测试及当前真实验证证据继续保留。

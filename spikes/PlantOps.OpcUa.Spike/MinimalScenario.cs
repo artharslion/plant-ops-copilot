@@ -9,6 +9,9 @@ internal sealed class MinimalScenario
     public const string Version = "p5.3-minimal-v1";
     public const int StopAtSecond = 40;
     public const int RestartAtSecond = 48;
+
+    internal static bool LiveHeating => Environment.GetEnvironmentVariable("PLANTOPS_P61_LIVE_HEATING") == "1";
+
     public static readonly ScenarioPoint[] Points =
     [
         new("North.Utilities.P101.Temperature", "TEMPERATURE", "Temperature", "degC", 4408652),
@@ -44,7 +47,7 @@ internal sealed class MinimalScenario
     {
         var second = (int)ElapsedSeconds;
         var observation = new ScenarioObservation(Points[point].Identifier, second,
-            ValueAt(point, second), StartedAt.AddSeconds(second));
+            ValueAt(point, LiveHeating ? Math.Min(39, second / 5) : second), StartedAt.AddSeconds(second));
         generated.Enqueue(observation);
         return observation;
     }

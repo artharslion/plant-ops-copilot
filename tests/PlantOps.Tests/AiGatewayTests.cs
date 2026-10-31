@@ -60,7 +60,7 @@ public sealed class AiGatewayTests
             return new HttpResponseMessage(HttpStatusCode.BadGateway);
         });
         using var client = new HttpClient(handler);
-        var engine = new InvestigationEngine(Gateway(client, options), Options.Create(options));
+        var engine = new LegacyInvestigationEngine(Gateway(client, options), Options.Create(options));
         var evidence = new InvestigationEvidence("E1", "Alarm", "告警", ["历史触发值为 12 mm/s。"], new string('a', 64), DateTimeOffset.UtcNow, Guid.NewGuid());
         var exception = await Assert.ThrowsAsync<LlmException>(() => engine.ExecuteAsync([evidence],
             (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
@@ -126,7 +126,7 @@ public sealed class AiGatewayTests
         using var client = new HttpClient(handler);
         using var budget = new LlmBudget();
         budget.RecordToolCalls(5);
-        var result = await new InvestigationEngine(Gateway(client), Options.Create(new AiOptions { Provider = "OpenAiCompatible" }))
+        var result = await new LegacyInvestigationEngine(Gateway(client), Options.Create(new AiOptions { Provider = "OpenAiCompatible" }))
             .ExecuteAsync(evidence, (_, _, _) => Task.FromResult(new InvestigationToolResult([evidence[0]], [])),
                 _ => Task.CompletedTask, budget, CancellationToken.None);
         Assert.Equal(2, handler.Calls);
@@ -169,7 +169,7 @@ public sealed class AiGatewayTests
         });
         using var client = new HttpClient(handler);
         using var budget = new LlmBudget(new(MaxOutputTokens: limit));
-        var engine = new InvestigationEngine(Gateway(client), Options.Create(new AiOptions { Provider = "OpenAiCompatible" }));
+        var engine = new LegacyInvestigationEngine(Gateway(client), Options.Create(new AiOptions { Provider = "OpenAiCompatible" }));
         Task<InvestigationExecutionResult> Execute() => engine.ExecuteAsync([evidence], (_, _, _) => throw new InvalidOperationException(),
             _ => Task.CompletedTask, budget, CancellationToken.None);
         if (accepted)

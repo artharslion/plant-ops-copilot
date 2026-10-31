@@ -1,6 +1,6 @@
 # 项目规格 v0.1
 
-2026-10-09 范围调整：本项目以 AI 接入演示为核心，当前以 [AI 优先验收计划](docs/plans/2026-10-09-ai-demo-acceptance.md) 为准。完整 OPC UA 与长期容量转为后续增强，AI 可使用明确标识的 Simulation 数据先行实现。
+本项目以 AI 辅助运维演示为核心，当前范围与优先级以 [开发计划](ROADMAP.md) 为准。完整工业网络接入与长期容量仍需独立验收；AI 可使用明确标识的 Simulation 数据。
 
 日期：2026-10-03。状态：第一版推荐规格。实体字段以 [DOMAIN_MODEL](docs/DOMAIN_MODEL.md) 为准；分阶段交付以 [ROADMAP](ROADMAP.md) 为准。
 

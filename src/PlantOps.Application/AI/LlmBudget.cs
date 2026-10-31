@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace PlantOps.Application.AI;
 
@@ -12,6 +14,7 @@ public sealed class LlmBudget : IDisposable
     private readonly CancellationTokenSource deadline;
     private bool exceeded;
     private (int Input, int Output)? pendingReservation;
+    private readonly HashSet<string> capturedResponses = [];
 
     public LlmBudget(LlmLimits? limits = null, TimeProvider? clock = null)
     {
@@ -59,6 +62,85 @@ public sealed class LlmBudget : IDisposable
     public string PromptVersion { get; private set; } = "unknown";
 
     public List<JsonElement> Requests { get; } = [];
+
+    public DateTimeOffset? EvidenceAsOf
+    {
+        get; set;
+    }
+
+    public List<JsonElement> ToolTrace { get; } = [];
+
+    public Guid? RunId
+    {
+        get; set;
+    }
+
+    public Guid? LeaseId
+    {
+        get; set;
+    }
+
+    public List<JsonElement> Diagnostics { get; } = [];
+
+    public int OmittedDiagnosticCount
+    {
+        get; private set;
+    }
+
+    public Func<int, int, string, LlmCompletion, CancellationToken, Task<InvestigationResponseReceipt>>? ResponseObserver
+    {
+        get; set;
+    }
+
+    public void RecordDiagnostic(string stage, string outcome, object? details = null)
+    {
+        if (Diagnostics.Count >= 128)
+        {
+            OmittedDiagnosticCount++;
+            return;
+        }
+        Diagnostics.Add(JsonSerializer.SerializeToElement(new
+        {
+            at = DateTimeOffset.UtcNow,
+            stage,
+            outcome,
+            round = ModelRounds,
+            attempt = Attempts,
+            details
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    }
+
+    public async Task RecordResponseAsync(LlmCompletion completion, string requestSha256, CancellationToken cancellationToken)
+    {
+        if (!capturedResponses.Add($"{ModelRounds}:{Attempts}:{requestSha256}"))
+        {
+            return;
+        }
+        var content = Encoding.UTF8.GetBytes(completion.Content ?? "");
+        var receipt = new InvestigationResponseReceipt("NotConfigured");
+        if (ResponseObserver != null)
+        {
+            try
+            {
+                receipt = await ResponseObserver(ModelRounds, Attempts, requestSha256, completion, cancellationToken);
+            }
+            catch (Exception)
+            {
+                // Diagnostic storage must not turn a usable answer into a failed run.
+                receipt = new("WriteFailed");
+            }
+        }
+        RecordDiagnostic("model-response", "Received", new
+        {
+            requestSha256,
+            contentBytes = content.Length,
+            contentSha256 = Convert.ToHexStringLower(SHA256.HashData(content)),
+            toolCallCount = completion.ToolCalls.Count,
+            usage = completion.Usage,
+            captureStatus = receipt.Status,
+            captureId = receipt.CaptureId
+        });
+    }
 
     public Func<CancellationToken, Task>? CheckpointAsync
     {

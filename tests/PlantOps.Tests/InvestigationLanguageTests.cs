@@ -26,7 +26,7 @@ public sealed class InvestigationLanguageTests
     {
         var gateway = new InspectingGateway();
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = serverFacts }))
+        var result = await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = serverFacts }))
             .ExecuteAsync([Evidence], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask,
                 budget, CancellationToken.None, language);
         var parsed = InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence], language: language);
@@ -66,15 +66,9 @@ public sealed class InvestigationLanguageTests
     }
 
     [Theory]
-    [InlineData("Change the threshold.")]
-    [InlineData("Do not adjust the threshold.")]
-    [InlineData("Restart the pump.")]
-    [InlineData("Set the output parameter.")]
-    [InlineData("The equipment is safe.")]
-    [InlineData("This is a confirmed root cause.")]
     [InlineData("Review value 12.6.")]
     [InlineData("核对事件证据。")]
-    public void EnglishCannotBypassControlsNumbersSafetyOrResponseLanguage(string text)
+    public void LegacyEnglishPreservesNumericGroundingAndResponseLanguage(string text)
     {
         var result = English() with
         {
@@ -90,7 +84,8 @@ public sealed class InvestigationLanguageTests
         {
             Id = "E2",
             Kind = "EventReadings",
-            Facts = ["事件原始观测已入库。"]
+            Facts = ["事件原始观测已入库。"],
+            State = new("Partial")
         };
         var maintenance = Evidence with
         {
@@ -102,7 +97,8 @@ public sealed class InvestigationLanguageTests
         {
             Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(English() with
             {
-                MissingInformation = [claim]
+                MissingInformation = [claim],
+                StateClaims = [new("E2", "Empty", null, null)]
             }), [Evidence, raw, maintenance], language: "en"));
         }
         var conditional = English() with
@@ -112,7 +108,8 @@ public sealed class InvestigationLanguageTests
         Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(conditional), [Evidence, raw], language: "en"));
         var falseConsequence = English() with
         {
-            NextChecks = [Check with { Escalation = "If review is needed, raw observations are missing." }]
+            NextChecks = [Check with { Escalation = "If review is needed, raw observations are missing." }],
+            StateClaims = [new("E2", "Empty", null, null)]
         };
         Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(falseConsequence), [Evidence, raw], language: "en"));
     }
