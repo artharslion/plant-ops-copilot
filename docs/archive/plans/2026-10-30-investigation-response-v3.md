@@ -1,3 +1,5 @@
+> 历史快照：保留原轮次的状态、验收标准与授权记录，不作为当前待办或新操作授权。当前状态见 [开发计划](../../../ROADMAP.md)。仅在历史回放或核对对应验收标准时读取。
+
 # Investigation response v3
 
 ## Outcome
@@ -35,4 +37,4 @@ New investigations produce actionable engineer advice and a work-order proposal 
 - Final dedicated-database checks: 9 passed (v3 readiness, task reuse/proposal boundary, multi-point heating and scoped on-demand reads). The earlier 28-case subset had 23 passes and 5 failures; all 5 failures passed their focused recheck after fixing the deterministic gateway's handling of omitted nullable trend metadata.
 - Frontend: 54 passed; type checking/build, lint and Prettier checks passed. Existing bundle-size/SignalR annotation warnings remain.
 - Real provider: 20 pre-send-counted attempts across 6/10/4 ledgers, no retries. Five direct scenarios each have observed valid output across revisions. The autonomous real answer passed the latest contract and draft renderer on offline replay after a false-rejection fix. A complete autonomous real-model-to-proposal API success was not observed; the final attempt failed upstream. No blanket release/field acceptance is claimed.
-- Full evidence and limits: ../INVESTIGATION_V3_REAL_VALIDATION_20261030.md. No business database, deployment, commit or push was performed.
+- Full evidence and limits: ../../INVESTIGATION_V3_REAL_VALIDATION_20261030.md. No business database, deployment, commit or push was performed.

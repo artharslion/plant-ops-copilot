@@ -146,7 +146,7 @@ npm run dev
 - [Docker 指南](docs/DOCKER.md)：完整容器启动、配置、存储与日常操作。
 - [本地开发指南](docs/DEVELOPMENT.md)：完整启动、配置、业务演示、健康检查与测试方法。
 - [项目规格](PROJECT_SPEC.md)与[系统架构](ARCHITECTURE.md)：业务契约、权限、模块与数据流。
-- [AI 设计](docs/AI_DESIGN.md)与[OPC UA 集成](docs/OPCUA_INTEGRATION.md)：证据、工具边界与协议设计。
+- [调查建议 v3](docs/INVESTIGATION_RESPONSE_V3.md)：新调查输出与工单就绪契约；[AI 链路概述](docs/AI_DESIGN.md)与[OPC UA 集成](docs/OPCUA_INTEGRATION.md)按相关任务查阅。
 - [实施路线](ROADMAP.md)：阶段任务与剩余验收。
 - [完整文档导航](docs/README.md)：运行指南、设计契约与近期验收证据，按任务查阅。
 

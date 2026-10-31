@@ -1,3 +1,5 @@
+> 历史快照：保留原轮次的状态、验收标准与授权记录，不作为当前待办或新操作授权。当前状态见 [开发计划](../../../ROADMAP.md)。仅在历史回放或核对对应验收标准时读取。
+
 # P6.2 On-demand investigation evidence
 
 ## Outcome
@@ -20,4 +22,4 @@ P6.1 protocol/model/browser validation is a separate acceptance result: one fini
 
 ## Subsequent authorized validation
 
-A later human authorization added 50 pre-send-counted real requests. The allowance is exhausted. New source is investigation-on-demand-v29; finite SDK rise/browser/Draft successes are v22/v26 and do not satisfy full P6.1 or autonomous tool-choice/document semantics. See ../P6_1_REAL_VALIDATION_20261029.md for all failures, manual review, hashes, usage and final offline results. No deployment or publishing occurred.
+A later human authorization added 50 pre-send-counted real requests. The allowance is exhausted. New source is investigation-on-demand-v29; finite SDK rise/browser/Draft successes are v22/v26 and do not satisfy full P6.1 or autonomous tool-choice/document semantics. See ../../P6_1_REAL_VALIDATION_20261029.md for all failures, manual review, hashes, usage and final offline results. No deployment or publishing occurred.

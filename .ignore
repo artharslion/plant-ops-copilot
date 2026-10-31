@@ -1,0 +1,2 @@
+# Historical documents remain tracked; ordinary ripgrep searches skip them.
+/docs/archive/
