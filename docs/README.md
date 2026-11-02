@@ -16,6 +16,7 @@
 - [项目规格](../PROJECT_SPEC.md) · [系统架构](../ARCHITECTURE.md) · [领域模型](DOMAIN_MODEL.md)
 - [调查建议 v3](INVESTIGATION_RESPONSE_V3.md)：新调查输出与工单就绪契约；[调查诊断](INVESTIGATION_DIAGNOSTICS.md)：失败定位与留存。
 - [AI 链路概述](AI_DESIGN.md) · [证据与工单质量](AI_INVESTIGATION_QUALITY.md)：仅在相应边界需要核对时读取。
+- [AI 工程约束](AI_ENGINEERING_GUARDRAILS.md)：修改调查引擎、Prompt、工具、验证器或语义评估前按需阅读；避免为单个 Case 硬编码。
 - [OPC UA 集成](OPCUA_INTEGRATION.md) · [最小三点场景](P5_3_MINIMAL_SCENARIO.md)
 
 ## 验收证据（按对应任务查阅）

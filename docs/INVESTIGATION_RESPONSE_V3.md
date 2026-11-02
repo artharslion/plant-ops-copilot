@@ -44,9 +44,15 @@ Natural-language prohibitions, procedure references, uncertainty, causal reasoni
 
 Historical v1/v2 records keep their original format and display path. `LegacyInvestigationEngine` is an internal historical replay/compatibility implementation and is not registered as the production investigation service. New executions always use v3.
 
+## Engineering guardrails for v3 changes
+
+Follow [AI Engineering Guardrails](AI_ENGINEERING_GUARDRAILS.md) when changing this contract, the active engine, prompts or validators. Keep **typed, authoritative invariants** (scope, structured states, evidence references and current-point contradictions) separate from **semantic-quality judgments** (causality, interpretation, appropriateness and the meaning of natural-language prohibitions). Do not encode case-specific wording, keyword heuristics, or exact phrases as a proxy for correctness. A typed enum is not a diagnosis.
+
+Before changing a validator to address a model failure, identify the invariant and its authoritative evidence source. If the failure is semantic, update the general reasoning guidance and evaluation coverage instead; consider both erroneous acceptance and erroneous rejection. Keep v1/v2 replay unchanged and preserve run/prompt version traceability. Current read-only tools, human approval and budget controls remain mandatory regardless of semantic quality.
+
 ## Verification
 
-Deterministic tests cover structure, references, mixed point quality, incomplete-but-successful runs, task reuse, proposal readiness, forbidden tools, language, UI compatibility and budget behavior. Semantic counterexamples are retained separately in `tests/fixtures/investigation-advice-semantics.json` instead of claiming that word filters prove their safety.
+Deterministic tests cover structure, references, mixed point quality, incomplete-but-successful runs, task reuse, proposal readiness, forbidden tools, language, UI compatibility and budget behavior. Semantic counterexamples are retained separately in `tests/fixtures/investigation-advice-semantics.json` instead of claiming that word filters prove their safety. These visible fixtures are regression examples, **not** unseen holdouts; semantic evaluations must also review contrasting phrasing and separate reviewer-controlled cases, including false acceptance and false rejection.
 
 `deploy/Test-InvestigationAdviceReal.ps1 -Run <fresh-name>` explicitly runs five fictional-evidence scenarios against the configured real provider. A persistent ledger caps each fresh batch at six actual sends by default (`-MaxRequests` explicitly sets a different batch cap); automatic retries are disabled. Requests, completions, token usage, failures and structured checks are retained under `artifacts/investigation-quality/`. These scenarios exercise final-answer quality and draft content, not autonomous tool selection, real protocol faults or field equipment. Final semantic acceptance requires reading the captured outputs.
 

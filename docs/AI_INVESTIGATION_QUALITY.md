@@ -24,6 +24,14 @@ New executions use v3; legacy fixed summaries, verbatim-only observations, numer
 
 Recommendations state the task, record, completion criteria and escalation responsibility. The work-order renderer reuses these tasks with their references. Creating a proposal does not execute maintenance or change alarm state. Expiry, version/hash checks, human confirmation, transaction authorization, audit and idempotency remain required. Historical results and executed work orders are not rewritten by deployment.
 
+## Semantic evaluation discipline
+
+See [AI Engineering Guardrails](AI_ENGINEERING_GUARDRAILS.md) before adding a scenario-specific prompt exception or natural-language validation rule. Deterministic correctness and model semantic quality are distinct: schema/permission/reference checks cannot certify diagnosis quality, and a linguistic keyword match cannot replace understanding negation, causality or operational context.
+
+Classify regressions by evidence, tool/orchestration, typed contract, or semantic reasoning before modifying the engine. For semantic changes, review both inappropriate advice that was accepted and appropriate advice that was rejected. Use paraphrases, contradictions, mixed-quality evidence and reviewer-controlled unseen scenarios; the checked-in `tests/fixtures/investigation-advice-semantics.json` file is a visible regression set rather than a holdout.
+
+Keep any model-backed evaluations opt-in with a fresh authorized request limit. Report deterministic tests, replay, real-provider outputs, human semantic review and end-to-end proposal behavior separately; passing one track must not be described as passing the others.
+
 ## Verification and rollout
 
 Use the dedicated `plantops_tests` database and isolated schemas for database checks. Report offline, protocol, browser, real-provider semantics, proposal API and deployment results separately. A successful transport or offline replay is not an observed online end-to-end success; retain failures, skipped checks and unknown usage.
