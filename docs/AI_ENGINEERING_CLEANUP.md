@@ -49,3 +49,15 @@ v1/v2 历史解析、回放和展示路径保留；v3 输出契约、prompt/vers
 | `git diff --check` | 通过 |
 
 本地原始证据保留于 `artifacts/test-results/ai-cleanup/ai-cleanup-final-verified.trx`、`artifacts/test-results/ai-cleanup-final-verified.log`、`artifacts/test-results/ai-cleanup-build.log`、`artifacts/test-results/ai-cleanup-web.log` 和 `artifacts/test-results/ai-cleanup-web-build.log`；前期失败及中间结果也保留。首次新增编排测试误填超过现有上限的测试预算，改回既有 32000 上限后通过；没有扩大产品配置。未执行数据库集成、真实模型、浏览器人工验收或部署，因此不能据此宣称这些路径已完成验收。
+
+
+## PR #2 CI follow-up
+
+CI job `125673087578` initially reported 22 failures: one historical-upgrade fixture failed with PostgreSQL `42703` (the old readings table has no `PointVersion` column), followed by connection exhaustion (`53300`). Both Docker smoke checks passed. The earlier local run had skipped database tests and could not detect these problems.
+
+- `OpcUaUpgradeTests` now seeds readings with the historical column set and compares all original columns across the upgrade. It also asserts that newly introduced `PointVersion` / `SourceVersion` remain null for historical readings. Production migrations are unchanged; the failing test was reproduced before the fix and passed afterward.
+- `TestDatabase.IsolatedConnection()` disables pooling for unique schema connections. Otherwise each distinct search path creates a process-wide pool whose idle connections survive host disposal. This is test-only connection lifetime management; production pooling and PostgreSQL connection limits are unchanged. A regression checks `pg_stat_activity` after isolated connection disposal.
+- Verification uses a separate local PostgreSQL 17 container, database `plantops_tests`, an isolated root schema and generated per-test schemas, with the default 100-connection limit. Existing demo/business database containers are untouched. Real-model flags are disabled.
+
+
+Follow-up verification: the historical-upgrade regression failed before the fix and passed after it. The complete solution test run with the isolated PostgreSQL database passed **824 tests, 0 failures, 8 explicit skips (832 total)** in 10m25s. `.NET format --verify-no-changes`, frontend format/lint/build, all 56 frontend tests, and the diff check passed. The test command rebuilt the solution successfully. Reports are retained under `artifacts/test-results/pr2-database/`, `pr2-database.log`, `pr2-upgrade-before.log`, `pr2-upgrade-after.log`, `pr2-format.log`, and `pr2-web-*.log`. These local results do not imply a real-model run or deployment.

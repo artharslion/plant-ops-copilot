@@ -2,7 +2,6 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using PlantOps.Application.Telemetry;
 using PlantOps.Domain.Assets;
 using PlantOps.Domain.Knowledge;
 using PlantOps.Domain.Maintenance;
@@ -24,7 +23,7 @@ public sealed class OpcUaUpgradeTests
         var createSchema = $"CREATE SCHEMA \"{schema}\"";
         await control.Database.ExecuteSqlRawAsync(createSchema);
         await using var db = new PlantOpsDbContext(new DbContextOptionsBuilder<PlantOpsDbContext>()
-            .UseNpgsql(TestDatabase.Connection + ";Search Path=" + schema).Options);
+            .UseNpgsql(new Npgsql.NpgsqlConnectionStringBuilder(TestDatabase.Connection) { SearchPath = schema, Pooling = false }.ConnectionString).Options);
         await db.GetService<IMigrator>().MigrateAsync("20261006002351_ReviewIngestionAndOutboxSafety");
         var plant = new Plant { Id = Guid.NewGuid(), Code = "P2-UPGRADE", Name = "Preserved plant" };
         var location = new Location { Id = Guid.NewGuid(), PlantId = plant.Id, Code = "AREA", Name = "Preserved location" };
@@ -40,19 +39,26 @@ public sealed class OpcUaUpgradeTests
         await db.SaveChangesAsync();
         var at = new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero);
         await db.Database.ExecuteSqlRawAsync("CREATE TABLE \"MeasurementReadings_20261006\" PARTITION OF \"MeasurementReadings\" FOR VALUES FROM ('2026-10-06') TO ('2026-10-07')");
-        var config = new SourceConfiguration(plant.Id, asset.Id, point.Id, 1, "mm/s", 1000, 5000,
-            source.Id, 1, "Simulation", mapping.Id, 1, "vibration", "mm/s", 1, 0, mapping.SourceParameters, source.ConnectionParameters);
-        var reading = SamplePolicy.ToReading(SamplePolicy.Normalize(config, 4, "Good", at, null, at, "preserved-event"));
+        var readingId = Guid.NewGuid();
+        // Seed the historical table using only columns present at that migration.
+        // Current EF entities include configuration-version columns added later.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "MeasurementReadings" ("Id","PlantId","AssetId","PointId","NumericValue","CanonicalUnit","RawValueJson","RawUnit",
+                "SourceKind","DataSourceId","SourceMappingId","MappingVersion","Quality","ReceivedAt","EffectiveAt","TimestampOrigin","SourceEventKey","TimeAnomaly","EffectiveDate")
+            VALUES ({readingId},{plant.Id},{asset.Id},{point.Id},4,'mm/s','4'::jsonb,'mm/s',
+                'Simulation',{source.Id},{mapping.Id},1,'Good',{at},{at},'Receive','preserved-event',false,{DateOnly.FromDateTime(at.UtcDateTime)})
+            """);
         var document = new Document { PlantId = plant.Id, AssetId = asset.Id, Title = "Original validation document" };
         var workOrder = new WorkOrder { PlantId = plant.Id, AssetId = asset.Id, Number = "P2-PRESERVE", Title = "Original work order", CreatedByUserId = "test", CreatedAt = at };
-        db.AddRange(reading, document, workOrder);
+        db.AddRange(document, workOrder);
         await db.SaveChangesAsync();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "MeasurementMinutes" ("PointId","BucketStart","Min","Max","Average","GoodCount","UncertainCount","BadCount","AnomalyCount","SampleCount","HasGap","CoverageRatio")
             VALUES ({point.Id},{at},4,4,4,1,0,0,0,1,false,1)
             """);
-        await db.Entry(reading).ReloadAsync();
-        var beforeReading = JsonSerializer.Serialize(reading);
+        // Compare all historical columns without reinterpreting new nullable metadata.
+        const string readingSnapshotSql = """SELECT (to_jsonb(r) - ARRAY['PointVersion','SourceVersion'])::text AS "Value" FROM "MeasurementReadings" r""";
+        var beforeReading = await db.Database.SqlQueryRaw<string>(readingSnapshotSql).SingleAsync();
         var beforeDocument = JsonSerializer.Serialize(document);
         var beforeOrder = JsonSerializer.Serialize(workOrder);
         var beforeOutbox = await db.OutboxEvents.CountAsync();
@@ -63,7 +69,11 @@ public sealed class OpcUaUpgradeTests
         var beforeFile = await File.ReadAllBytesAsync(file);
         await db.Database.MigrateAsync();
         db.ChangeTracker.Clear();
-        Assert.Equal(beforeReading, JsonSerializer.Serialize(await db.MeasurementReadings.SingleAsync()));
+        Assert.Equal(beforeReading, await db.Database.SqlQueryRaw<string>(readingSnapshotSql).SingleAsync());
+        var upgradedReading = await db.MeasurementReadings.SingleAsync();
+        Assert.Equal(readingId, upgradedReading.Id);
+        Assert.Null(upgradedReading.PointVersion);
+        Assert.Null(upgradedReading.SourceVersion);
         Assert.Equal(beforeDocument, JsonSerializer.Serialize(await db.Documents.SingleAsync()));
         Assert.Equal(beforeOrder, JsonSerializer.Serialize(await db.WorkOrders.SingleAsync()));
         Assert.Equal(beforeOutbox, await db.OutboxEvents.CountAsync());
