@@ -15,6 +15,67 @@ namespace PlantOps.Tests;
 public sealed class InvestigationAdviceServiceTests
 {
     [DatabaseFact]
+    public async Task ScriptedOptionalReadIsCorrelatedWithFrozenEvidenceAndPendingProposal()
+    {
+        var gateway = new ReadThenFinishGateway();
+        var clock = new AlarmTests.Clock();
+        await using var session = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection(), configureServices: services =>
+            services.AddSingleton<ILlmGateway>(gateway));
+        await session.Initialize();
+        await session.Login();
+        var fixture = await AlarmTests.Configure(session);
+        var alarm = await AlarmTests.Raise(session, fixture, clock);
+        var started = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations", null);
+        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        var run = (await started.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
+        await using var scope = session.Factory.Services.CreateAsyncScope();
+        Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
+        run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
+        Assert.Equal("Succeeded", run.Status);
+        var advice = InvestigationAdviceContract.ParseAndValidate(run.Result!.Value.GetRawText(), run.Evidence);
+        var traces = run.RunRecord!.Value.GetProperty("toolTrace").EnumerateArray().ToArray();
+        Assert.Equal("get_asset_details", traces[0].GetProperty("name").GetString());
+        Assert.Empty(AgentEvidenceAcceptance.Check(gateway.Choices, traces.Skip(1).ToArray(), run.Evidence, advice));
+        var proposed = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
+        Assert.Equal(HttpStatusCode.OK, proposed.StatusCode);
+        var proposal = (await proposed.Content.ReadFromJsonAsync<ActionProposalDto>())!;
+        Assert.Equal("Pending", proposal.Status);
+        Assert.NotNull(proposal.Draft);
+        Assert.Null(proposal.ResultEntityId);
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        Assert.Empty(await db.WorkOrders.ToListAsync());
+    }
+
+    // Scripted selection and demo final content verify plumbing only, never real autonomy or semantics.
+    private sealed class ReadThenFinishGateway : ILlmGateway
+    {
+        public LlmToolCall[] Choices { get; } = [new("read", "get_recent_alarms", "{}")];
+
+        private int round;
+
+        public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
+        {
+            LlmCompletion completion;
+            if (round++ == 0)
+            {
+                completion = new(null, Choices, "script", new(100, 20));
+            }
+            else
+            {
+                using var input = JsonDocument.Parse(request.Messages.First(x => x.Role == LlmRole.User).Content!);
+                var advice = FakeLlmGateway.SimulateAdvice(input.RootElement);
+                var id = input.RootElement.GetProperty("toolOutcomes")[0].GetProperty("evidenceIds")[0].GetString()!;
+                advice = advice with
+                {
+                    Recommendations = [advice.Recommendations[0] with { EvidenceRefs = [.. advice.Recommendations[0].EvidenceRefs, id] }, .. advice.Recommendations.Skip(1)]
+                };
+                completion = new(InvestigationAdviceContract.Serialize(advice), [], "script", new(100, 50));
+            }
+            return new ScriptedLlmGateway([completion]).CompleteAsync(request, budget, cancellationToken);
+        }
+    }
+
+    [DatabaseFact]
     public async Task FailedValidationPersistsRuleAndBranchWithoutPublishingRejectedContent()
     {
         var clock = new AlarmTests.Clock();
