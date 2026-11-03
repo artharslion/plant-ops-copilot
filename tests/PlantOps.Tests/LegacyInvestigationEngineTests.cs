@@ -7,12 +7,13 @@ using Xunit;
 
 namespace PlantOps.Tests;
 
-public sealed class InvestigationEngineTests
+// Historical v1/v2 validation and replay; not v3 semantic acceptance.
+public sealed class LegacyInvestigationEngineTests
 {
     private const string Fact = "触发值为 12.6 mm/s，触发时间为 2026-10-10T00:00:00.0000000+00:00；这是历史告警快照。";
     private static readonly InvestigationEvidence Evidence = new("E1", "Alarm", "历史告警", [Fact], new string('a', 64), DateTimeOffset.UtcNow, Guid.NewGuid());
 
-    private static InvestigationResult Valid() => new("1", InvestigationEngine.SafeSummary, [new(Fact, ["E1"])], [], [], [], [], ["E1"]);
+    private static InvestigationResult Valid() => new("1", LegacyInvestigationEngine.SafeSummary, [new(Fact, ["E1"])], [], [], [], [], ["E1"]);
 
     [Fact]
     public void NumbersRequireAnEntireCitedFactRatherThanMatchingNumericTokens()
@@ -28,10 +29,10 @@ public sealed class InvestigationEngineTests
             NextChecks = [new("按资料核对并记录：" + doc.Facts[0], ["E2"], "记录点位语义。", "已核对适用性。", "不适用时交维护人员复核。")],
             EvidenceIds = ["E1", "E2"]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, doc]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, doc]));
         foreach (var text in new[] { "将 P-101 调整为 12.6 mm/s。", "核对 P-102。", "核对 P-101。", "将阈值改为：" + doc.Facts[0] })
         {
-            Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { NextChecks = [new(text, ["E2"])] }), [Evidence, doc]));
+            Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { NextChecks = [new(text, ["E2"])] }), [Evidence, doc]));
         }
     }
 
@@ -43,9 +44,9 @@ public sealed class InvestigationEngineTests
         {
             Hypotheses = [hypothesis]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { Hypotheses = [hypothesis with { Limitations = null }] }), [Evidence]));
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence with { Kind = "DataQuality" }]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { Hypotheses = [hypothesis with { Limitations = null }] }), [Evidence]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence with { Kind = "DataQuality" }]));
     }
 
     [Fact]
@@ -72,13 +73,13 @@ public sealed class InvestigationEngineTests
             Observations = [new(current.Facts[0], ["E3"])],
             EvidenceIds = ["E3"]
         };
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [alarm, eventTrend, current]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [alarm, eventTrend, current]));
         result = result with
         {
             Observations = [new(Fact, ["E1"]), new(alarm.Facts[1], ["E1"]), new(eventTrend.Facts[0], ["E2"]), new(current.Facts[0], ["E3"])],
             EvidenceIds = ["E1", "E2", "E3"]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [alarm, eventTrend, current]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [alarm, eventTrend, current]));
     }
 
     [Fact]
@@ -89,10 +90,10 @@ public sealed class InvestigationEngineTests
         {
             NextChecks = [check]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
         foreach (var invalid in new[] { check with { Record = null }, check with { Completion = "恢复到 4 mm/s 即完成。" }, check with { Escalation = "调整为 99。" } })
         {
-            Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { NextChecks = [invalid] }), [Evidence]));
+            Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { NextChecks = [invalid] }), [Evidence]));
         }
     }
 
@@ -102,7 +103,7 @@ public sealed class InvestigationEngineTests
         var json = JsonNode.Parse(InvestigationContract.Serialize(Valid()))!.AsObject();
         json.Remove("evidenceIds");
         var content = json.ToJsonString();
-        var result = InvestigationEngine.ValidateFacts(content, [Evidence]);
+        var result = LegacyInvestigationEngine.ValidateFacts(content, [Evidence]);
         Assert.Equal(["E1"], result.EvidenceIds);
         Assert.False(InvestigationContract.OutputSchema.Schema.GetProperty("properties").TryGetProperty("evidenceIds", out _));
         var persisted = InvestigationContract.Serialize(result);
@@ -126,7 +127,7 @@ public sealed class InvestigationEngineTests
             };
         var json = JsonNode.Parse(InvestigationContract.Serialize(invalid))!.AsObject();
         json.Remove("evidenceIds");
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(json.ToJsonString(), [Evidence]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(json.ToJsonString(), [Evidence]));
     }
 
     public static TheoryData<string, string> RejectedFacts => new()
@@ -154,7 +155,7 @@ public sealed class InvestigationEngineTests
         {
             Observations = [new(fact, ["E1"])]
         };
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence]));
     }
 
     [Theory]
@@ -180,7 +181,7 @@ public sealed class InvestigationEngineTests
             _ => Valid()
         };
         var content = caseName == "malformed-json" ? "<script>bad</script>" : InvestigationContract.Serialize(result);
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(content, [Evidence]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(content, [Evidence]));
     }
 
     [Fact]
@@ -197,7 +198,7 @@ public sealed class InvestigationEngineTests
             }, budget, CancellationToken.None);
         Assert.True(result.Simulated);
         Assert.Equal(2, authorizations);
-        Assert.Equal(Fact, Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence]).Observations).Text);
+        Assert.Equal(Fact, Assert.Single(LegacyInvestigationEngine.ValidateFacts(result.ResultJson, [Evidence]).Observations).Text);
     }
 
     [Theory]
@@ -229,7 +230,7 @@ public sealed class InvestigationEngineTests
                 EvidenceIds = ["FOREIGN"]
             };
         }
-        var gateway = new InspectingGateway(new FakeLlmGateway([
+        var gateway = new InspectingGateway(new ScriptedLlmGateway([
             new(null, [new("asset-read", "get_asset_details", "{}")], "fake", new(100, 20)),
             new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20)),
             new(InvestigationContract.Serialize(corrected), replacement == "tool-call" ? [new("unexpected", "get_asset_details", "{}")] : [], "fake", new(100, 20))
@@ -246,7 +247,7 @@ public sealed class InvestigationEngineTests
         if (replacement == "valid")
         {
             var result = await Execute();
-            var report = InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence]);
+            var report = LegacyInvestigationEngine.ValidateFacts(result.ResultJson, [Evidence]);
             Assert.Equal(corrected.MissingInformation, report.MissingInformation);
             Assert.Equal(Fact, Assert.Single(report.Observations).Text);
         }
@@ -270,7 +271,7 @@ public sealed class InvestigationEngineTests
         {
             MissingInformation = ["缺少 P-101 的工况。"]
         };
-        var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", unknownUsage ? null : new(100, 20))]);
+        var gateway = new ScriptedLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", unknownUsage ? null : new(100, 20))]);
         using var budget = new LlmBudget(new(MaxModelRounds: rounds, MaxInputTokens: 32000, MaxOutputTokens: 6000));
         var error = await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions()))
             .ExecuteAsync([Evidence], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
@@ -292,18 +293,18 @@ public sealed class InvestigationEngineTests
         {
             MissingInformation = [scope]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, quality]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, quality]));
         result = result with
         {
             MissingInformation = [scope.Replace("P-101", "P-102", StringComparison.Ordinal)]
         };
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, quality]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Evidence, quality]));
     }
 
     [Fact]
     public async Task ToolRoundTripUsesFixedAllowlistAndReauthorizes()
     {
-        var gateway = new FakeLlmGateway([
+        var gateway = new ScriptedLlmGateway([
             new(null, [new("call1", "search_documents", """{"query":"vibration","limit":1}""")], "fake", new(100, 20)),
             new(InvestigationContract.Serialize(Valid()), [], "fake", null)
         ]);
@@ -343,7 +344,7 @@ public sealed class InvestigationEngineTests
             Observations = [new(added.Facts[0], ["E2"])],
             EvidenceIds = ["E2"]
         };
-        var gateway = new InspectingGateway(new FakeLlmGateway([
+        var gateway = new InspectingGateway(new ScriptedLlmGateway([
             new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", new(100, 20)),
             new(InvestigationContract.Serialize(valid), [], "fake", null)
         ]));
@@ -359,7 +360,7 @@ public sealed class InvestigationEngineTests
         Assert.Equal("E1", tool.RootElement.GetProperty("existingEvidenceIds")[0].GetString());
         Assert.Equal("E2", Assert.Single(tool.RootElement.GetProperty("evidence").EnumerateArray()).GetProperty("id").GetString());
         Assert.DoesNotContain(Fact, second.Messages.Single(x => x.Role == LlmRole.Tool).Content!, StringComparison.Ordinal);
-        Assert.Equal(added.Facts[0], Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, [Evidence, added]).Observations).Text);
+        Assert.Equal(added.Facts[0], Assert.Single(LegacyInvestigationEngine.ValidateFacts(result.ResultJson, [Evidence, added]).Observations).Text);
     }
 
     [Fact]
@@ -394,7 +395,7 @@ public sealed class InvestigationEngineTests
     [Fact]
     public async Task UnknownUsageExhaustsReservedAllowanceWithoutSendingAnotherModelRequest()
     {
-        var gateway = new InspectingGateway(new FakeLlmGateway([
+        var gateway = new InspectingGateway(new ScriptedLlmGateway([
             new(null, [new("call1", "search_documents", """{"query":"振动","limit":1}""")], "fake", null)
         ]));
         using var budget = new LlmBudget();
@@ -437,7 +438,7 @@ public sealed class InvestigationEngineTests
     public async Task ForbiddenOrOverscopedToolsNeverExecute(string name, string arguments)
     {
         using var budget = new LlmBudget();
-        var gateway = new FakeLlmGateway([new(null, [new("call1", name, arguments)], "fake", null)]);
+        var gateway = new ScriptedLlmGateway([new(null, [new("call1", name, arguments)], "fake", null)]);
         var reads = 0;
         await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([Evidence],
             (_, _, _) =>

@@ -38,7 +38,7 @@ public sealed class AiGatewayTests
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, true)]
-    public async Task RunRecordMatchesExactRequestAndCheckpointsUnknownReservationBeforeDispatch(bool serverFacts, bool stream)
+    public async Task LegacyRunRecordMatchesExactRequestAndCheckpointsUnknownReservationBeforeDispatch(bool serverFacts, bool stream)
     {
         using var budget = new LlmBudget();
         var options = new AiOptions { Provider = "OpenAiCompatible", ApiKey = Secret, ServerRenderedFacts = serverFacts, StreamResponses = stream, MaxRetries = 0 };
@@ -90,13 +90,13 @@ public sealed class AiGatewayTests
     }
 
     [Fact]
-    public async Task InvestigationToolThenAnswerFitsOriginalBudgetWithReportedUsage()
+    public async Task LegacyInvestigationToolThenAnswerFitsOriginalBudgetWithReportedUsage()
     {
         const string fact = "已结束分钟的最小值为 4 mm/s，最大值为 12.6 mm/s，可信样本数为 36；仅代表已入库观测。";
         var evidence = Enumerable.Range(1, 5).Select(i => new InvestigationEvidence("E" + i, i == 1 ? "Trend" : "Document",
             "授权证据", [i == 1 ? fact : string.Concat(Enumerable.Repeat("振动检查必须由维护人员结合授权规程核实。", 6))],
             new string('a', 64), new DateTimeOffset(2026, 10, 12, 0, 0, 0, TimeSpan.Zero), Guid.NewGuid())).ToArray();
-        var answer = InvestigationContract.Serialize(new("1", InvestigationEngine.SafeSummary, [new(fact, ["E1"])], [], [], [], [], ["E1"]));
+        var answer = InvestigationContract.Serialize(new("1", LegacyInvestigationEngine.SafeSummary, [new(fact, ["E1"])], [], [], [], [], ["E1"]));
         var calls = 0;
         using var handler = new Handler(async (request, ct) =>
         {
@@ -134,7 +134,7 @@ public sealed class AiGatewayTests
         Assert.Equal(95, budget.ReservedOutputTokens);
         Assert.Equal(6, budget.ToolCalls);
         Assert.False(result.Simulated);
-        Assert.Equal(fact, Assert.Single(InvestigationEngine.ValidateFacts(result.ResultJson, evidence).Observations).Text);
+        Assert.Equal(fact, Assert.Single(LegacyInvestigationEngine.ValidateFacts(result.ResultJson, evidence).Observations).Text);
     }
 
     [Theory]
@@ -147,11 +147,11 @@ public sealed class AiGatewayTests
     [InlineData(6000, 4500, true)]
     [InlineData(6000, 6000, true)]
     [InlineData(6000, 6001, false)]
-    public async Task InvestigationUsesRemainingRunAllowanceAndStillRejectsReportedExcess(int limit, int reported, bool accepted)
+    public async Task LegacyInvestigationUsesRemainingRunAllowanceAndStillRejectsReportedExcess(int limit, int reported, bool accepted)
     {
         const string fact = "历史告警触发值为 12.6 mm/s。";
         var evidence = new InvestigationEvidence("E1", "Alarm", "历史快照", [fact], new string('a', 64), DateTimeOffset.UtcNow, Guid.NewGuid());
-        var answer = InvestigationContract.Serialize(new("1", InvestigationEngine.SafeSummary, [new(fact, ["E1"])], [], [], [], [], ["E1"]));
+        var answer = InvestigationContract.Serialize(new("1", LegacyInvestigationEngine.SafeSummary, [new(fact, ["E1"])], [], [], [], [], ["E1"]));
         using var handler = new Handler(async (request, ct) =>
         {
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));

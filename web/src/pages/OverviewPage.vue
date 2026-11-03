@@ -23,6 +23,7 @@ const workOrderStatus = ref('')
 const limit = ref(5)
 const service = messageRef()
 service.value = () => t('检查中')
+const serviceStatus = ref<'checking' | 'healthy' | 'unavailable'>('checking')
 let generation = 0
 let disposed = false
 let lastRefresh = 0
@@ -99,11 +100,16 @@ async function checkService() {
       cache: 'no-store',
     })
     const body = await response.text()
-    if (!disposed)
+    if (!disposed) {
+      serviceStatus.value = response.ok && body.trim() === 'Healthy' ? 'healthy' : 'unavailable'
       service.value = () =>
-        response.ok && body.trim() === 'Healthy' ? t('连接正常') : t('服务或数据库暂不可用')
+        serviceStatus.value === 'healthy' ? t('连接正常') : t('服务或数据库暂不可用')
+    }
   } catch {
-    if (!disposed) service.value = () => t('服务暂不可用')
+    if (!disposed) {
+      serviceStatus.value = 'unavailable'
+      service.value = () => t('服务暂不可用')
+    }
   }
 }
 async function refresh(background = false) {
@@ -507,7 +513,7 @@ onUnmounted(() => {
   </template>
   <footer
     class="overview-connection"
-    :class="{ 'connection-error': service.includes(t('不可用')) }"
+    :class="{ 'connection-error': serviceStatus === 'unavailable' }"
   >
     <span>{{ t('系统状态 ·') }} {{ service }}</span
     ><span v-if="session.user">{{ realtimeStatus }} {{ t('· 每 15 秒补查') }}</span

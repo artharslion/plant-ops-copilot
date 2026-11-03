@@ -21,7 +21,7 @@ public static class ProviderProbe
     private static readonly LlmTool Tool = new("get_asset_details", "Read a synthetic asset for a protocol probe; no business data.",
         JsonDocument.Parse("""{"type":"object","additionalProperties":false,"required":["assetId"],"properties":{"assetId":{"type":"string","enum":["demo-p101"]}}}""").RootElement.Clone());
 
-    public static FakeLlmGateway CreateFake() => new([
+    public static ScriptedLlmGateway CreateFake() => new([
         new("Hello.", [], "fake", null),
         new(null, [new("probe_call_1", "get_asset_details", """{"assetId":"demo-p101"}""")], "fake", null),
         new("E1", [], "fake", null),

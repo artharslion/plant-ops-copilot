@@ -238,27 +238,27 @@ public sealed class InvestigationAssessmentTests
     }
 
     [Fact]
-    public void TrustMetadataAloneCannotBecomeACauseHypothesis()
+    public void LegacyTrustMetadataAloneCannotBecomeACauseHypothesis()
     {
         var point = Evidence(Point(), "E1");
-        var answer = new InvestigationResult("1", InvestigationEngine.SafeSummary,
+        var answer = new InvestigationResult("1", LegacyInvestigationEngine.SafeSummary,
             [new(point.Facts[0], ["E1"])],
             [new("可能传感器异常。", "weak", ["E1"], "核对现场记录。", point.Facts[0], "尚未核实现场情况。")], [], [], [], ["E1"]);
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
     }
 
     [Theory]
     [InlineData("Trusted", "NotFound")]
     [InlineData("Unverifiable", "Present")]
-    public void ModelCannotRewriteStructuredServerLabels(string trust, string anomaly)
+    public void LegacyModelCannotRewriteStructuredServerLabels(string trust, string anomaly)
     {
         var point = Evidence(Point(), "E1") with
         {
             State = new("Available", "Trusted", "Present")
         };
-        var answer = new InvestigationResult("1", InvestigationEngine.SafeSummary,
+        var answer = new InvestigationResult("1", LegacyInvestigationEngine.SafeSummary,
             [new(point.Facts[0], ["E1"])], [], [], [], [], ["E1"],
             StateClaims: [new("E1", "Available", trust, anomaly)]);
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [point]));
     }
 }

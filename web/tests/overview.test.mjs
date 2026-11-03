@@ -1,4 +1,4 @@
-import { withI18n } from './i18n-loader.mjs'
+import { withI18n, i18nUrl } from './i18n-loader.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -167,3 +167,34 @@ test('anonymous home never requests business data', async (t) => {
   assert.equal(state.overview, null)
   assert.equal(state.loading, false)
 })
+
+const { locale, setLocale } = await import(i18nUrl)
+for (const language of ['zh-CN', 'en']) {
+  test(`health styling follows explicit state in ${language}`, async (t) => {
+    setLocale(language)
+    t.after(() => {
+      setLocale('zh-CN')
+    })
+    const state = await mount(t)
+    assert.equal(locale.value, language)
+    assert.equal(state.serviceStatus, 'healthy')
+    for (const response of [
+      { ok: false, text: async () => 'Healthy' },
+      { ok: true, text: async () => 'Unhealthy' },
+    ]) {
+      globalThis.fetch = async () => response
+      await state.checkService()
+      assert.equal(state.serviceStatus, 'unavailable')
+    }
+    globalThis.fetch = async () => {
+      throw new Error('offline')
+    }
+    await state.checkService()
+    assert.equal(state.serviceStatus, 'unavailable')
+    assert.ok(state.service.length > 0)
+    globalThis.fetch = async () => ({ ok: true, text: async () => 'Healthy' })
+    await state.checkService()
+    assert.equal(state.serviceStatus, 'healthy')
+    assert.match(descriptor.template.content, /'connection-error': serviceStatus === 'unavailable'/)
+  })
+}

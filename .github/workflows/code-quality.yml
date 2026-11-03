@@ -28,6 +28,9 @@ jobs:
       PLANTOPS_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=plantops_tests;Username=plantops;Password=ci-test-password-only
     steps:
       - uses: actions/checkout@v4
+      - name: Verify deprecated paid-model harness is blocked
+        shell: pwsh
+        run: ./tests/scripts/Test-LegacyQualityGuard.ps1
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

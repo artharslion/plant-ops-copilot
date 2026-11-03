@@ -6,7 +6,8 @@ using Xunit;
 
 namespace PlantOps.Tests;
 
-public sealed class InvestigationModelSchemaTests
+// Historical v1/v2 validation and replay; not v3 semantic acceptance.
+public sealed class LegacyInvestigationModelSchemaTests
 {
     [Theory]
     [InlineData("{\"decision\":\"Ready\"}", true)]
@@ -28,7 +29,7 @@ public sealed class InvestigationModelSchemaTests
         var evidence = Enumerable.Range(0, 20).Select(i => new InvestigationEvidence("E" + i, "EventReadings",
             "Long raw evidence metadata", [new string('样', 1000)], "hash", at, Guid.NewGuid()))
             .Append(new("D1", "Document", "Procedure", ["只读核对仪表校验与现场比对记录。"], "hash", at, Guid.NewGuid())).ToArray();
-        var packed = InvestigationEngine.ForModel(evidence, 512, omitEmptyMetadata: true);
+        var packed = LegacyInvestigationEngine.ForModel(evidence, 512, omitEmptyMetadata: true);
         Assert.Contains("只读核对仪表校验与现场比对记录。", packed.Single(x => x.Id == "D1").Facts);
     }
 
@@ -133,16 +134,16 @@ public sealed class InvestigationModelSchemaTests
     public void ServerRenderingSchemaForbidsEchoedFactsWithoutChangingStoredContract()
     {
         var original = InvestigationContract.OutputSchema.Schema.GetRawText();
-        var compact = InvestigationEngine.ModelSchema(InvestigationContract.OutputSchema, true, true, InvestigationEngine.SafeSummary);
+        var compact = LegacyInvestigationEngine.ModelSchema(InvestigationContract.OutputSchema, true, true, LegacyInvestigationEngine.SafeSummary);
         var properties = compact.Schema.GetProperty("properties");
         Assert.Equal(0, properties.GetProperty("observations").GetProperty("maxItems").GetInt32());
         Assert.Equal(0, properties.GetProperty("dataWarnings").GetProperty("maxItems").GetInt32());
         Assert.Equal(2, properties.GetProperty("nextChecks").GetProperty("maxItems").GetInt32());
-        Assert.Equal(InvestigationEngine.SafeSummary, properties.GetProperty("summary").GetProperty("enum")[0].GetString());
+        Assert.Equal(LegacyInvestigationEngine.SafeSummary, properties.GetProperty("summary").GetProperty("enum")[0].GetString());
         Assert.False(properties.GetProperty("summary").TryGetProperty("maxLength", out _));
         Assert.Equal(original, InvestigationContract.OutputSchema.Schema.GetRawText());
         Assert.Same(InvestigationContract.OutputSchema,
-            InvestigationEngine.ModelSchema(InvestigationContract.OutputSchema, false, true, InvestigationEngine.SafeSummary));
+            LegacyInvestigationEngine.ModelSchema(InvestigationContract.OutputSchema, false, true, LegacyInvestigationEngine.SafeSummary));
     }
 
     private sealed class CaptureGateway : ILlmGateway

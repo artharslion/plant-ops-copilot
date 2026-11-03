@@ -9,6 +9,37 @@ namespace PlantOps.Tests;
 [Collection("Database")]
 public sealed class DatabaseFoundationTests
 {
+    [DatabaseFact]
+    public async Task DisposedIsolatedConnectionsDoNotRetainServerSessions()
+    {
+        var marker = "isolated-lifetime-" + Guid.NewGuid().ToString("N");
+        for (var i = 0; i < 3; i++)
+        {
+            var connection = new NpgsqlConnectionStringBuilder(await TestDatabase.IsolatedConnection())
+            {
+                ApplicationName = marker
+            };
+            await using var sample = new NpgsqlConnection(connection.ConnectionString);
+            await sample.OpenAsync();
+        }
+
+        await using var observer = new NpgsqlConnection(TestDatabase.Connection);
+        await observer.OpenAsync();
+        await using var query = new NpgsqlCommand("SELECT count(*) FROM pg_stat_activity WHERE application_name = @marker", observer);
+        query.Parameters.AddWithValue("marker", marker);
+        long remaining = -1;
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            remaining = (long)(await query.ExecuteScalarAsync())!;
+            if (remaining == 0)
+            {
+                break;
+            }
+            await Task.Delay(20);
+        }
+        Assert.Equal(0, remaining);
+    }
+
     [Theory]
     [InlineData("Production")]
     [InlineData("Staging")]
@@ -79,7 +110,13 @@ public static class TestDatabase
         await using var db = new PlantOpsDbContext(new DbContextOptionsBuilder<PlantOpsDbContext>().UseNpgsql(Connection).Options);
         var sql = $"CREATE SCHEMA \"{schema}\"";
         await db.Database.ExecuteSqlRawAsync(sql);
-        return Connection + ";Search Path=" + schema;
+        // Each unique search path otherwise owns a separate process-wide pool.
+        // Test hosts disposing DbContext does not dispose those idle pools.
+        return new NpgsqlConnectionStringBuilder(Connection)
+        {
+            SearchPath = schema,
+            Pooling = false
+        }.ConnectionString;
     }
 
     public static string Connection

@@ -12,18 +12,6 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
     public const string PromptVersion = "investigation-advice-v3.2";
-    // Historical records and their deterministic replay use the isolated legacy contract.
-    public const string SafeSummary = LegacyInvestigationEngine.SafeSummary;
-    public const string EnglishSafeSummary = LegacyInvestigationEngine.EnglishSafeSummary;
-
-    public static InvestigationResult ValidateFacts(string content, IReadOnlyList<InvestigationEvidence> evidence,
-        ILogger? logger = null, string language = "zh-CN") => LegacyInvestigationEngine.ValidateFacts(content, evidence, logger, language);
-
-    internal static LlmOutputSchema ModelSchema(LlmOutputSchema schema, bool compact, bool serverFacts, string summary,
-        bool structuredStates = false) => LegacyInvestigationEngine.ModelSchema(schema, compact, serverFacts, summary, structuredStates);
-
-    internal static LegacyInvestigationEngine.ModelEvidence[] ForModel(IEnumerable<InvestigationEvidence> evidence,
-        int maximumBytes, bool omitEmptyMetadata = false) => LegacyInvestigationEngine.ForModel(evidence, maximumBytes, omitEmptyMetadata);
 
     public static void ValidateTool(string name, JsonElement arguments) => InvestigationToolPolicy.Validate(name, arguments);
 

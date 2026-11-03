@@ -6,7 +6,8 @@ using Xunit;
 
 namespace PlantOps.Tests;
 
-public sealed class InvestigationTrendAnalysisTests
+// Historical v1/v2 validation and replay; not v3 semantic acceptance.
+public sealed class LegacyInvestigationTrendAnalysisTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 28, 0, 0, 0, TimeSpan.Zero);
     private const string Fact = "首值 60 degC，末值 90 degC，变化量 30 degC。";
@@ -21,7 +22,7 @@ public sealed class InvestigationTrendAnalysisTests
             new("E2", "EventDerivedTrend", "Raw changes", [Fact], "b", At, trend.PointId, DerivedTrend: trend)];
     }
 
-    private static InvestigationResult Answer(string text) => new("2", InvestigationEngine.SafeSummary,
+    private static InvestigationResult Answer(string text) => new("2", LegacyInvestigationEngine.SafeSummary,
         [new(Fact, ["E2"])], [], [], [], [], ["E1", "E2"], [new(text, ["E1", "E2"])]);
 
     [Fact]
@@ -34,7 +35,7 @@ public sealed class InvestigationTrendAnalysisTests
             Observations = [],
             NextChecks = [new("核对事件期观测。", ["E1"], "记录证据与缺项。", "全部证据经维护人员复核后完成。", "缺项交维护工程师核查。")]
         };
-        var gateway = new FakeLlmGateway([
+        var gateway = new ScriptedLlmGateway([
             new(null, [new("measurements", "get_recent_measurements", "{}")], "fake", new(7470, 16)),
             new(InvestigationContract.Serialize(answer), [], "fake", new(1000, 100))]);
         using var budget = new LlmBudget { EvidenceAsOf = At.AddMinutes(2) };
@@ -49,7 +50,7 @@ public sealed class InvestigationTrendAnalysisTests
     [Fact]
     public void InterpretationCanLinkVerifiedRisingSequenceAndHistoricalAlarmWithoutInventingNumbers()
     {
-        var result = InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Answer(
+        var result = LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Answer(
             "观测段呈非下降变化，为历史告警提供升温趋势依据；异常原因仍待核查。")), Evidence());
         Assert.Single(result.Analysis!);
     }
@@ -64,7 +65,7 @@ public sealed class InvestigationTrendAnalysisTests
     [InlineData("观测段为历史告警提供趋势依据，不能仅凭当前可信值确认设备安全。")]
     public void ExplicitSafetyUncertaintyIsNotAnAffirmativeSafetyClaim(string text)
     {
-        Assert.Single(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Answer(text)), Evidence()).Analysis!);
+        Assert.Single(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Answer(text)), Evidence()).Analysis!);
     }
 
     [Theory]
@@ -87,11 +88,11 @@ public sealed class InvestigationTrendAnalysisTests
         };
         if (accepted)
         {
-            InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), Evidence());
+            LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), Evidence());
         }
         else
         {
-            Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), Evidence()));
+            Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), Evidence()));
         }
     }
 
@@ -114,13 +115,13 @@ public sealed class InvestigationTrendAnalysisTests
                 new("振动测点当前可信且有异常证据。当前异常需保留，不能因其他测点不可验证而否定。", ["E3", "E4"])],
             EvidenceIds = ["E1", "E2", "E3", "E4"]
         };
-        Assert.Equal(2, InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), evidence).Analysis!.Length);
+        Assert.Equal(2, LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), evidence).Analysis!.Length);
         var replacement = current with
         {
             Id = "E5",
             Facts = ["当前测点不可验证。"]
         };
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [.. evidence, replacement]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer), [.. evidence, replacement]));
     }
 
     [Theory]
@@ -128,16 +129,16 @@ public sealed class InvestigationTrendAnalysisTests
     [InlineData("首值 60 degC，末值 90 degC，变化量 30 degC。")]
     public void LegacyFabricatedNumbersAndCopyOnlyAnalysisAreRejected(string text)
     {
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Answer(text)), Evidence()));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Answer(text)), Evidence()));
     }
 
     [Fact]
     public void MinuteExtremaOrEndpointChangeAloneCannotGroundARisingSequence()
     {
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(
             Answer("观测段呈非下降变化，为告警提供趋势依据，原因待核查。")), Evidence(false)));
         var evidence = Evidence().Select(x => x with { DerivedTrend = null }).ToArray();
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(
             Answer("有序观测变化为所选告警提供趋势依据，原因待核查。")), evidence));
     }
 
@@ -145,13 +146,13 @@ public sealed class InvestigationTrendAnalysisTests
     public void VerifiableChangesRequireAnalysisAndBothRawAndAlarmReferences()
     {
         var answer = Answer("有序观测变化为所选告警提供趋势依据，原因待核查。");
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer with { Analysis = [] }), Evidence()));
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer with
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer with { Analysis = [] }), Evidence()));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer with
         {
             Analysis = [new(answer.Analysis![0].Text, ["E2"])],
             EvidenceIds = ["E2"]
         }), Evidence()));
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer with
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(answer with
         {
             SchemaVersion = "1",
             Analysis = null,
@@ -174,7 +175,7 @@ public sealed class InvestigationTrendAnalysisTests
         using var budget = new LlmBudget(new(MaxInputTokens: 16000, MaxOutputTokens: 2000));
         var result = await new LegacyInvestigationEngine(new FakeLlmGateway(), Options.Create(new AiOptions { ServerRenderedFacts = serverFacts }))
             .ExecuteAsync(evidence, (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, default, language);
-        var parsed = InvestigationEngine.ValidateFacts(result.ResultJson, evidence, language: language);
+        var parsed = LegacyInvestigationEngine.ValidateFacts(result.ResultJson, evidence, language: language);
         Assert.Equal("2", parsed.SchemaVersion);
         Assert.Single(parsed.Analysis!);
         Assert.Contains(parsed.Observations, x => x.EvidenceIds.Contains("E2"));

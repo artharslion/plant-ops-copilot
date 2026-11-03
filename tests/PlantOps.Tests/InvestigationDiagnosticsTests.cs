@@ -38,7 +38,7 @@ public sealed class InvestigationDiagnosticsTests
             captured = completion.Content;
             return Task.FromResult(new InvestigationResponseReceipt("Stored", "private-id"));
         };
-        var engine = new InvestigationEngine(new FakeLlmGateway([new(raw, [], "fake", new(100, 40))]), Options.Create(new AiOptions()));
+        var engine = new InvestigationEngine(new ScriptedLlmGateway([new(raw, [], "fake", new(100, 40))]), Options.Create(new AiOptions()));
         var exception = await Assert.ThrowsAsync<LlmException>(() => engine.ExecuteAsync(evidence,
             (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
         Assert.Equal("advice-hypothesis-basis", exception.ValidationRule);

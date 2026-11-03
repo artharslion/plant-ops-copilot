@@ -7,6 +7,9 @@ namespace PlantOps.Infrastructure.AI;
 
 public sealed partial class InvestigationService
 {
+    private static string[] OrderToolWarnings(IEnumerable<string> warnings, IReadOnlyDictionary<string, int> priorities) =>
+        warnings.OrderBy(x => priorities.GetValueOrDefault(x, 1)).ThenBy(x => x, StringComparer.Ordinal).ToArray();
+
     private async Task<InvestigationDerivedTrend> CaptureTrendAsync(Guid plantId, Guid assetId,
         InvestigationPointSnapshot point, Guid alarmId, string kind, DateTimeOffset from, DateTimeOffset to,
         int expectedIntervalMs, CancellationToken token)
@@ -36,15 +39,16 @@ public sealed partial class InvestigationService
     {
         string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
         var facts = new List<string>();
+        var risingFacts = new List<string>();
         if (trend.Change is { } change)
         {
             facts.Add($"测点 {trend.Code} 的{trend.WindowKind}有序原始观测：{change.From:O} 至 {change.To:O}，首值 {Number(change.FirstValue)} {trend.Unit}，末值 {Number(change.LastValue)} {trend.Unit}，变化量 {Number(change.Change)} {trend.Unit}，观测间平均变化率 {Number(change.RatePerMinute)} {trend.Unit}/min，样本数 {change.SampleCount}；仅代表版本已核对且段内无已知缺口的已入库观测，不证明采样间物理连续。");
         }
         foreach (var rise in trend.RiseSegments)
         {
-            facts.Add($"测点 {trend.Code} 的{trend.WindowKind}非下降观测段：{rise.From:O} 至 {rise.To:O}，首值 {Number(rise.FirstValue)} {trend.Unit}，末值 {Number(rise.LastValue)} {trend.Unit}，变化量 {Number(rise.Change)} {trend.Unit}，观测间平均变化率 {Number(rise.RatePerMinute)} {trend.Unit}/min，样本数 {rise.SampleCount}，严格上升次数 {rise.IncreaseCount}；允许平台值，仅限该段，不确认根因或设备安全。");
+            risingFacts.Add($"测点 {trend.Code} 的{trend.WindowKind}非下降观测段：{rise.From:O} 至 {rise.To:O}，首值 {Number(rise.FirstValue)} {trend.Unit}，末值 {Number(rise.LastValue)} {trend.Unit}，变化量 {Number(rise.Change)} {trend.Unit}，观测间平均变化率 {Number(rise.RatePerMinute)} {trend.Unit}/min，样本数 {rise.SampleCount}，严格上升次数 {rise.IncreaseCount}；允许平台值，仅限该段，不确认根因或设备安全。");
         }
-        if (facts.Count == 0)
+        if (facts.Count == 0 && risingFacts.Count == 0)
         {
             facts.Add($"测点 {trend.Code} 的{trend.WindowKind}没有可验证的连续观测段变化；保留样本和限制，不跨坏值、缺口或未知配置计算变化。");
         }
@@ -52,6 +56,6 @@ public sealed partial class InvestigationService
         facts.Add($"原始变化计算限制代码：{(trend.Reasons.Length == 0 ? "None" : string.Join(",", trend.Reasons))}；段外未知，分钟极值不证明持续升温，多点共同变化不证明共同原因。");
         // The protected observation must carry the actual rising segment even
         // when the model input budget omits the rest of this evidence entry.
-        return facts.OrderBy(f => f.Contains("非下降观测段：", StringComparison.Ordinal) ? 0 : 1).ToArray();
+        return risingFacts.Concat(facts).ToArray();
     }
 }

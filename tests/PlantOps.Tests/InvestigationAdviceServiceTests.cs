@@ -100,7 +100,7 @@ public sealed class InvestigationAdviceServiceTests
                 Hypotheses = [new("H1", "PRIVATE_REJECTED_HYPOTHESIS", "Weak", recommendation.EvidenceRefs,
                     recommendation.EvidenceRefs, [recommendation.Id])]
             };
-            return new FakeLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 40))])
+            return new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 40))])
                 .CompleteAsync(request, budget, cancellationToken);
         }
     }
@@ -127,7 +127,7 @@ public sealed class InvestigationAdviceServiceTests
                     } : null
                 }
             };
-            return new FakeLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 40))])
+            return new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 40))])
                 .CompleteAsync(request, budget, cancellationToken);
         }
     }
