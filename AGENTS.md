@@ -1,6 +1,6 @@
 # Repository Context
 
-- Use the GitHub account `artharslion` for all GitHub actions in this repository, including pushes and pull requests. Verify the authenticated account before mutations; do not use a connector authenticated as another account. The `github-personal` SSH host is configured for `artharslion`.
+- Before GitHub mutations, verify the authenticated account, target repository and required repository permissions. Use the account authorized by the current user for the task; do not assume Git SSH and API/connector sessions share an identity. Do not prescribe a contributor account or local SSH alias.
 
 - Keep context task-scoped. Locate the relevant source files first; use `docs/README.md` only when documentation is needed and `ROADMAP.md` when current priorities or acceptance scope matter. Do not read all top-level documents at session start.
 - For new investigation behavior, use `docs/INVESTIGATION_RESPONSE_V3.md` and the active `InvestigationEngine`. Read legacy contracts and engines only for compatibility or replay work.

@@ -14,7 +14,7 @@
 
 1. `InvestigationService` 对同设备启用候选按 Code 排序并 `Take(2)`；`get_recent_measurements` 在引擎 schema 和 `InvestigationToolPolicy` 中仅接受 `{}`，Agent 不能指定点位或窗口。这是取证能力限制，不是诊断规则，本次不改契约。
 2. `FakeLlmGateway` 仍有固定工具列表、状态到模拟建议的映射及历史中文模板匹配，均保留在明确的 Demo 路径。`InvestigationScenarioTests`、`InvestigationOnDemandTests` 等仍组合脚本工具决定和模拟最终答案，只验证结构、授权和管线。不得把这些通过数称为模型语义验收。
-3. 旧 `InvestigationRealQualityTests` 类现明确标识 Legacy：它通过当前服务发起调查，却仍用旧 `InvestigationResult` / `ValidateFacts` 及 `Observations`、`MissingInformation` 等断言结果，另有固定 SingleRequest 假设。它不是有效的当前 v3 质量门槛，需 P8 迁移。现有开关及请求预算不变，本次未运行，也未通过修改生产规则迎合它。
+3. 旧 `InvestigationRealQualityTests` 类现明确标识 Legacy：它通过当前服务发起调查，却仍用旧 `InvestigationResult` / `ValidateFacts` 及 `Observations`、`MissingInformation` 等断言结果，另有固定 SingleRequest 假设。它不是有效的当前 v3 质量门槛，需 P8 迁移。历史测试保留给 P8，其付费脚本入口已加不可绕过的弃用错误；本次未运行真实模型，也未通过修改生产规则迎合它。
 4. 本次检查的活跃 v3 Engine、AdviceContract 和证据投影未发现根据模型自然语言关键词判定诊断、固定症状建议或单 Case 特判。引用集合、枚举、当前点位可信度/阈值矛盾、只读工具、窗口和质量计算属于有权威来源的确定性规则；不能当作语义硬编码删掉。Legacy 的关键词验证仅保留于历史实现。
 
 ## 后续 P6 设计建议（本次未实施）
@@ -61,3 +61,10 @@ CI job `125673087578` initially reported 22 failures: one historical-upgrade fix
 
 
 Follow-up verification: the historical-upgrade regression failed before the fix and passed after it. The complete solution test run with the isolated PostgreSQL database passed **824 tests, 0 failures, 8 explicit skips (832 total)** in 10m25s. `.NET format --verify-no-changes`, frontend format/lint/build, all 56 frontend tests, and the diff check passed. The test command rebuilt the solution successfully. Reports are retained under `artifacts/test-results/pr2-database/`, `pr2-database.log`, `pr2-upgrade-before.log`, `pr2-upgrade-after.log`, `pr2-format.log`, and `pr2-web-*.log`. These local results do not imply a real-model run or deployment.
+
+
+## Final scoped PR #2 adjustments
+
+- Disabled `deploy/Test-RealInvestigationQuality.ps1` with an unconditional deprecation error before configuration loading, report creation, database access or test execution. Existing parameters remain accepted without a mandatory prompt, but no flag bypasses the guard. The historical C# tests remain for P8 migration; this is not a v3 acceptance entry point.
+- Replaced the repository-specific GitHub username/SSH-alias mandate in `AGENTS.md` with verification of the authenticated identity, target repository and permissions, using the current user's authorized account and distinguishing SSH from API/connector sessions.
+- Added a low-cost PowerShell regression to Code quality CI. It first verifies that the entry point contains only a terminating throw, then tests no arguments, the former run argument and a scenario argument with the old real-provider flags enabled and a fictional key. All three invocations are blocked without changing configuration; no database or model is called. Local regression and diff checks passed. Investigation Engine/business logic and the historical test bodies are unchanged.
