@@ -27,7 +27,7 @@ try {
     $env:PLANTOPS_REAL_FIVE = '1'
     $env:PLANTOPS_REAL_SCENARIO = $Scenario
     $caseLimit = if ($Scenario) { 1 } else { 5 }
-    $testFilter = 'FullyQualifiedName~PlantOps.Tests.InvestigationRealQualityTests'
+    $testFilter = 'FullyQualifiedName~PlantOps.Tests.LegacyInvestigationRealQualityTests'
     if ($Scenario) { $testFilter += "&DisplayName~$Scenario" }
     New-Item -ItemType Directory -Path $reportRoot | Out-Null
     @{ FixtureOnly = $true; Scenario = $Scenario; MaxInvestigations = $caseLimit; MaxExternalRequests = $caseLimit; MaxRequestsPerInvestigation = 1; MaxRetries = 0; RequestTimeoutSeconds = 120; RunTimeoutSeconds = 180; StreamResponses = $true; Cost = $null; P4Acceptance = $false } | ConvertTo-Json | Set-Content -LiteralPath "$reportRoot/plan.json"

@@ -287,7 +287,7 @@ public sealed class InvestigationScenarioTests
                      new("alarms", "get_recent_alarms", "{}"),
                      new("maintenance", "get_maintenance_history", "{}"),
                      new("documents", "search_documents", "{\"query\":\"vibration 振动\",\"limit\":6}")];
-                return new FakeLlmGateway([new(null, requested, "fake-scenario", new(100, 20))]).CompleteAsync(request, budget, cancellationToken);
+                return new ScriptedLlmGateway([new(null, requested, "fake-scenario", new(100, 20))]).CompleteAsync(request, budget, cancellationToken);
             }
             LastInput = request.Messages.Single(x => x.Role == LlmRole.User).Content!;
             using var input = JsonDocument.Parse(LastInput);
@@ -324,7 +324,7 @@ public sealed class InvestigationScenarioTests
                 budget.ReserveAttempt(LastInput.Length + 256, request.MaxOutputTokens);
                 throw new LlmException(scenario == "S17-provider-timeout" ? LlmFailure.Timeout : LlmFailure.RateLimited);
             }
-            return new FakeLlmGateway([completion]).CompleteAsync(request, budget, cancellationToken);
+            return new ScriptedLlmGateway([completion]).CompleteAsync(request, budget, cancellationToken);
         }
     }
 }

@@ -11,7 +11,7 @@ public sealed class P61EvidenceReplayTests
     [EvidenceReplayTheory]
     [InlineData("p61-real-20261029", "counter-v29/all-unverifiable.json", "不得写入或控制设备")]
     [InlineData("p61-real-20261030", "baseline-v30-ready/partial-bad-high-vibration.json", "不能确认设备安全")]
-    public async Task OriginalRejectedAnswerPassesNarrowRepairWithoutAnotherModelCall(string directory, string reportPath, string phrase)
+    public async Task LegacyOriginalRejectedAnswerPassesNarrowRepairWithoutAnotherModelCall(string directory, string reportPath, string phrase)
     {
         var root = Path.Combine(Environment.GetEnvironmentVariable("PLANTOPS_REPLAY_ROOT")!, directory);
         using var report = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, reportPath)));
@@ -30,7 +30,7 @@ public sealed class P61EvidenceReplayTests
         Assert.Contains(phrase, completion.Content!);
         // Replay the captured answer against the complete original immutable ledger.
         // This gateway is deliberately Fake and never creates an HTTP client.
-        var gateway = new FakeLlmGateway([completion]);
+        var gateway = new ScriptedLlmGateway([completion]);
         var engine = new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }));
         using var budget = new LlmBudget { EvidenceAsOf = run.Assessment!.AsOf };
         var result = await engine.ExecuteAsync(run.Evidence,

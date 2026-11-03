@@ -7,8 +7,18 @@ using Xunit;
 
 namespace PlantOps.Tests;
 
+// Deterministic v3 contract and scripted orchestration, not semantic model acceptance.
 public sealed class InvestigationAdviceTests
 {
+    [Fact]
+    public void V3EngineDoesNotExposeLegacyValidationEntrypoints()
+    {
+        var names = typeof(InvestigationEngine).GetMembers().Select(x => x.Name).ToArray();
+        Assert.DoesNotContain("ValidateFacts", names);
+        Assert.DoesNotContain("SafeSummary", names);
+        Assert.DoesNotContain("EnglishSafeSummary", names);
+    }
+
     private static readonly Guid Point = Guid.NewGuid();
     private static readonly InvestigationEvidence[] Evidence =
     [
@@ -217,7 +227,7 @@ public sealed class InvestigationAdviceTests
         {
             Facts = [new string('x', 6000)]
         }).ToArray();
-        var gateway = new FakeLlmGateway([
+        var gateway = new ScriptedLlmGateway([
             new(InvestigationAdviceContract.Serialize(Valid(Point.ToString())), [], "fixture", new(6000, 50))
         ]);
         var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions { Provider = "OpenAiCompatible" })).ExecuteAsync(verboseEvidence,
@@ -237,7 +247,7 @@ public sealed class InvestigationAdviceTests
             Gaps = [new("G1", "RequiresOnSite", "需要现场工况。", "限制原因判断。", [], ["R1"])]
         };
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var gateway = new FakeLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 50))]);
+        var gateway = new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 50))]);
         var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,
             (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         Assert.Equal("NeedsMoreEvidence", JsonDocument.Parse(result.ResultJson).RootElement.GetProperty("status").GetString());
@@ -245,10 +255,46 @@ public sealed class InvestigationAdviceTests
     }
 
     [Fact]
+    public async Task V3ScriptedReadThenFinalAnswerUsesTwoRounds()
+    {
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var gateway = new ScriptedLlmGateway([
+            new(null, [new("read", "get_recent_alarms", "{}")], "fixture", new(100, 20)),
+            new(InvestigationAdviceContract.Serialize(Valid(Point.ToString())), [], "fixture", new(100, 50))
+        ]);
+        var reads = new List<string>();
+        var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,
+            (name, _, _) =>
+            {
+                reads.Add(name);
+                return Task.FromResult(new InvestigationToolResult([], []));
+            }, _ => Task.CompletedTask, budget, CancellationToken.None);
+        Assert.Equal(["get_recent_alarms"], reads);
+        Assert.Equal(2, budget.ModelRounds);
+        Assert.Equal(1, budget.ToolCalls);
+        Assert.Equal("3", JsonDocument.Parse(result.ResultJson).RootElement.GetProperty("schemaVersion").GetString());
+    }
+
+    [Fact]
+    public async Task V3RejectsReadWhenFinalRoundIsReserved()
+    {
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000, MaxModelRounds: 1));
+        var gateway = new ScriptedLlmGateway([
+            new(null, [new("read", "get_recent_alarms", "{}")], "fixture", new(100, 20))
+        ]);
+        var error = await Assert.ThrowsAsync<LlmException>(() =>
+            new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,
+                (_, _, _) => throw new InvalidOperationException("No reads allowed in the final round."),
+                _ => Task.CompletedTask, budget, CancellationToken.None));
+        Assert.Equal(LlmFailure.InvalidRequest, error.Failure);
+        Assert.Equal(1, budget.ModelRounds);
+    }
+
+    [Fact]
     public async Task ForbiddenWritesAreRejectedBeforeCallingTheTool()
     {
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var gateway = new FakeLlmGateway([new(null, [new("attack", "opcua_write", "{}")], "fixture", new(100, 20))]);
+        var gateway = new ScriptedLlmGateway([new(null, [new("attack", "opcua_write", "{}")], "fixture", new(100, 20))]);
         var called = false;
         var error = await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,
             (_, _, _) =>

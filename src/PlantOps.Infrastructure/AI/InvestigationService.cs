@@ -238,6 +238,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             run.Id, run.LeaseId, run.Attempts, run.Provider, run.Model);
         var ledger = new List<InvestigationEvidence>();
         var warnings = new HashSet<string>(StringComparer.Ordinal);
+        var warningPriorities = new Dictionary<string, int>(StringComparer.Ordinal);
         using var budget = new LlmBudget(new(
             RunTimeoutSeconds: configuration.GetValue("AI:RunTimeoutSeconds", 180),
             MaxModelRounds: configuration.GetValue("AI:MaxModelRounds", 4),
@@ -376,7 +377,9 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         supplied.Add(Add("Asset", "设备资料", run.AssetId, [$"设备编号为 {asset.Code}，设备名称为 {Excerpt(asset.Name, 100)}，类型为 {asset.AssetType}。"]));
                         break;
                     case "get_recent_measurements":
-                        warnings.Add("趋势窗口不晚于取证截止；完成分钟统计反映实际查询水位，可能含截止后迟到的历史观测，不证明统计在截止前已经可用。原始变化另按接收时间过滤。");
+                        var windowWarning = "趋势窗口不晚于取证截止；完成分钟统计反映实际查询水位，可能含截止后迟到的历史观测，不证明统计在截止前已经可用。原始变化另按接收时间过滤。";
+                        warnings.Add(windowWarning);
+                        warningPriorities[windowWarning] = 0;
                         foreach (var selectedPoint in new[] { point }.Concat(relatedPoints))
                         {
                             var snapshot = pointSnapshots.Single(x => x.PointId == selectedPoint.Id);
@@ -618,8 +621,7 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                                 Evidence = response.Evidence.Concat(windowEvidence).ToArray()
                             };
                         }
-                        var addedWarnings = warnings.Except(beforeWarnings, StringComparer.Ordinal)
-                            .OrderBy(x => x.StartsWith("趋势窗口不晚于", StringComparison.Ordinal) ? 0 : 1).ThenBy(x => x, StringComparer.Ordinal).ToArray();
+                        var addedWarnings = OrderToolWarnings(warnings.Except(beforeWarnings, StringComparer.Ordinal), warningPriorities);
                         if (addedWarnings.Length > 0)
                         {
                             response = response with

@@ -11,6 +11,7 @@ using Xunit;
 namespace PlantOps.Tests;
 
 [Collection("Database")]
+// Scripted read decisions plus demo-generated final payloads verify plumbing only.
 public sealed class InvestigationOnDemandTests
 {
     [DatabaseFact]
@@ -158,7 +159,7 @@ public sealed class InvestigationOnDemandTests
                 using var input = JsonDocument.Parse(LastInput!);
                 Assert.DoesNotContain(input.RootElement.GetProperty("evidence").EnumerateArray(), x =>
                     x.GetProperty("kind").GetString() is "EventTrend" or "Maintenance" or "Document" or "AlarmHistory");
-                return await new FakeLlmGateway([new(null, calls, "fake-demand", new(100, 20))]).CompleteAsync(request, budget, cancellationToken);
+                return await new ScriptedLlmGateway([new(null, calls, "fake-demand", new(100, 20))]).CompleteAsync(request, budget, cancellationToken);
             }
             // Produce a grounded answer without adding any implicit tool requests.
             return await new FakeLlmGateway().CompleteAsync(request with

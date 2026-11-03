@@ -6,13 +6,14 @@ using Xunit;
 
 namespace PlantOps.Tests;
 
-public sealed class InvestigationQualityTests
+// Historical v1/v2 validation and replay; not v3 semantic acceptance.
+public sealed class LegacyInvestigationQualityTests
 {
     private static readonly InvestigationEvidence Alarm = new("E1", "Alarm", "告警", ["告警曾触发。", "告警已恢复，根因未确认。"], "hash", DateTimeOffset.UtcNow, Guid.NewGuid());
     private static readonly InvestigationEvidence Raw = Alarm with { Id = "E2", Kind = "EventReadings", Facts = ["事件原始观测，质量 Good，来源与映射已记录。"] };
     private static readonly InvestigationEvidence Maintenance = Alarm with { Id = "E3", Kind = "Maintenance", Facts = ["维护记录：核查告警；状态为 Draft；处理结果摘录：未记录。"] };
 
-    private static InvestigationResult Valid() => new("1", InvestigationEngine.SafeSummary, [new(Alarm.Facts[0], ["E1"])], [], [], [], []);
+    private static InvestigationResult Valid() => new("1", LegacyInvestigationEngine.SafeSummary, [new(Alarm.Facts[0], ["E1"])], [], [], [], []);
 
     [Fact]
     public void SummaryCanOnlyComposeUpToThreeCompleteObservationFacts()
@@ -22,12 +23,12 @@ public sealed class InvestigationQualityTests
             Summary = string.Join('\n', Alarm.Facts),
             Observations = Alarm.Facts.Select(x => new InvestigationObservation(x, ["E1"])).ToArray()
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm]));
-        Assert.Equal(result.Summary, InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm]));
+        Assert.Equal(result.Summary, LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with
         {
             Summary = result.Summary.Replace("\n", "\\n", StringComparison.Ordinal)
         }), [Alarm]).Summary);
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { Summary = result.Summary + "\n设备安全。" }), [Alarm]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result with { Summary = result.Summary + "\n设备安全。" }), [Alarm]));
     }
 
     [Fact]
@@ -42,7 +43,7 @@ public sealed class InvestigationQualityTests
             Summary = fact.Facts[0],
             Observations = [new(fact.Facts[0], ["E1"])]
         };
-        Assert.Equal(fact.Facts[0], InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [fact]).Summary);
+        Assert.Equal(fact.Facts[0], LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [fact]).Summary);
     }
 
     [Theory]
@@ -52,7 +53,7 @@ public sealed class InvestigationQualityTests
     [InlineData("原始观测缺失，输入裁剪。")]
     public void StructuredClaimsCannotReportExistingFactsMissing(string claim)
     {
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
         {
             MissingInformation = [claim],
             StateClaims = [new("E2", "Empty", null, null)]
@@ -71,13 +72,13 @@ public sealed class InvestigationQualityTests
         {
             MissingInformation = ["事件原始观测节选缺失。", "已有维护记录缺少有效处理结果，不能支持维修原因分析。"]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, unavailable, Maintenance]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, unavailable, Maintenance]));
         var recovery = Raw with
         {
             Id = "E4",
             Kind = "RecoveryReadings"
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, unavailable, recovery, Maintenance]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, unavailable, recovery, Maintenance]));
     }
 
     [Fact]
@@ -87,7 +88,7 @@ public sealed class InvestigationQualityTests
         {
             MissingInformation = ["已有原始观测节选，仍缺少完整原始观测和物理采样语义。"]
         };
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, Raw]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(result), [Alarm, Raw]));
     }
 
     [Theory]
@@ -99,7 +100,7 @@ public sealed class InvestigationQualityTests
     public void ConditionalEscalationDoesNotAssertThatExistingEvidenceIsMissing(string escalation)
     {
         var check = new InvestigationCheck("核查事件。", ["E1"], "记录来源和时间。", "全部对应关系核对且差异已记录后完成。", escalation);
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
         {
             NextChecks = [check]
         }), [Alarm, Raw, Maintenance]));
@@ -114,7 +115,7 @@ public sealed class InvestigationQualityTests
     public void ContradictoryStateClaimsAreRejectedRegardlessOfEscalationWording(string escalation)
     {
         var check = new InvestigationCheck("核查事件。", ["E1"], "记录来源和时间。", "全部对应关系核对且差异已记录后完成。", escalation);
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
         {
             NextChecks = [check],
             StateClaims = [new("E2", "Empty", null, null)]
@@ -130,7 +131,7 @@ public sealed class InvestigationQualityTests
             Facts = ["温度变化只能形成待核查的关联。"]
         };
         var hypothesis = new InvestigationHypothesis("可能存在温度关联。", "weak", ["E2"], "核查同期趋势。", manual.Facts[0], "缺少同期观测。");
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { Hypotheses = [hypothesis] }), [Alarm, manual]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { Hypotheses = [hypothesis] }), [Alarm, manual]));
     }
 
     [Fact]
@@ -142,7 +143,7 @@ public sealed class InvestigationQualityTests
             State = new("Empty")
         };
         var hypothesis = new InvestigationHypothesis("可能存在通信故障。", "weak", ["E2"], "核对采集事件日志。", unavailable.Facts[0], "缺少独立故障记录。");
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { Hypotheses = [hypothesis] }), [Alarm, unavailable]));
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { Hypotheses = [hypothesis] }), [Alarm, unavailable]));
     }
 
     [Theory]
@@ -152,8 +153,8 @@ public sealed class InvestigationQualityTests
     public void CompletionMustNotBeOnlyAnExecutionStatus(string completion)
     {
         var check = new InvestigationCheck("核查事件。", ["E1"], "记录来源和时间。", completion, "证据不足交工程师核查。");
-        Assert.Throws<LlmException>(() => InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { NextChecks = [check] }), [Alarm]));
-        Assert.NotNull(InvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
+        Assert.Throws<LlmException>(() => LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with { NextChecks = [check] }), [Alarm]));
+        Assert.NotNull(LegacyInvestigationEngine.ValidateFacts(InvestigationContract.Serialize(Valid() with
         {
             NextChecks = [check with { Completion = "全部对应关系核对一致且差异已记录后完成。" }]
         }), [Alarm]));
@@ -163,7 +164,7 @@ public sealed class InvestigationQualityTests
     public void PackingReservesCoreFactsBeforeLargeManualChunks()
     {
         var docs = Enumerable.Range(4, 6).Select(i => Alarm with { Id = "E" + i, Kind = "Document", Facts = [new string('资', 900) + "完整片段末尾。"] });
-        var packed = InvestigationEngine.ForModel([Alarm, Raw, Maintenance, .. docs], 8000);
+        var packed = LegacyInvestigationEngine.ForModel([Alarm, Raw, Maintenance, .. docs], 8000);
         Assert.Equal(Raw.Facts, packed.Single(x => x.Id == Raw.Id).Facts);
         Assert.Equal(Maintenance.Facts, packed.Single(x => x.Id == Maintenance.Id).Facts);
         Assert.Contains(packed, x => x.Kind == "Document" && x.OmittedFactCount > 0);
@@ -206,7 +207,7 @@ public sealed class InvestigationQualityTests
                 EvidenceIds = ["FOREIGN"]
             }
             : Valid();
-        var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
+        var gateway = new ScriptedLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
         await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
@@ -224,7 +225,7 @@ public sealed class InvestigationQualityTests
         {
             Observations = []
         };
-        var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
+        var gateway = new ScriptedLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
         await Assert.ThrowsAsync<LlmException>(() => new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
@@ -269,7 +270,7 @@ public sealed class InvestigationQualityTests
             NextChecks = [check]
         };
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var gateway = new FakeLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
+        var gateway = new ScriptedLlmGateway([new(InvestigationContract.Serialize(draft), [], "fake", new(100, 20))]);
         var result = await new LegacyInvestigationEngine(gateway, Options.Create(new AiOptions { ServerRenderedFacts = true }))
             .ExecuteAsync([Alarm, scope], (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
         var report = InvestigationContract.ParseAndValidateReferences(result.ResultJson, new HashSet<string>(["E1", "E4"]));
