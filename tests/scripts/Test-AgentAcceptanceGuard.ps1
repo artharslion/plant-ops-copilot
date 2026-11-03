@@ -10,7 +10,7 @@ if ($ast.EndBlock.Statements[1].Extent.Text -notlike 'if (-not $AuthorizePaidMod
 # Exercise the exact production preflight, including positive inputs, without executing
 # the later configuration/report/database/model operations.
 if ($ast.EndBlock.Statements[5].Extent.Text -notlike '*Only plantops_tests is permitted.*' -or
-    $ast.EndBlock.Statements[6].Extent.Text -notlike '$reportRoot =*') { throw 'Review preflight extraction before running this regression.' }
+    $ast.EndBlock.Statements[6].Extent.Text -notlike '*existing authorization LedgerPath*') { throw 'Review preflight extraction before running this regression.' }
 $preflight = [scriptblock]::Create(($ast.EndBlock.Statements[0..5].Extent.Text -join "`n"))
 $saved = $env:PLANTOPS_TEST_CONNECTION
 try {

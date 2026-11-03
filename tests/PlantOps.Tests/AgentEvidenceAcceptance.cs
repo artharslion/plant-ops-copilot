@@ -20,6 +20,8 @@ internal static class AgentEvidenceAcceptance
             .Concat(advice.Hypotheses.SelectMany(x => x.SupportingEvidenceRefs.Concat(x.ContradictingEvidenceRefs)))
             .Concat(advice.Gaps.SelectMany(x => x.EvidenceRefs)).ToHashSet(StringComparer.Ordinal);
         var cited = false;
+        var hasUsableEvidence = false;
+        var remainingTraces = traces.ToList();
         foreach (var choice in choices)
         {
             JsonElement args;
@@ -33,25 +35,42 @@ internal static class AgentEvidenceAcceptance
                 failures.Add("InvalidToolArguments");
                 continue;
             }
-            var matching = traces.Where(x => x.GetProperty("name").GetString() == choice.Name
-                && x.TryGetProperty("arguments", out var actual) && Canonical(actual) == Canonical(args)).ToArray();
-            var successful = matching.Where(x => x.GetProperty("outcome").GetString() == "Succeeded").ToArray();
-            if (successful.Length == 0)
+            var index = remainingTraces.FindIndex(x => x.GetProperty("name").GetString() == choice.Name
+                && x.TryGetProperty("arguments", out var actual) && Canonical(actual) == Canonical(args));
+            if (index < 0)
+            {
+                failures.Add("ToolTraceMissing");
+                continue;
+            }
+            var trace = remainingTraces[index];
+            remainingTraces.RemoveAt(index);
+            if (trace.GetProperty("outcome").GetString() != "Succeeded")
             {
                 failures.Add("ToolReadNotSucceeded");
+                continue;
             }
-
-            var usable = successful.SelectMany(x => x.GetProperty("evidence").EnumerateArray())
-                .Where(x => evidence.Any(e => e.Id == x.GetProperty("id").GetString()
-                    && e.Sha256 == x.GetProperty("sha256").GetString()
-                    && e.State?.Availability is "Available" or "Partial" && e.Kind != "DataQuality" && e.Facts.Length > 0))
-                .Select(x => x.GetProperty("id").GetString()!).ToArray();
-            if (usable.Length == 0)
+            foreach (var item in trace.GetProperty("evidence").EnumerateArray())
             {
-                failures.Add("NoUsableToolEvidence");
+                var frozen = evidence.SingleOrDefault(e => e.Id == item.GetProperty("id").GetString());
+                if (frozen == null || frozen.Sha256 != item.GetProperty("sha256").GetString())
+                {
+                    failures.Add("ToolEvidenceMismatch");
+                    continue;
+                }
+                if (frozen.State?.Availability == "Unavailable")
+                {
+                    failures.Add("ToolReadNotSucceeded");
+                }
+                if (frozen.State?.Availability is "Available" or "Partial" && frozen.Kind != "DataQuality" && frozen.Facts.Length > 0)
+                {
+                    hasUsableEvidence = true;
+                    cited |= refs.Contains(frozen.Id);
+                }
             }
-
-            cited |= usable.Any(refs.Contains);
+        }
+        if (choices.Count > 0 && !hasUsableEvidence)
+        {
+            failures.Add("NoUsableToolEvidence");
         }
         if (advice == null)
         {

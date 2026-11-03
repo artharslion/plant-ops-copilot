@@ -10,6 +10,13 @@ public sealed class AgentEvidenceAcceptanceTests
 {
     [Theory]
     [InlineData("read-and-cite", null)]
+    [InlineData("some-empty", null)]
+    [InlineData("typed-empty", null)]
+    [InlineData("mixed-failure", "ToolReadNotSucceeded")]
+    [InlineData("forged-hash", "ToolEvidenceMismatch")]
+    [InlineData("foreign-evidence", "ToolEvidenceMismatch")]
+    [InlineData("missing-trace", "ToolTraceMissing")]
+    [InlineData("repeated-choice", "ToolTraceMissing")]
     [InlineData("no-read", "AutonomousEvidenceNotDemonstrated")]
     [InlineData("empty", "NoUsableToolEvidence")]
     [InlineData("unavailable", "ToolReadNotSucceeded")]
@@ -28,7 +35,7 @@ public sealed class AgentEvidenceAcceptanceTests
         var document = new InvestigationEvidence("D2", "Document", "Authorized procedure", ["Record independent observations"], "tool",
             DateTimeOffset.UtcNow, Guid.NewGuid(), State: new(scenario == "unavailable" ? "Unavailable" : "Available"));
         var advice = InvestigationAdviceTests.Valid(point.ToString());
-        if (scenario == "read-and-cite")
+        if (scenario is "read-and-cite" or "some-empty" or "typed-empty" or "mixed-failure" or "forged-hash" or "foreign-evidence" or "missing-trace" or "repeated-choice")
         {
             advice = advice with
             {
@@ -45,6 +52,10 @@ public sealed class AgentEvidenceAcceptanceTests
         }
 
         LlmToolCall[] choices = scenario == "no-read" ? [] : [new("read", "search_documents", """{"query":"procedure","limit":1}""")];
+        if (scenario is "some-empty" or "typed-empty" or "mixed-failure")
+        {
+            choices = [.. choices, new("empty", "get_maintenance_history", "{}")];
+        }
         var final = new LlmCompletion(InvestigationAdviceContract.Serialize(advice), [], "script", new(100, 50));
         var gateway = new ScriptedLlmGateway(choices.Length == 0 ? [final] : [new(null, choices, "script", new(100, 20)), final]);
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
@@ -66,18 +77,31 @@ public sealed class AgentEvidenceAcceptanceTests
             .ExecuteAsync(frozen.ToArray(), (name, args, _) =>
             {
                 InvestigationToolPolicy.Validate(name, args);
-                InvestigationEvidence[] returned = scenario == "empty" ? [] : [document];
+                var maintenance = name == "get_maintenance_history";
+                InvestigationEvidence[] returned = scenario == "empty" || maintenance ? [] : [document];
+                if (maintenance && scenario == "typed-empty")
+                {
+                    returned = [document with { Id = "M1", Kind = "Maintenance", State = new("Empty") }];
+                }
                 frozen.AddRange(returned);
                 traces.Add(JsonSerializer.SerializeToElement(new
                 {
                     name,
                     arguments = args,
-                    outcome = scenario == "unavailable" ? "Unavailable" : "Succeeded",
-                    evidence = returned.Select(x => new { id = x.Id, sha256 = x.Sha256 })
+                    outcome = scenario == "unavailable" || maintenance && scenario == "mixed-failure" ? "Unavailable" : "Succeeded",
+                    evidence = returned.Select(x => new { id = scenario == "foreign-evidence" ? "FORGED" : x.Id, sha256 = scenario == "forged-hash" ? "forged" : x.Sha256 })
                 }));
                 return Task.FromResult(new InvestigationToolResult(returned, []));
             }, _ => Task.CompletedTask, budget, CancellationToken.None);
         var parsed = InvestigationAdviceContract.ParseAndValidate(result.ResultJson, frozen);
+        if (scenario == "missing-trace")
+        {
+            traces.Clear();
+        }
+        if (scenario == "repeated-choice")
+        {
+            choices = [.. choices, choices[0] with { Id = "second-read" }];
+        }
         var failures = AgentEvidenceAcceptance.Check(choices, traces, frozen, parsed);
         if (expected == null)
         {

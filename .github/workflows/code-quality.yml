@@ -33,7 +33,9 @@ jobs:
         run: ./tests/scripts/Test-LegacyQualityGuard.ps1
       - name: Verify agent acceptance authorization and database guards
         shell: pwsh
-        run: ./tests/scripts/Test-AgentAcceptanceGuard.ps1
+        run: |
+          ./tests/scripts/Test-AgentAcceptanceGuard.ps1
+          ./tests/scripts/Test-AgentLedgerResume.ps1
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

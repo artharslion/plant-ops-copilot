@@ -14,10 +14,12 @@ namespace PlantOps.Tests;
 [Collection("Database")]
 public sealed class InvestigationAdviceServiceTests
 {
-    [DatabaseFact]
-    public async Task ScriptedOptionalReadIsCorrelatedWithFrozenEvidenceAndPendingProposal()
+    [DatabaseScenarioTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ScriptedOptionalReadIsCorrelatedWithFrozenEvidenceAndPendingProposal(bool includeEmpty)
     {
-        var gateway = new ReadThenFinishGateway();
+        var gateway = new ReadThenFinishGateway(includeEmpty);
         var clock = new AlarmTests.Clock();
         await using var session = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection(), configureServices: services =>
             services.AddSingleton<ILlmGateway>(gateway));
@@ -36,6 +38,10 @@ public sealed class InvestigationAdviceServiceTests
         var traces = run.RunRecord!.Value.GetProperty("toolTrace").EnumerateArray().ToArray();
         Assert.Equal("get_asset_details", traces[0].GetProperty("name").GetString());
         Assert.Empty(AgentEvidenceAcceptance.Check(gateway.Choices, traces.Skip(1).ToArray(), run.Evidence, advice));
+        if (includeEmpty)
+        {
+            Assert.Contains(run.Evidence, x => x.Kind == "Maintenance" && x.State?.Availability == "Empty");
+        }
         var proposed = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
         Assert.Equal(HttpStatusCode.OK, proposed.StatusCode);
         var proposal = (await proposed.Content.ReadFromJsonAsync<ActionProposalDto>())!;
@@ -47,9 +53,11 @@ public sealed class InvestigationAdviceServiceTests
     }
 
     // Scripted selection and demo final content verify plumbing only, never real autonomy or semantics.
-    private sealed class ReadThenFinishGateway : ILlmGateway
+    private sealed class ReadThenFinishGateway(bool includeEmpty) : ILlmGateway
     {
-        public LlmToolCall[] Choices { get; } = [new("read", "get_recent_alarms", "{}")];
+        public LlmToolCall[] Choices => includeEmpty
+            ? [new("read", "get_recent_alarms", "{}"), new("empty", "get_maintenance_history", "{}")]
+            : [new("read", "get_recent_alarms", "{}")];
 
         private int round;
 

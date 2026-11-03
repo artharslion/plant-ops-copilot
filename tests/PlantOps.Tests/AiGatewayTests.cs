@@ -19,6 +19,27 @@ public sealed class AiGatewayTests
     private static readonly LlmRequest Request = new([new(LlmRole.System, "Read only."), new(LlmRole.User, "Say hello.")]);
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResponseEndedBeforeHeadersKeepsUnknownUsageAndNeverRetriesWhenDisabled(bool stream)
+    {
+        using var handler = new Handler((_, _) => throw new HttpRequestException(HttpRequestError.ResponseEnded, "Synthetic pre-header close"));
+        using var client = new HttpClient(handler);
+        using var budget = new LlmBudget();
+        var options = new AiOptions { Provider = "OpenAiCompatible", ApiKey = Secret, MaxRetries = 0, StreamResponses = stream };
+        var error = await Assert.ThrowsAsync<LlmException>(() => Gateway(client, options).CompleteAsync(Request, budget));
+        Assert.Equal(LlmFailure.Unavailable, error.Failure);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(1, budget.UnknownUsageAttempts);
+        Assert.Equal(0, budget.ReportedUsageAttempts);
+        Assert.True(budget.UnknownInputReservation > 0);
+        var trace = Assert.Single(budget.Diagnostics, x => x.GetProperty("stage").GetString() == "response-headers");
+        Assert.Equal("TransportFailed", trace.GetProperty("outcome").GetString());
+        Assert.Equal("ResponseEnded", trace.GetProperty("details").GetProperty("error").GetString());
+        Assert.DoesNotContain(budget.Diagnostics, x => x.GetProperty("stage").GetString() == "stream");
+    }
+
+    [Theory]
     [InlineData("length", LlmFailure.Truncated)]
     [InlineData("content_filter", LlmFailure.Refused)]
     public async Task FailedAnswerStillPreservesReportedUsage(string finish, LlmFailure failure)
