@@ -2,7 +2,7 @@
 
 Date: 2026-11-03 (Asia/Shanghai). Base: main `6ceac09`, including merged PR #2. Branch: `codex/p6-real-agent-acceptance`.
 
-**P6 is not complete. Phase 1/2 preparation does not prove a real Agent closed loop. Phase 3 subsequently received explicit authorization for at most four sends, but its initial startup was blocked by a harness preflight defect before database or model access. The preflight has been corrected offline; the paid run was not restarted, respecting the user's no-automatic-rerun instruction. No paid model sends were made, no real-call authorization ledger was initialized, and no human approval or business work order was performed.**
+**P6 is not complete. After the preflight repair and explicit permission to resume, one AutonomousRead investigation made 2 of the 4 authorized external sends. The first response selected five authorized read tools; the second send failed before response headers with `ResponseEnded`, producing Run `Failed/Unavailable`. There is no final v3 advice or Pending Proposal. Work-order count remains zero. No automatic rerun, DirectFinish, Phase 4 or approval occurred. Earlier zero-send checkpoints below remain historical records; the latest result is in the final section.**
 
 ## Failure classification and change boundary
 
@@ -96,4 +96,47 @@ Original failure reproduced using the committed preflight and fictional credenti
 | Human approval / work order | Not performed; no work-order operation issued |
 | Phase 4 | Not started and no additional calls authorized |
 
-The one-line harness repair and expanded regression are reviewable in the same PR. The real runner was not invoked again, even though the failure consumed no model budget. Await the user's instruction to resume the corrected startup under the same four-send total authorization; do not automatically create a replacement run or treat this preflight as Agent acceptance.
+At that checkpoint, the one-line harness repair and expanded regression were reviewable in the same PR. The runner was not invoked again until the user explicitly replied with permission to resume. That subsequent attempt is recorded below; the original preflight evidence is unchanged.
+
+## Phase 3 resumed with explicit permission — real upstream failure
+
+The user explicitly permitted resuming the repaired startup. Exactly one AutonomousRead test was run against `plantops_tests`, schema `p17_isolated_e3e79b64bc9a4489ab6f4003b1ac9b28`, using the production InvestigationEngine and real OpenAiCompatible provider/configured `gpt-6.1-sol`. Run ID: `c97821c9-4876-4009-9614-c80a0c11d361`; `Simulated=false`. These remain fictional ingested fixture readings with frozen fixture time 2026-10-05 08:00:03 +08:00, not fresh OPC UA observations. Model dispatch occurred on 2026-11-03.
+
+The single real-call ledger is `artifacts/investigation-quality/p6-agent-20261103-r1/requests.jsonl`. Its authorization header has limit=4, followed by exactly two sequential pre-send persisted reservations. Both captured request bodies were independently SHA256-checked against those entries. No replacement ledger was created, no retries occurred, and the remaining two sends were not used after failure.
+
+| Send | Pre-send reservation (Asia/Shanghai) | Request SHA256 | Result / usage |
+| --- | --- | --- | --- |
+| 1 | 11:54:08.554 | `D92178410DD6A16A8BD2D4ACDA9CF37869548978CCA62DC4854250BF84F52366` | Valid tool-selection completion; provider reports 7,447 input / 137 output tokens |
+| 2 | 11:54:44.269 | `FE345A20FB2913FDB929B07A46400CDDF4909E0A9CE1B270D7FF3BD9BB88FD55` | `response-headers / TransportFailed / ResponseEnded` after 55,849 ms; no completion, remote receipt/usage unknown |
+
+The run record confirms zero retries, 4 maximum model rounds, 8 maximum tools, 32,000 input / 6,000 output limits, 120-second request and 180-second run timeout. Actual rounds=2, tool count=6: one automatic initial asset read plus five model-selected calls. Send 2 reserved 18,837 input / 5,863 remaining output; total conservative accounting is 26,284 input / 6,000 output. These reservations are **not actual token usage**. Actual complete totals and monetary cost remain unknown because the second attempt has no provider usage. The observed failure was neither budget exhaustion nor a timeout at the configured limit.
+
+| Model-selected tool | Arguments | Server trace / frozen evidence |
+| --- | --- | --- |
+| `get_asset_details` | `{}` | Succeeded, cache hit; E3 |
+| `get_recent_measurements` | `{}` | Succeeded; E7–E13: partial raw/derived facts, empty completed-minute windows, latest point snapshot and quality limitations |
+| `get_recent_alarms` | `{}` | Succeeded; E14, one scoped alarm |
+| `get_maintenance_history` | `{}` | Succeeded; E15 Empty (no matching work orders), E16 quality/context limitation |
+| `search_documents` | `{"query":"高振动 泵 振动 告警 检查","limit":6}` | Succeeded; E17/E18, authorized published procedure heading/body |
+
+The model's actual choice capture matches service tool names/arguments after server policy/ACL validation; each trace stores evidence IDs and hashes. It demonstrably chose and read tools, including scoped measurement/history/procedure evidence. The initial automatic asset read is excluded from that autonomy observation. Cached E3 does not constitute a new upstream observation.
+
+Independent evidence inspection: E4/E12 show VIB 12.6 mm/s, Good, threshold 10, recovery limit 8, with source/point/mapping version 1. E7/E8 report three constant 12.6 observations and zero change, with limited window coverage; E9/E10 are Empty completed-minute windows. E14 contains one scoped historical alarm. E15 explicitly says no matching maintenance records, not no maintenance ever. E18 contains the fictional read-only inspection procedure. No final model answer exists to demonstrate appropriate references, causal interpretation or useful recommendations.
+
+Primary failure classification: **upstream transport**. Diagnostics at 11:55:40 show a premature response ending while awaiting headers (`ResponseEnded`), then `LlmFailure.Unavailable`; there was no second completion or v3 validator rejection. The available client evidence cannot locate the fault specifically in provider, relay, proxy or network, nor prove whether the remote model processed/billed send 2. No Engine/Prompt/contract change is justified by this evidence, and none was made.
+
+Secondary acceptance observation: the preserved test report also lists `NoUsableToolEvidence` because the current conservative gate requires usable non-DataQuality evidence from every selected tool, and maintenance E15 is Empty. Other selected tools did return usable evidence. This is an acceptance-policy limitation (legitimate negative evidence may be useful), **not proof that all tool reads failed**, and not the cause of the Run failure. `NoValidAdvice` and `ToolEvidenceNotCited` reflect the missing final response; they are not evidence of an actual malformed or uncited final answer. The gate and failed report were not changed to turn this attempt into a pass.
+
+| Acceptance level | Result |
+| --- | --- |
+| Actual autonomous authorized read selection and execution | Observed: five model-selected tools, all service traces Succeeded, frozen evidence retained |
+| Final legal v3 advice and appropriate tool citations | Not observed; result=null after transport failure |
+| Succeeded, nonsimulated investigation | Failed; nonsimulated=true, status=Failed, failure=Unavailable |
+| Proposal API / Pending draft | Not reached; proposal=null (not an observed Proposal API rejection) |
+| No unapproved work order | Passed for this attempt: before=0, after=0; independent schema count confirms 1 Run / 0 proposals / 0 work orders |
+| Complete model usage | Incomplete: one reported attempt, one unknown attempt; both counted against cap |
+| Protocol/browser/human confirmation / scenario semantic scoring | Not executed; Phase 4 outside current authorization, no final advice to score |
+
+The real test result is **1 failed / 0 passed / 0 skipped**, duration approximately 1m42s. Raw request bodies (without auth headers), first completion, full failed run/evidence/tool trace, TRX and logs are preserved under `artifacts/investigation-quality/p6-agent-20261103-r1/`. `independent-audit.json` records the separate database count, request-body hash checks and original artifact file hashes. Existing failure files, the ledger and preflight record are unmodified; no credentials or raw private configuration were uploaded to GitHub. This report update changes documentation only, with local links/diff checked; there is no second paid test run or post-failure database mutation.
+
+**Final judgment: real autonomous reads are partially demonstrated, but the required real Agent → valid v3 → Pending Proposal closed loop failed and P6 remains incomplete. Stop here, preserve the two-send ledger, and do not spend the remaining allowance automatically.**
