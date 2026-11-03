@@ -7,8 +7,25 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($target, [ref]$
 if ($parseErrors.Count -ne 0) { throw 'Agent harness must parse.' }
 # Verify the authorization guard is before all configuration/DB/model access before invoking it.
 if ($ast.EndBlock.Statements[1].Extent.Text -notlike 'if (-not $AuthorizePaidModelCalls)*throw*') { throw 'Authorization guard must be the first operation after error handling setup.' }
+# Exercise the exact production preflight, including positive inputs, without executing
+# the later configuration/report/database/model operations.
+if ($ast.EndBlock.Statements[5].Extent.Text -notlike '*Only plantops_tests is permitted.*' -or
+    $ast.EndBlock.Statements[6].Extent.Text -notlike '$reportRoot =*') { throw 'Review preflight extraction before running this regression.' }
+$preflight = [scriptblock]::Create(($ast.EndBlock.Statements[0..5].Extent.Text -join "`n"))
 $saved = $env:PLANTOPS_TEST_CONNECTION
 try {
+    foreach ($connection in @(
+        'Host=127.0.0.1;Database=plantops_tests;Username=fictional;Password=fictional',
+        'Host=127.0.0.1;database="plantops_tests";Username=fictional;Password="fictional;value"'
+    )) {
+        $env:PLANTOPS_TEST_CONNECTION = $connection
+        $AuthorizePaidModelCalls = $true
+        & $preflight
+    }
+    $env:PLANTOPS_TEST_CONNECTION = 'Database="unterminated'
+    $failure = $null
+    try { & $preflight } catch { $failure = $_.Exception.Message }
+    if ($failure -ne 'Invalid dedicated database configuration; connection details suppressed.') { throw 'Malformed connections must fail without exposing their contents.' }
     $env:PLANTOPS_TEST_CONNECTION = 'Host=127.0.0.1;Database=forbidden_business_database'
     $failure = $null
     try { & $target -Run 'guard_never_execute' } catch { $failure = $_.Exception.Message }
@@ -20,4 +37,4 @@ try {
 } finally {
     $env:PLANTOPS_TEST_CONNECTION = $saved
 }
-Write-Output 'PASS: missing current authorization and business databases are blocked without model or database access.'
+Write-Output 'PASS: dedicated database positive inputs accepted; missing authorization and business databases blocked; no model or database access.'

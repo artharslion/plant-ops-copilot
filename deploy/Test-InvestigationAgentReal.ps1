@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $AuthorizePaidModelCalls) { throw 'Current-run explicit paid-model authorization is required. No configuration, database or model accessed.' }
 if ([string]::IsNullOrWhiteSpace($env:PLANTOPS_TEST_CONNECTION)) { throw 'Dedicated plantops_tests connection required.' }
 $database = [System.Data.Common.DbConnectionStringBuilder]::new()
-try { $database.ConnectionString = $env:PLANTOPS_TEST_CONNECTION } catch { throw 'Invalid dedicated database configuration; connection details suppressed.' }
+try { $database.set_ConnectionString($env:PLANTOPS_TEST_CONNECTION) } catch { throw 'Invalid dedicated database configuration; connection details suppressed.' }
 if ($database['Database'] -cne 'plantops_tests') { throw 'Only plantops_tests is permitted.' }
 $reportRoot = Join-Path (Split-Path $PSScriptRoot -Parent) "artifacts/investigation-quality/$Run"
 if (Test-Path -LiteralPath $reportRoot) { throw 'Use a fresh run name; reports are immutable.' }

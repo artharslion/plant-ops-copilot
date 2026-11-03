@@ -2,7 +2,7 @@
 
 Date: 2026-11-03 (Asia/Shanghai). Base: main `6ceac09`, including merged PR #2. Branch: `codex/p6-real-agent-acceptance`.
 
-**P6 is not complete. Phase 1/2 preparation does not prove a real Agent closed loop. Phase 3 is blocked on explicit authorization for this round, as requested by the user. No paid model sends were made, no authorization ledger was initialized, and no human approval or business work order was performed.**
+**P6 is not complete. Phase 1/2 preparation does not prove a real Agent closed loop. Phase 3 subsequently received explicit authorization for at most four sends, but its initial startup was blocked by a harness preflight defect before database or model access. The preflight has been corrected offline; the paid run was not restarted, respecting the user's no-automatic-rerun instruction. No paid model sends were made, no real-call authorization ledger was initialized, and no human approval or business work order was performed.**
 
 ## Failure classification and change boundary
 
@@ -47,7 +47,7 @@ The proposed initial authorization is **at most 4 total external HTTP model send
 
 After authorization, invoke `deploy/Test-InvestigationAgentReal.ps1` with a fresh run name, a dedicated test connection and `-AuthorizePaidModelCalls`. It selects exactly one autonomous test, initializes the shared ledger only then, saves raw requests without auth headers, completions, run/evidence/tool records, reported and unknown usage, proposal result and test logs. The independent DirectFinish mode is available but is not an automatic fallback or an additional authorized batch. Pricing is not established, so no currency cost is inferred from token counts. Current round sends=0; reported token usage and unknown remote usage are not applicable before any send.
 
-Classify failures as evidence, orchestration, contract, semantic quality, budget or upstream transport before proposing another send. Do not overwrite failed reports. A pre-send reservation is conservatively counted even if remote receipt is unknown. The ledger must be reused for any later Phase 4 sends in this authorized batch; if Phase 3 consumes all four, Phase 4 model work requires new explicit authorization. Never create a new ledger to reset the cap.
+Classify failures as evidence, orchestration, contract, semantic quality, budget or upstream transport before proposing another send. Do not overwrite failed reports. A pre-send reservation is conservatively counted even if remote receipt is unknown. The user's subsequent authorization covers Phase 3 only: Phase 4 requires separate explicit authorization regardless of remaining sends. Never create a new ledger to reset the current four-send total.
 
 ## Deferred protocol/browser acceptance
 
@@ -77,3 +77,23 @@ Human review must score factual support, uncertainty, causal restraint, procedur
 The acceptance gate can still falsely accept a semantically irrelevant citation, or an answer with valid structure but poor recommendations. It intentionally rejects an autonomous proof when selected tools fail/return no usable evidence, and could conservatively reject an otherwise useful investigation that included an unsuccessful optional read. Cache hits may count as actual authorized reads of frozen evidence; they do not prove a new upstream observation. Direct Finish is evaluated independently to avoid treating legitimate initial-evidence sufficiency as a product defect.
 
 See [v3 contract](INVESTIGATION_RESPONSE_V3.md), [guardrails](AI_ENGINEERING_GUARDRAILS.md) and [P6 scope](../ROADMAP.md#4-p6ai-多源联合调查增强). P6 remains incomplete until real autonomous evidence/proposal acceptance and the required protocol/browser/human-confirmation closure are observed.
+
+## Phase 3 authorized startup — blocked before external sends
+
+The user authorized only AutonomousRead, at most four external HTTP model sends total, zero retries, existing 32k/6k budgets and 4 rounds/8 tools, with no automatic rerun after failure and no Phase 4 calls or work-order confirmation. The single startup invocation used the intended immutable run name `p6-agent-20261103-r1`. It stopped at the dedicated-database guard with `Only plantops_tests is permitted.` The report directory and ledger do not exist; no test host, database connection or model request was started by that invocation. Docker metadata was read only to supply the dedicated test connection in process memory.
+
+Failure classification: **acceptance harness / preflight**, not a model, tool, evidence or v3 result failure. In PowerShell, DbConnectionStringBuilder implements IDictionary: assigning `.ConnectionString = value` adapted to a dictionary entry instead of invoking the .NET setter. Consequently even a valid `Database=plantops_tests` input was rejected. The original regression covered denial cases only and missed this false rejection. The general correction explicitly calls `set_ConnectionString(...)`; the exact production preflight now has offline positive cases for ordinary and quoted connection strings, plus malformed-input, missing-authorization and business-database rejection. No production engine, prompt, AI tool policy or business contract changed.
+
+Original failure reproduced using the committed preflight and fictional credentials only; corrected guard regression passes without executing configuration/report/database/model operations. Evidence: `artifacts/test-results/p6-phase3-preflight-20261103.json` and `artifacts/test-results/p6-phase3-preflight-regression-20261103.log`.
+
+| Required result | Observed result |
+| --- | --- |
+| External sends / ledger | **0 / no real-call ledger initialized**; total authorized limit remains 4, no reset or second ledger |
+| Input/output usage | No model usage incurred by this invocation; no upstream receipt or unknown remote usage |
+| Model-selected tools / evidence citations | Not produced; autonomous evidence not demonstrated |
+| v3 advice / Run status | No investigation was started; no v3 result or successful Run |
+| Proposal API | Not reached; no Pending Proposal produced |
+| Human approval / work order | Not performed; no work-order operation issued |
+| Phase 4 | Not started and no additional calls authorized |
+
+The one-line harness repair and expanded regression are reviewable in the same PR. The real runner was not invoked again, even though the failure consumed no model budget. Await the user's instruction to resume the corrected startup under the same four-send total authorization; do not automatically create a replacement run or treat this preflight as Agent acceptance.
