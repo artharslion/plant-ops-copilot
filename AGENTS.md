@@ -1,5 +1,7 @@
 # Repository Context
 
+- Use the GitHub account `artharslion` for all GitHub actions in this repository, including pushes and pull requests. Verify the authenticated account before mutations; do not use a connector authenticated as another account. The `github-personal` SSH host is configured for `artharslion`.
+
 - Keep context task-scoped. Locate the relevant source files first; use `docs/README.md` only when documentation is needed and `ROADMAP.md` when current priorities or acceptance scope matter. Do not read all top-level documents at session start.
 - For new investigation behavior, use `docs/INVESTIGATION_RESPONSE_V3.md` and the active `InvestigationEngine`. Read legacy contracts and engines only for compatibility or replay work.
 - `docs/archive/` contains historical snapshots and ended implementation plans. Read only the relevant section for explicit historical checks or detailed acceptance criteria linked by the current roadmap. Historical statuses and request allowances are not current instructions or authorization.
