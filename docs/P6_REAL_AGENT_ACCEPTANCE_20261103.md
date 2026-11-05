@@ -194,3 +194,48 @@ The received content was rejected by the unchanged v3 validator: `InvalidRespons
 This exact-payload retry demonstrates that the current route can return the larger request's streamed response. It does not establish TUN as the cause of improvement: there is still no connection/proxy trace, and only one retry was authorized. It provides no basis for changing production networking, prompt exceptions or validation rules. Outcome: **transport passed for one replay; v3 contract failed; full Agent/Proposal acceptance remains incomplete**.
 
 Response, usage, diagnostics and raw completion are retained under `artifacts/investigation-quality/p6-agent-20261103-tun-retry/result.json`, with request/completion captures beside the original shared ledger. The single-send replay helper source is retained locally for audit, not added as a new production feature. No second replay, Phase 4, Proposal API mutation or work-order operation followed.
+
+## 2026-11-05 offline Schema and complete response audit
+
+Scope: no real model call; original authorization remains **3/4** with one unused send. Captured response SHA256 remains `ABD7EAEA8DC856D1EE03963BE14BF979B61FEEAB0A61894085DB68D9887718CF`; ledger SHA256 remains `1AB442C4D1B8048639CD44FDCFFE6E236ABADE643C5B19BB82E7AB4621EFD245`. No original output was rewritten, normalized into acceptance or published as a successful investigation.
+
+### Complete deterministic audit
+
+An independent offline audit checked every field against the full shape schema and then all reference namespaces, duplicate IDs/references, current-point trust/citation/anomaly invariants, hypothesis observational support/opposition, conflicting-gap cardinality, root readiness and independent draft readiness. It does not stop at the first failure. The complete captured response has **five deterministic violations**:
+
+| Path | Problem / existing authoritative rule |
+| --- | --- |
+| `$.blockingGapIds` | Empty with `status=NeedsMoreEvidence`; at least one existing gap must block that status |
+| `$.findings[3].subjectRefs` | F4 affirms Current EquipmentCondition for both the point and the alarm. The alarm resource `2487c2e1-2ccf-45d5-ad92-c802758f5b3f` has no current PointStatus; a non-Inconclusive finding cannot establish current equipment condition for that target. Citing the point snapshot does not give the alarm its own current point evidence |
+| `$.recommendations[0].evidenceRefs[1]` | G1 is a generated gap ID, absent from the frozen evidence ledger |
+| `$.recommendations[1].evidenceRefs[5]` | G2 is a generated gap ID, absent from the frozen evidence ledger |
+| `$.recommendations[1].evidenceRefs[6]` | G3 is a generated gap ID, absent from the frozen evidence ledger |
+
+No other deterministic issue was found in the enumerated checks: required/extra fields, enums, array/text limits, schemaVersion, all remaining subject/evidence/recommendation/gap links, IDs and reference uniqueness, hypothesis support/opposition, and draft status/payload/task links are consistent. In particular `NeedsMoreEvidence` may coexist with DraftReady; the latter has no blockers and references R1/R2/R3 correctly, so that combination is not itself a failure. Independent raw draft rendering measures 2,090 characters, below 7,488; this size check does not approve the invalid advice or create a Proposal.
+
+Separate human semantic concerns remain: F3 labels event-window evidence as Recovery; F1 mixes historical and current context; H1's measurement-chain hypothesis lacks independent corroboration; and R3's instruction to retain Active/unconfirmed status could be clearer about recording actual subsequent changes. These are review observations, not newly implemented keyword rules or additional deterministic failures. No claim that this visible sample is an unseen holdout or that all prose is appropriate is made.
+
+Diagnostic artifacts: `artifacts/test-results/p6-schema/complete-audit.json`, `captured-advice.json`, `frozen-evidence.json`, `shape-schema.json`, `model-schema.json`, and `audit-source.py`. Standard JSON Schema validation (local jsonschema 4.26) found zero base shape errors; the updated provider schema independently reports all three unknown evidence IDs. The offline cross-field audit identifies readiness and current-target errors as well. Production `ParseAndValidate` remains fail-fast and unchanged; this diagnostic is not a second production validator.
+
+### Provider Schema constraints and compatibility decision
+
+Failure class: provider contract guidance was weaker than the strict server reference invariant. `ForModel` now defines the current authorized frozen Evidence IDs once in `$defs.evidenceId` and shares optional/required evidence arrays through `$defs`. It applies to findings, recommendations, gaps, hypothesis support and hypothesis opposition. IDs are checked by membership, not prefix or meaning: for example an authorized `G42` can be evidence while an unissued `E77` cannot. Gap/recommendation/subject namespaces and their own cross-item rules are not conflated with evidence.
+
+The [official Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas) excludes root anyOf and composition keywords if/then/else/allOf/dependentSchemas; nested anyOf, enum and local definitions/references are supported. Thus the existing flat root cannot express the sibling status/blocker relationship with those conditionals in the supported provider subset. A wrapper or nested readiness object could enable nested branches but would change the model output shape and require deliberate version/compatibility work. The user explicitly chose to **retain the current v3 shape**. No unsupported keyword, mandatory blocker for Ready, guessed status selection, wrapper or automatic output repair is introduced. Root readiness remains the existing strict server invariant: Ready requires zero blockers; NeedsMoreEvidence requires at least one; NeedsExpertReview permits either. Existing nested workOrder branches are preserved.
+
+The active request version advances to `investigation-advice-v3.3` so run metadata distinguishes the strengthened schema. The instructions text, stored schemaVersion=3, public result shape, business APIs, approval boundary, budgets and historical v1/v2/v3 behavior are unchanged. No service validator or natural-language rule was relaxed. Schema hashes continue to be recorded per run. Local subset checks are not proof that the configured compatible relay will enforce every constraint online.
+
+### Size, budget, tests and next acceptance recommendation
+
+| Frozen request | Schema bytes before → after | Full request bytes before → after |
+| --- | --- | --- |
+| Initial 6 evidence items | 4,681 → 4,984 (+303) | 14,042 → 14,345 (+2.16%) |
+| After reads, 18 evidence items | 4,681 → 5,053 (+372) | 18,581 → 18,953 (+2.00%) |
+
+These are UTF-8 bytes, not provider token estimates. Measurements replace only the schema in exact saved bodies; changing the version tag from v3.2 to v3.3 has the same byte length. Definitions avoid repeating the enum at every citation field. A 40-item test with longer independently named IDs also remains below 6,500 schema bytes and successfully executes the scripted production engine under 32k/6k. This does not guarantee that every long evidence set or multi-round investigation fits; existing pre-send budget rejection stays authoritative. There is no round/retry/output-budget increase or paid usage in this task.
+
+Verification: targeted schema/contract/acceptance **58 passed**, then final full offline suite **689 passed, 0 failed, 146 explicit skips (835 total)**. New cases exercise every evidence-array field, alternative IDs and inverted-looking namespaces, all six root status/blocker combinations, the affirmative current alarm-target counterexample, supported keyword/root shape and 40-item engine budget. Existing independent workOrder combinations remain covered. Changed C# format, PowerShell authorization/ledger regressions, report links and diff checks passed. Initial synthetic tests accidentally used affirmative Current findings without a PointStatus; the test fixtures were corrected to use AlarmEvent while the production validator was preserved. Earlier failed logs are retained.
+
+**Database validation is blocked in the current environment.** Docker's Linux engine pipe is absent, the dedicated `plantops-demand-tests` container cannot be inspected/connected, and no native PostgreSQL executable/service was found. The attempted database selection encountered connection refusal and was stopped; it is not a passing run. With the database opt-in disabled, the full offline run explicitly skipped integration tests. Historical 57-pass results belong to the preceding revision, not this schema change. Starting Docker Desktop could restart existing demo/business services, so no such broad environment mutation was made. Logs/TRX are under `artifacts/test-results/p6-schema/` and `p6-schema-*.log`.
+
+Recommendation: first restore the dedicated test PostgreSQL environment and complete the integration selection. Then, if separately authorized, a single new-schema final-response/provider compatibility probe could use the remaining **one** send on the same ledger. It cannot guarantee a full fresh autonomous-read-plus-final-answer investigation, which commonly needs at least two sends. Do not initiate that call automatically or claim provider compatibility, accepted v3, Proposal API or P6 completion from these offline checks. The current recommendation is **not to start a new full real-Agent acceptance yet**.
