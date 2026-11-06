@@ -26,9 +26,13 @@ internal static class InvestigationEvidenceProjection
             "RelatedComparison" => 5,
             _ => 6
         }).ToArray();
-        var result = items.Select(x => new Item(x.Id, x.Kind,
-            x.Kind is "Alarm" or "Asset" ? x.Facts.Take(1).ToArray() : [],
-            x.Facts.Length - (x.Kind is "Alarm" or "Asset" ? Math.Min(1, x.Facts.Length) : 0), x.State)).ToArray();
+        var result = items.Select(x =>
+        {
+            // Data-quality evidence is ordered by the service. Keep its leading limitation
+            // even when the optional fact allowance is exhausted.
+            var facts = x.Kind is "Alarm" or "Asset" or "DataQuality" ? x.Facts.Take(1).ToArray() : [];
+            return new Item(x.Id, x.Kind, facts, x.Facts.Length - facts.Length, x.State);
+        }).ToArray();
         var candidates = items.SelectMany((item, index) => item.Facts.Select((fact, round) => new { index, fact, round }))
             .OrderBy(x => x.round).ThenBy(x => x.index);
         foreach (var candidate in candidates)

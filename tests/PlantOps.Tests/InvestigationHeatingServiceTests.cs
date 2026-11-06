@@ -110,7 +110,9 @@ public sealed class InvestigationHeatingServiceTests
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web)))));
         Assert.Equal(expectedHash, evidence.Sha256);
         Assert.Equal("3", run.Result!.Value.GetProperty("schemaVersion").GetString());
-        Assert.NotEmpty(run.Result.Value.GetProperty("findings").EnumerateArray());
+        Assert.Contains(run.Result.Value.GetProperty("findings").EnumerateArray(), finding =>
+            finding.GetProperty("scope").GetString() == "AlarmEvent"
+            && finding.GetProperty("evidenceRefs").EnumerateArray().Any(reference => reference.GetString() == evidence.Id));
         var proposalResponse = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
         Assert.Equal(HttpStatusCode.OK, proposalResponse.StatusCode);
         var proposal = (await proposalResponse.Content.ReadFromJsonAsync<ActionProposalDto>())!;

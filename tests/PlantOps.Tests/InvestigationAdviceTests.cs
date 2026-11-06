@@ -164,8 +164,8 @@ public sealed class InvestigationAdviceTests
             Findings = [Valid(Point.ToString()).Findings[0] with { SubjectRefs = [Point.ToString(), asset.ResourceId.ToString()] }]
         };
         Assert.Throws<LlmException>(() => InvestigationAdviceContract.ParseAndValidate(InvestigationAdviceContract.Serialize(advice), [.. Evidence, asset]));
-        var allowed = InvestigationAdviceContract.ForModel([.. Evidence, asset]).Schema.GetProperty("properties").GetProperty("findings")
-            .GetProperty("items").GetProperty("properties").GetProperty("subjectRefs").GetProperty("items").GetProperty("enum")
+        var allowed = InvestigationAdviceContract.ForModel([.. Evidence, asset]).Schema.GetProperty("$defs")
+            .GetProperty("findingSubjects").GetProperty("items").GetProperty("enum")
             .EnumerateArray().Select(x => x.GetString()).ToArray();
         Assert.Contains(Point.ToString(), allowed);
         Assert.DoesNotContain(asset.ResourceId.ToString(), allowed);
