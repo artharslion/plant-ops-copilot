@@ -93,31 +93,50 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 || budget.ModelRounds + 1 >= budget.Limits.MaxModelRounds ? [] : Tools;
             var inputLimit = Math.Min(8000, budget.RemainingInputTokens);
             var providerSchema = InvestigationAdviceContract.ForModel(ledger);
+            var trendOrder = ledger.Where(x => x.DerivedTrend != null)
+                .OrderByDescending(x => x.DerivedTrend!.IsAlarmPoint)
+                .ThenByDescending(x => x.DerivedTrend!.Change != null || x.DerivedTrend.RiseSegments.Length > 0)
+                .Select(x => x.Id).ToArray();
+            var trendLimit = trendOrder.Length;
             LlmRequest request;
             while (true)
             {
                 var packed = InvestigationEvidenceProjection.Pack(ledger, inputLimit);
                 var includeTrendDetails = inputLimit >= 2048;
+                var compact = trendLimit < trendOrder.Length;
+                var retainedTrends = trendOrder.Take(trendLimit).ToHashSet(StringComparer.Ordinal);
                 var evidenceContext = packed.Select(x =>
                 {
                     var source = ledger.Single(e => e.Id == x.Id);
                     var trend = source.DerivedTrend;
                     // Under pressure, retain numerical changes and evidence with visible facts.
                     // A trend with neither contributes only optional window metadata.
-                    var includeTrend = trend != null && (includeTrendDetails || trend.Change != null
+                    var includeTrend = trend != null && retainedTrends.Contains(x.Id) && (includeTrendDetails || trend.Change != null
                         || trend.RiseSegments.Length > 0 || x.Facts.Length > 0);
                     var includeRise = includeTrendDetails || trend?.Change == null;
+                    var state = x.State;
+                    if (compact && state != null)
+                    {
+                        if (source.PointStatus is { } point && state.CurrentTrust == point.CurrentTrust && state.CurrentAnomaly == point.CurrentAnomaly)
+                        {
+                            state = new(state.Availability);
+                        }
+                        if (state == new InvestigationEvidenceState("Available"))
+                        {
+                            state = null;
+                        }
+                    }
                     return new
                     {
                         x.Id,
                         x.Kind,
-                        source.ResourceId,
-                        x.Facts,
-                        x.OmittedFactCount,
-                        x.State,
+                        resourceId = compact && x.Kind == "DataQuality" ? (Guid?)null : source.ResourceId,
+                        facts = compact && x.Facts.Length == 0 ? null : x.Facts,
+                        omittedFactCount = compact && x.OmittedFactCount == 0 ? (int?)null : x.OmittedFactCount,
+                        state,
                         point = source.PointStatus == null ? null : new
                         {
-                            source.PointStatus.PointId,
+                            pointId = compact && source.PointStatus.PointId == source.ResourceId ? (Guid?)null : source.PointStatus.PointId,
                             source.PointStatus.Code,
                             source.PointStatus.Unit,
                             source.PointStatus.SourceKind,
@@ -146,7 +165,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                             omittedReasonCount = includeTrendDetails ? 0 : trend.Reasons.Length
                         }
                     };
-                }).Where(x => x.Facts.Length > 0 || x.point != null || x.trend != null).ToArray();
+                }).Where(x => x.facts is { Length: > 0 } || x.point != null || x.trend != null).ToArray();
                 var context = JsonSerializer.Serialize(new
                 {
                     mode = PromptVersion,
@@ -176,6 +195,15 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 var excess = inputReservation - budget.RemainingInputTokens;
                 if (excess <= 0)
                 {
+                    if (compact)
+                    {
+                        budget.RecordDiagnostic("request-projection", "Compacted", new
+                        {
+                            requiredBytes = inputReservation,
+                            omittedEvidenceCount = packed.Length - evidenceContext.Length,
+                            retainedTrendCount = evidenceContext.Count(x => x.trend != null)
+                        });
+                    }
                     break;
                 }
 
@@ -186,6 +214,13 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                         // Reserve one final answer instead of advertising reads whose context no longer fits.
                         available = [];
                         inputLimit = 2048;
+                        continue;
+                    }
+                    if (trendLimit > 0)
+                    {
+                        // Preserve current snapshots and ordered quality warnings. The least
+                        // relevant optional trend is still available in the frozen ledger.
+                        trendLimit--;
                         continue;
                     }
                     logger?.LogWarning("AI advice input budget exceeded: requiredBytes={Required}; remaining={Remaining}; evidence={Count}",
