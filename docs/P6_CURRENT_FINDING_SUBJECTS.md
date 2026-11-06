@@ -38,6 +38,10 @@ The Engine builds a Schema for each round before starting any tool's five-second
 
 A fresh loopback PostgreSQL 17.11 comparison reproduced the same assertion on both `a370862` and v3.4. Both returned zero related trends where the test expected two. The checkpoint and read durations were not measured separately. [Issue #4](https://github.com/artharslion/plant-ops-copilot/issues/4) tracks the reproduction and timing investigation. The offline suite passed 694 tests with 146 skipped after adding the budget case. A focused rerun of the advice contract and Schema tests passed all 47 cases.
 
+## Default-budget CI regression
+
+PR #5 exposed a separate request-projection regression at the default 16k input / 2k output limits. Both heating fixtures completed their reads but the final request exceeded the input allowance. The on-demand read fixture lost its query-watermark warning from the projected model input. The compact projection now retains the first service-ordered data-quality fact and skips window metadata when the trend has neither visible facts nor numerical change. It preserves current snapshots and available numerical change summaries. Frozen evidence, tool deadlines, the provider Schema and the server validator are unchanged. A rejected request records the required bytes and remaining allowance in its diagnostics.
+
 ## Semantic review cases
 
 Use a reviewer to record the finding or task, the cited evidence and its time window, the reason for the score, and any false acceptance or false rejection. Use unseen variations and paraphrases. Check whether the model changes scope or domain just to produce a valid object, or returns `Inconclusive` despite decisive evidence for a particular point. Keep these checks separate from deterministic Schema validation.
