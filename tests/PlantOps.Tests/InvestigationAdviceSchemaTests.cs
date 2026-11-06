@@ -36,8 +36,113 @@ public sealed class InvestigationAdviceSchemaTests
         {
             Findings = [advice.Findings[0] with { SubjectRefs = [point.ToString(), alarm.ToString()] }]
         };
+        Assert.True(ModelAccepts(advice, evidence));
+        Assert.False(ModelAccepts(invalid, evidence));
         var error = Assert.Throws<LlmException>(() => InvestigationAdviceContract.ParseAndValidate(InvestigationAdviceContract.Serialize(invalid), evidence));
         Assert.Equal("advice-current-evidence", error.ValidationRule);
+    }
+
+    [Fact]
+    public void FindingBranchesUseLatestTrustedSnapshotsAndKeepOtherScopesAvailable()
+    {
+        var firstAlarm = Guid.NewGuid();
+        var otherAlarm = Guid.NewGuid();
+        var active = Guid.NewGuid();
+        var stable = Guid.NewGuid();
+        var downgraded = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        InvestigationEvidence Point(string id, Guid point, string trust, string anomaly, DateTimeOffset time) =>
+            new(id, "PointStatus", "Point", ["Observation"], "h", time, point,
+                PointStatus: new()
+                {
+                    PointId = point,
+                    CurrentTrust = trust,
+                    CurrentAnomaly = anomaly
+                });
+        InvestigationEvidence[] evidence =
+        [
+            new("first-event", "Alarm", "Alarm", ["Historical event"], "h", now, firstAlarm),
+            new("other-event", "Alarm", "Alarm", ["Historical event"], "h", now, otherAlarm),
+            Point("active-snapshot", active, "Trusted", "Present", now),
+            Point("stable-snapshot", stable, "Trusted", "NotFound", now),
+            Point("superseded-snapshot", downgraded, "Trusted", "NotFound", now),
+            Point("unverified-snapshot", downgraded, "Unverifiable", "Insufficient", now.AddSeconds(-1))
+        ];
+        var advice = Advice(firstAlarm, evidence[0].Id);
+        void Check(string scope, string domain, string status, Guid[] subjects, string[] refs, bool expected)
+        {
+            var candidate = advice with
+            {
+                Findings = [advice.Findings[0] with { Scope = scope, Domain = domain, Status = status,
+                    SubjectRefs = subjects.Select(x => x.ToString()).ToArray(), EvidenceRefs = refs }]
+            };
+            Assert.Equal(expected, ModelAccepts(candidate, evidence));
+            var error = Record.Exception(() => InvestigationAdviceContract.ParseAndValidate(InvestigationAdviceContract.Serialize(candidate), evidence));
+            if (expected)
+            {
+                Assert.Null(error);
+            }
+            else
+            {
+                Assert.Equal("advice-current-evidence", Assert.IsType<LlmException>(error).ValidationRule);
+            }
+        }
+        Check("AlarmEvent", "EquipmentCondition", "AnomalySupported", [firstAlarm, otherAlarm], ["first-event", "other-event"], true);
+        Check("Recovery", "EquipmentCondition", "NoAnomalyFound", [otherAlarm, active], ["other-event", "active-snapshot"], true);
+        Check("Current", "MeasurementChain", "AnomalySupported", [otherAlarm, downgraded], ["other-event", "unverified-snapshot"], true);
+        Check("Current", "EquipmentCondition", "Inconclusive", [firstAlarm, downgraded], ["first-event", "unverified-snapshot"], true);
+        Check("Current", "EquipmentCondition", "AnomalySupported", [active, stable], ["active-snapshot", "stable-snapshot"], true);
+        Check("Current", "EquipmentCondition", "NoAnomalyFound", [stable], ["stable-snapshot"], true);
+        Check("Current", "EquipmentCondition", "NoAnomalyFound", [active, stable], ["active-snapshot", "stable-snapshot"], false);
+        Check("Current", "EquipmentCondition", "AnomalySupported", [downgraded], ["superseded-snapshot"], false);
+
+        var missingLatestCitation = advice with
+        {
+            Findings = [advice.Findings[0] with { Scope = "Current", SubjectRefs = [active.ToString(), stable.ToString()],
+                EvidenceRefs = ["active-snapshot"] }]
+        };
+        Assert.True(ModelAccepts(missingLatestCitation, evidence));
+        var error = Assert.Throws<LlmException>(() => InvestigationAdviceContract.ParseAndValidate(
+            InvestigationAdviceContract.Serialize(missingLatestCitation), evidence));
+        Assert.Equal("advice-current-evidence", error.ValidationRule);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NoTrustedCurrentPointsLeavesOnlyInconclusiveCurrentEquipmentFindings(bool hasSnapshot)
+    {
+        var alarm = Guid.NewGuid();
+        var point = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var eventEvidence = new InvestigationEvidence("event", "Alarm", "Alarm", ["Historical event"], "h", now, alarm);
+        var trendEvidence = new InvestigationEvidence("event-window", "DerivedTrend", "Point", ["Historical observation"], "h", now, point,
+            DerivedTrend: new("test", point, "PT", "unit", alarm, "AlarmEvent", now.AddMinutes(-1), now, now, now, [], [], [], null, [], []));
+        var pointEvidence = new InvestigationEvidence("unverified", "PointStatus", "Point", ["Unverifiable observation"], "h", now, point,
+            PointStatus: new()
+            {
+                PointId = point,
+                CurrentTrust = "Unverifiable",
+                CurrentAnomaly = "Insufficient"
+            });
+        InvestigationEvidence[] evidence = hasSnapshot ? [eventEvidence, trendEvidence, pointEvidence] : [eventEvidence, trendEvidence];
+        var advice = Advice(alarm, eventEvidence.Id);
+        Assert.True(ModelAccepts(advice, evidence));
+        var current = advice.Findings[0] with
+        {
+            Scope = "Current",
+            SubjectRefs = [point.ToString()],
+            EvidenceRefs = [hasSnapshot ? pointEvidence.Id : trendEvidence.Id]
+        };
+        foreach (var status in new[] { "AnomalySupported", "NoAnomalyFound", "Inconclusive" })
+        {
+            Assert.Equal(status == "Inconclusive", ModelAccepts(advice with
+            {
+                Findings = [current with { Status = status }]
+            }, evidence));
+        }
+        Assert.Equal(3, InvestigationAdviceContract.ForModel(evidence).Schema.GetProperty("properties").GetProperty("findings")
+            .GetProperty("items").GetProperty("anyOf").GetArrayLength());
     }
 
     [Theory]
@@ -98,11 +203,30 @@ public sealed class InvestigationAdviceSchemaTests
         }
     }
 
-    [Fact]
-    public async Task ScopedSchemaRemainsCompactAndFitsExistingEngineBudget()
+    [Theory]
+    [InlineData(0, 7000, true)]
+    [InlineData(3, 8250, true)]
+    [InlineData(39, 12500, false)]
+    public async Task ScopedSchemaRespectsExistingEngineBudget(int currentPoints, int schemaLimit, bool fitsBudget)
     {
         var point = Guid.NewGuid();
-        var evidence = Enumerable.Range(1, 40).Select(i => new InvestigationEvidence("observation-" + i, "Alarm", "Snapshot", ["Observation"], "h", DateTimeOffset.UtcNow, point)).ToArray();
+        var evidence = Enumerable.Range(1, 40).Select(i =>
+        {
+            // The production service captures the alarm point and at most two related points.
+            // The 39-point case exercises a larger synthetic scope at the same ledger limit.
+            if (i == 1 || i > currentPoints + 1)
+            {
+                return new InvestigationEvidence("observation-" + i, "Alarm", "Snapshot", ["Observation"], "h", DateTimeOffset.UtcNow, point);
+            }
+            var current = Guid.NewGuid();
+            return new InvestigationEvidence("observation-" + i, "PointStatus", "Snapshot", ["Observation"], "h", DateTimeOffset.UtcNow, current,
+                PointStatus: new()
+                {
+                    PointId = current,
+                    CurrentTrust = "Trusted",
+                    CurrentAnomaly = i == 2 ? "Present" : "NotFound"
+                });
+        }).ToArray();
         var schema = InvestigationAdviceContract.ForModel(evidence).Schema;
         Assert.Equal("object", schema.GetProperty("type").GetString());
         Assert.False(schema.TryGetProperty("anyOf", out _));
@@ -110,11 +234,22 @@ public sealed class InvestigationAdviceSchemaTests
         {
             Assert.Empty(FindFields(JsonNode.Parse(schema.GetRawText())!, keyword));
         }
-        Assert.True(System.Text.Encoding.UTF8.GetByteCount(schema.GetRawText()) < 6500);
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(schema.GetRawText()) < schemaLimit);
         var advice = Advice(point, evidence[0].Id);
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
-        var result = await new InvestigationEngine(new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "script", new(100, 100))]), Options.Create(new AiOptions()))
-            .ExecuteAsync(evidence, (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
+        var engine = new InvestigationEngine(
+            new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "script", new(100, 100))]),
+            Options.Create(new AiOptions()));
+        Task<InvestigationExecutionResult> Execute() => engine.ExecuteAsync(
+            evidence, (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
+        if (!fitsBudget)
+        {
+            var error = await Assert.ThrowsAsync<LlmException>(Execute);
+            Assert.Equal(LlmFailure.BudgetExceeded, error.Failure);
+            Assert.Equal(0, budget.ModelRounds);
+            return;
+        }
+        var result = await Execute();
         Assert.NotNull(result.ResultJson);
         Assert.Equal(1, budget.ModelRounds);
     }
@@ -174,6 +309,13 @@ public sealed class InvestigationAdviceSchemaTests
         {
             return false;
         }
+    }
+
+    private static bool ModelAccepts(InvestigationAdvice advice, IReadOnlyList<InvestigationEvidence> evidence)
+    {
+        var schema = InvestigationAdviceContract.ForModel(evidence).Schema;
+        using var result = JsonDocument.Parse(InvestigationAdviceContract.Serialize(advice));
+        return Accepts(result.RootElement, JsonNode.Parse(schema.GetRawText())!, schema);
     }
 }
 

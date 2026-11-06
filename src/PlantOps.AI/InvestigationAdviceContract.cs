@@ -30,8 +30,6 @@ public static class InvestigationAdviceContract
     public static LlmOutputSchema ForModel(IReadOnlyList<InvestigationEvidence> evidence)
     {
         var root = JsonNode.Parse(OutputSchema.Schema.GetRawText())!;
-        root["properties"]!["findings"]!["items"]!["properties"]!["subjectRefs"]!["items"]!["enum"] = new JsonArray(
-            InvestigationSubjects.FindingRefs(evidence).Select(x => (JsonNode?)JsonValue.Create(x)).ToArray());
         void Compact(JsonNode? node)
         {
             if (node is JsonObject obj)
@@ -119,7 +117,64 @@ public static class InvestigationAdviceContract
             ["evidenceRefs"] = evidenceRefs,
             ["evidenceRefs1"] = evidenceRefs1
         };
+        ScopeFindingSubjects(root, requiredRefs, evidence);
         return new(OutputSchema.Name, JsonSerializer.SerializeToElement(root));
+    }
+
+    private static void ScopeFindingSubjects(JsonNode root, JsonNode requiredRefs, IReadOnlyList<InvestigationEvidence> evidence)
+    {
+        var findings = root["properties"]!["findings"]!;
+        var template = findings["items"]!;
+        var definitions = root["$defs"]!;
+        var branches = new JsonArray();
+        var subjects = InvestigationSubjects.FindingRefs(evidence);
+        // Ledger order matches the server's latest-snapshot lookup. A later untrusted snapshot supersedes an older trusted one.
+        var trusted = evidence.Where(x => x.PointStatus != null).GroupBy(x => x.ResourceId)
+            .Select(x => x.Last()).Where(x => x.PointStatus!.CurrentTrust == "Trusted")
+            .ToDictionary(x => x.ResourceId.ToString(), StringComparer.Ordinal);
+        var currentSubjects = subjects.Where(trusted.ContainsKey).ToArray();
+        var noAnomalySubjects = currentSubjects.Where(x => trusted[x].PointStatus!.CurrentAnomaly != "Present").ToArray();
+
+        JsonArray Values(string[] values) => new(values.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray());
+        string DefineSubjects(string name, string[] values)
+        {
+            var refs = requiredRefs.DeepClone();
+            refs["items"]!["enum"] = Values(values);
+            definitions[name] = refs;
+            return "#/$defs/" + name;
+        }
+        void AddBranch(string subjectRef, string[] scope, string[]? domain = null, string[]? status = null)
+        {
+            var branch = template.DeepClone();
+            var properties = branch["properties"]!;
+            properties["subjectRefs"] = new JsonObject { ["$ref"] = subjectRef };
+            properties["scope"]!["enum"] = Values(scope);
+            if (domain != null)
+            {
+                properties["domain"]!["enum"] = Values(domain);
+            }
+            if (status != null)
+            {
+                properties["status"]!["enum"] = Values(status);
+            }
+            branches.Add(branch);
+        }
+
+        var general = DefineSubjects("findingSubjects", subjects);
+        AddBranch(general, ["AlarmEvent", "Recovery"]);
+        AddBranch(general, ["Current"], ["MeasurementChain"]);
+        AddBranch(general, ["Current"], ["EquipmentCondition"], ["Inconclusive"]);
+        if (currentSubjects.Length > 0)
+        {
+            var current = currentSubjects.Length == subjects.Length ? general : DefineSubjects("currentSubjects", currentSubjects);
+            var allAllowNoAnomaly = currentSubjects.Length == noAnomalySubjects.Length;
+            AddBranch(current, ["Current"], ["EquipmentCondition"], allAllowNoAnomaly ? ["AnomalySupported", "NoAnomalyFound"] : ["AnomalySupported"]);
+            if (!allAllowNoAnomaly && noAnomalySubjects.Length > 0)
+            {
+                AddBranch(DefineSubjects("noAnomalySubjects", noAnomalySubjects), ["Current"], ["EquipmentCondition"], ["NoAnomalyFound"]);
+            }
+        }
+        findings["items"] = new JsonObject { ["anyOf"] = branches };
     }
 
     private static JsonElement CreateSchema()
