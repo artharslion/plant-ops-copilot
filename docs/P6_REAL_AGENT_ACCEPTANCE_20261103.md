@@ -238,4 +238,38 @@ Verification: targeted schema/contract/acceptance **58 passed**, then final full
 
 **Database validation is blocked in the current environment.** Docker's Linux engine pipe is absent, the dedicated `plantops-demand-tests` container cannot be inspected/connected, and no native PostgreSQL executable/service was found. The attempted database selection encountered connection refusal and was stopped; it is not a passing run. With the database opt-in disabled, the full offline run explicitly skipped integration tests. Historical 57-pass results belong to the preceding revision, not this schema change. Starting Docker Desktop could restart existing demo/business services, so no such broad environment mutation was made. Logs/TRX are under `artifacts/test-results/p6-schema/` and `p6-schema-*.log`.
 
-Recommendation: first restore the dedicated test PostgreSQL environment and complete the integration selection. Then, if separately authorized, a single new-schema final-response/provider compatibility probe could use the remaining **one** send on the same ledger. It cannot guarantee a full fresh autonomous-read-plus-final-answer investigation, which commonly needs at least two sends. Do not initiate that call automatically or claim provider compatibility, accepted v3, Proposal API or P6 completion from these offline checks. The current recommendation is **not to start a new full real-Agent acceptance yet**.
+At this local checkpoint, database verification still needed a PostgreSQL environment. The subsequent GitHub Actions run supplied that coverage for this revision. A final-response probe can use the remaining single send after separate authorization. A fresh autonomous read and final answer normally require at least two sends.
+
+## 2026-11-06 CI confirmation and prepared v3.3 probe
+
+GitHub Actions checked the merge of `388efce0ec6843ef698353103f4105d010896209` into `6ceac0976783` (checkout `1417100`). The Code quality job started PostgreSQL 17.11, reported it healthy and ran `dotnet test PlantOps.sln --no-build --no-restore` against the configured `plantops_tests` service. Results were **857 passed, 8 skipped, 0 failed** in 7m01s. [Code quality job and logs](https://github.com/artharslion/plant-ops-copilot/actions/runs/42010474741/job/127187911854)
+
+The complete eight-case skip list contains the opt-in legacy evidence replay, backup restore and six live-provider checks. Local test discovery at `388efce` lists six `InvestigationAdviceServiceTests` cases, three `InvestigationOnDemandTests` cases and seventeen `ActionProposalTests` cases. These include the successful Empty-maintenance case, evidence freezing and approval revalidation. All are absent from the skip list. The unfiltered successful run and complete skip list establish execution of these database cases. The CI console reports aggregate passes rather than a separate line for each passing case. [CI test step](https://github.com/artharslion/plant-ops-copilot/actions/runs/42010474741/job/127187911854)
+
+Both Docker smoke jobs passed. The CI database run resolves the verification gap for the tested revision. The earlier local database attempt remains recorded as blocked by an unavailable Docker engine. This update has documentation-only changes in the PR. The PR is a draft and normal review and checks on the updated head apply before merge. [Docker smoke workflow](https://github.com/artharslion/plant-ops-copilot/actions/runs/42010474646)
+
+The local probe is built under `work/p6-v33-final-probe/` from the current gateway and contract assemblies. It reuses the frozen messages, evidence, tool outcomes, model and output allowance from the second round of Run `c97821c9-4876-4009-9614-c80a0c11d361`. It sets the context mode to `investigation-advice-v3.3`, calls `InvestigationAdviceContract.ForModel` on the 18 frozen evidence items and serializes the resulting `LlmRequest` through the production serializer. The preflight verifies semantic equality of the original and new context after excluding the mode tag. The prepared wire body has `strict=true`, an enum containing exactly E1 through E18 and zero offered tools. An independent offline check against this exact prepared Schema rejected G1, G2 and G3 in the captured answer.
+
+| Preflight item | Verified value |
+| --- | --- |
+| Old request SHA256 | `FE345A20FB2913FDB929B07A46400CDDF4909E0A9CE1B270D7FF3BD9BB88FD55` |
+| Prepared request SHA256 | `59893B0AC21A0F591417E2900AFA8054D2148D742659EE217946DC7EE205AAA7` |
+| Prepared wire Schema SHA256 | `B5146E9E4C3FC8D1F2E47F8ED1D11E2DB99FC37F6C6D70C9C4D6F8F12DBBC3FE` |
+| Prepared request bytes and estimated input reservation | 18,953 bytes and 19,209 reserved input units |
+| Output allowance and round limit | 5,863 and one round with zero retries |
+| Original ledger | `artifacts/investigation-quality/p6-agent-20261103-r1/requests.jsonl`, SHA256 `1AB442C4D1B8048639CD44FDCFFE6E236ABADE643C5B19BB82E7AB4621EFD245`, 3 reserved of 4 |
+| Sends during this preparation | 0 |
+
+Prepared artifacts are `artifacts/investigation-quality/p6-agent-20261103-v33-final-probe/prepared-request.json` and `preflight.json`. These are local, as are the probe source and compiled executable. The offline prepare command can be repeated to verify the existing request bytes and manifest.
+
+```powershell
+dotnet work/p6-v33-final-probe/bin/Debug/net10.0/Probe.dll D:\Repos\plant-ops-copilot --prepare
+```
+
+After explicit authorization for the next paid send, use the same local executable and directory.
+
+```powershell
+dotnet work/p6-v33-final-probe/bin/Debug/net10.0/Probe.dll D:\Repos\plant-ops-copilot --send-once --authorize-paid-model-call
+```
+
+The send path checks the frozen report and ledger hashes again, compares effective gateway serialization with the prepared body and requires the existing configured model and reasoning effort. It creates a one-time attempt marker and calls the production gateway once with retries disabled. The gateway reserves sequence 4 on the original ledger before HTTP. The runner captures the response, recorded or unknown usage and strict `ParseAndValidate` outcome in `result.json`. Any incompatible Schema response or invalid v3 answer is a failed probe. A passing response supports compatibility for this particular request and the existing server contract. Full autonomous execution, Proposal API and the IndustrialSim/browser/human-review closure remain separate P6 acceptance items.
