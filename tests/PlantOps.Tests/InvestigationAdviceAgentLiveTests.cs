@@ -61,17 +61,19 @@ public sealed class InvestigationAdviceAgentLiveTests
             content: Encoding.UTF8.GetBytes("# 原创振动检查规程 vibration\n\n振动告警后，由维护工程师核对独立振动观测、运行负载及轴承巡检记录；记录差异和无法核实的范围。没有结果的维护摘要不能证明维修已完成。本规程只用于诊断核查，未授权设备控制。"));
         await DocumentTests.Publish(session, (await uploaded.Content.ReadFromJsonAsync<DocumentDto>())!, 1);
         var response = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations", null);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var run = (await response.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         await using var scope = session.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
-        var before = await db.WorkOrders.CountAsync(x => x.AssetId == fixture.Asset.Id);
+        var before = await db.WorkOrders.CountAsync();
         Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
         run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
         ActionProposalDto? proposal = null;
+        InvestigationAdvice? advice = null;
         string? proposalFailure = null;
         if (run.Status == "Succeeded" && run.Result != null)
         {
-            var advice = InvestigationAdviceContract.ParseAndValidate(run.Result.Value.GetRawText(), run.Evidence);
+            advice = InvestigationAdviceContract.ParseAndValidate(run.Result.Value.GetRawText(), run.Evidence);
             if (advice.WorkOrder.Status == "DraftReady")
             {
                 var proposed = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
@@ -89,12 +91,26 @@ public sealed class InvestigationAdviceAgentLiveTests
                 proposalFailure = advice.WorkOrder.Status + ":" + advice.WorkOrder.Reason;
             }
         }
-        var after = await db.WorkOrders.CountAsync(x => x.AssetId == fixture.Asset.Id);
+        var after = await db.WorkOrders.CountAsync();
+        var choices = run.RunRecord == null ? [] : AgentEvidenceAcceptance.CapturedChoices(
+            Environment.GetEnvironmentVariable("PLANTOPS_LLM_REQUEST_LEDGER")!, run.RunRecord.Value);
+        // The first trace is the service's automatic asset read, not a model decision.
+        var optionalTraces = run.RunRecord?.GetProperty("toolTrace").EnumerateArray().Skip(1).ToArray() ?? [];
+        var acceptanceFailures = rounds > 1
+            ? AgentEvidenceAcceptance.Check(choices, optionalTraces, run.Evidence, advice)
+            : choices.Length == 0 && optionalTraces.Length == 0 && run.ModelRounds == 1 ? [] : new[] { "DirectFinishNotDemonstrated" };
+        var passed = run.Status == "Succeeded" && !run.Simulated && proposal?.Draft != null
+            && proposal.Status == "Pending" && proposal.ResultEntityId == null && proposal.ExecutedAt == null
+            && proposal.ApprovalCorrelationId == null && before == 0 && after == 0 && acceptanceFailures.Length == 0
+            && run.RunRecord?.GetProperty("requests").GetArrayLength() == run.ModelRounds;
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
         {
             fixtureOnly = true,
             realProvider = true,
-            autonomousToolSelectionTested = rounds > 1,
+            acceptanceMode = rounds > 1 ? "AutonomousRead" : "DirectFinish",
+            autonomousToolSelectionDemonstrated = rounds > 1 && acceptanceFailures.Length == 0,
+            choices,
+            acceptanceFailures,
             protocolObservation = false,
             source = "Normal ingestor with fictional simulation readings",
             database = new Npgsql.NpgsqlConnectionStringBuilder(connection).Database,
@@ -105,12 +121,14 @@ public sealed class InvestigationAdviceAgentLiveTests
             workOrdersBefore = before,
             workOrdersAfter = after,
             manualApprovalPerformed = false,
-            passed = run.Status == "Succeeded" && proposal?.Draft != null && before == after
+            passed,
+            semanticReviewRequired = true
         }, new JsonSerializerOptions { WriteIndented = true }));
         Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
         Assert.NotNull(proposal?.Draft);
         Assert.False(run.Simulated);
         Assert.Equal(before, after);
+        Assert.True(passed, string.Join(",", acceptanceFailures) + "; proposal=" + proposal?.Status);
     }
 }
 

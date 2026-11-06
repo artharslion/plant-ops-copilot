@@ -56,8 +56,13 @@ public static class InvestigationAdviceContract
         var optionalRefs = root["properties"]!["blockingGapIds"]!.DeepClone();
         var requiredRefs = optionalRefs.DeepClone();
         requiredRefs["minItems"] = 1;
-        JsonNode ReuseReferences(JsonNode node)
+        JsonNode ReuseReferences(JsonNode node, string? field = null)
         {
+            // Evidence and model-authored item IDs have different namespaces.
+            if (field is "evidenceRefs" or "supportingEvidenceRefs" or "contradictingEvidenceRefs")
+            {
+                return new JsonObject { ["$ref"] = node["minItems"]!.GetValue<int>() == 0 ? "#/$defs/evidenceRefs" : "#/$defs/evidenceRefs1" };
+            }
             if (JsonNode.DeepEquals(node, optionalRefs))
             {
                 return new JsonObject { ["$ref"] = "#/$defs/refs" };
@@ -72,7 +77,7 @@ public static class InvestigationAdviceContract
                 {
                     if (child.Value != null)
                     {
-                        var replacement = ReuseReferences(child.Value);
+                        var replacement = ReuseReferences(child.Value, child.Key);
                         if (!ReferenceEquals(replacement, child.Value))
                         {
                             obj[child.Key] = replacement;
@@ -97,7 +102,23 @@ public static class InvestigationAdviceContract
             return node;
         }
         ReuseReferences(root);
-        root["$defs"] = new JsonObject { ["refs"] = optionalRefs, ["refs1"] = requiredRefs };
+        var evidenceRefs = optionalRefs.DeepClone();
+        evidenceRefs["items"] = new JsonObject { ["$ref"] = "#/$defs/evidenceId" };
+        var evidenceRefs1 = evidenceRefs.DeepClone();
+        evidenceRefs1["minItems"] = 1;
+        root["$defs"] = new JsonObject
+        {
+            ["refs"] = optionalRefs,
+            ["refs1"] = requiredRefs,
+            ["evidenceId"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JsonArray(evidence.Select(x => x.Id).Distinct(StringComparer.Ordinal)
+                    .Select(x => (JsonNode?)JsonValue.Create(x)).ToArray())
+            },
+            ["evidenceRefs"] = evidenceRefs,
+            ["evidenceRefs1"] = evidenceRefs1
+        };
         return new(OutputSchema.Name, JsonSerializer.SerializeToElement(root));
     }
 
