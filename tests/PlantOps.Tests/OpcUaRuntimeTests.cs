@@ -166,11 +166,14 @@ public sealed class OpcUaRuntimeTests
         before.Input.Writer.TryWrite(SamplePolicy.Normalize(first, 4, "Good", now, null, now, "first"));
         before.Input.Writer.TryWrite(SamplePolicy.Normalize(second, 5, "Uncertain", now, null, now, "second"));
         before.Input.Writer.TryComplete(new IOException("network"));
-        while (store.Opened < 2)
+        while (store.States.Count(state => state.State == "Connected" && state.ReconnectCount == 1) < 2)
         {
             await Task.Delay(20, stop.Token);
         }
-        await Task.Delay(2200, stop.Token);
+        var reconnected = store.States.Where(state => state.State == "Connected" && state.ReconnectCount == 1).ToArray();
+        Assert.NotNull(reconnected[0].LastKeepAliveAt);
+        Assert.True(reconnected[^1].LastKeepAliveAt > reconnected[0].LastKeepAliveAt);
+        Assert.All(reconnected, state => Assert.Equal(now, state.LastReceivedAt));
         Assert.True(before.Disposed);
         Assert.Equal(1, store.Closed);
         Assert.Equal(1, store.Losses);

@@ -36,6 +36,10 @@
 
 ## 本轮真实执行
 
+2026-11-06 复验 `roadmap_p5_20261106`，Plant Ops 基线 `dfb530a`，IndustrialSim `3d5e7c0`。在隔离 `plantops_tests.opcua_runtime_roadmap_p5_20261106` schema 运行约 68 秒，三点各入库 50 条。温度实际收到 60、75、90°C，参考温度保持 62°C 且源时间更新，振动实际收到 4、7、12.6 mm/s。停服期间进入重连并保持活动告警，恢复后三点均收到新观测，唯一温度告警最终恢复。退出后 6 段采样区间均关闭，3 条断线缺口均记录恢复时间，另有 3 条具有结束边界的可能采样间隔缺口。付费模型调用为 0。
+
+复验证据保存在 [result.json](../artifacts/opcua-runtime/roadmap_p5_20261106/result.json)。这一轮只有一次停服恢复。30 分钟联合运行、多次停服、同轮 Namespace 重排和浏览器验收仍待完成。Session KeepAlive 与收到 DataChange 分别核对，独立订阅保活和物理采样覆盖仍未知。
+
 成功轮：`framework_trial2_20261021`，北京时间10:19:55–10:20:56，约61秒。证据 [result.json](../artifacts/opcua-runtime/framework_trial2_20261021/result.json) 和 [框架原始报告](../artifacts/opcua-runtime/framework_trial2_20261021/industrial-sim/simulator-result.json)。
 
 | 核查 | 结果 |
