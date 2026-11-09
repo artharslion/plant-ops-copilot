@@ -218,6 +218,26 @@ public sealed class InvestigationAdviceSchemaTests
         };
         Assert.False(SchemaAccepts(badRecommendation));
         Assert.Equal("$.recommendations[0].subjectRefs", Assert.Throws<LlmException>(() => Parse(badRecommendation)).ValidationDetails!.Path);
+
+        var duplicate = wire with
+        {
+            Findings = [wire.Findings[0] with { SubjectRefs = [subjects.AliasFor(alarm)!, subjects.AliasFor(alarm)!] }]
+        };
+        Assert.Equal("duplicate-reference", Assert.Throws<LlmException>(() => Parse(duplicate)).ValidationDetails!.Branch);
+
+        var otherAlarm = evidence[0] with
+        {
+            ResourceId = Guid.NewGuid()
+        };
+        var otherSubjects = new InvestigationModelSubjects([otherAlarm, evidence[1]]);
+        Assert.Equal(subjects.AliasFor(alarm), otherSubjects.AliasFor(otherAlarm.ResourceId));
+        // The same spelling is local to each request. A mismatched map still cannot
+        // authorize a resource outside the ledger passed to the validator.
+        var other = InvestigationAdviceContract.ParseModelResponse(InvestigationAdviceContract.Serialize(wire),
+            [otherAlarm, evidence[1]], otherSubjects);
+        Assert.Equal(otherAlarm.ResourceId.ToString(), Assert.Single(other.Findings[0].SubjectRefs));
+        Assert.Equal("advice-reference", Assert.Throws<LlmException>(() => InvestigationAdviceContract.ParseModelResponse(
+            InvestigationAdviceContract.Serialize(wire), evidence, otherSubjects)).ValidationRule);
     }
 
     [Theory]

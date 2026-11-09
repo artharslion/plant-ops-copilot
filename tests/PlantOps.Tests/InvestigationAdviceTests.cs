@@ -291,6 +291,96 @@ public sealed class InvestigationAdviceTests
         Assert.Equal(1, budget.ModelRounds);
     }
 
+    [Theory]
+    [InlineData(true, 4, "NotFound", "NoAnomalyFound")]
+    [InlineData(true, 13, "Present", "AnomalySupported")]
+    [InlineData(false, 4, "NotFound", "NoAnomalyFound")]
+    public async Task FinalRequestPreservesRecordedRecoverySeparatelyFromCurrentObservation(
+        bool recovered, double currentValue, string currentAnomaly, string findingStatus)
+    {
+        var recoveryAt = new DateTimeOffset(2026, 9, 1, 1, 2, 3, TimeSpan.Zero);
+        var currentAt = recoveryAt.AddMinutes(15);
+        var alarm = Evidence[0] with
+        {
+            Facts = ["Historical trigger: 12.6 mm/s.",
+                recovered ? $"Recovered at {recoveryAt:O}." : "Active; no recovery time recorded.",
+                "Saved rule: below 8 mm/s for 5 seconds."]
+        };
+        var point = Evidence[1] with
+        {
+            Facts = [],
+            PointStatus = Evidence[1].PointStatus! with
+            {
+                CurrentAnomaly = currentAnomaly,
+                Observation = new(Guid.NewGuid(), currentAt, currentAt, currentValue, "Good", false,
+                    Guid.NewGuid(), Guid.NewGuid(), 1, "OpcUa", "Source", currentAt, null, null, null)
+            },
+            State = new("Available", "Trusted", currentAnomaly)
+        };
+        var sample = new InvestigationEvidence("raw-excerpt", "RecoveryReadings", "Bounded excerpt",
+            [$"At {recoveryAt:O}: 7 mm/s, Good. Bounded observation metadata: {new string('x', 250)}."],
+            "sample", recoveryAt, Point, State: new("Partial"));
+        var optional = Enumerable.Range(1, 14).Select(i => Evidence[2] with
+        {
+            Id = $"document-{i}",
+            Facts = [new string('x', 320)]
+        }).ToArray();
+        InvestigationEvidence[] toolEvidence = recovered ? [.. optional, sample] : optional;
+        var alias = new InvestigationModelSubjects([alarm, point, .. toolEvidence]).AliasFor(Point)!;
+        var advice = Valid(alias, point.Id);
+        advice = advice with
+        {
+            Findings = [advice.Findings[0] with { Status = findingStatus }]
+        };
+        var gateway = new RecordingScript([
+            new(null, [new("read", "get_recent_measurements", "{}")], "fixture", new(4000, 20)),
+            new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 50))
+        ]);
+        using var budget = new LlmBudget { EvidenceAsOf = currentAt };
+        var error = await Record.ExceptionAsync(() => new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([alarm, point],
+            (_, _, _) => Task.FromResult(new InvestigationToolResult(toolEvidence, [])), _ => Task.CompletedTask,
+            budget, CancellationToken.None));
+        Assert.True(error == null, string.Join("\n", budget.Diagnostics.Select(x => x.GetRawText())));
+
+        Assert.Equal(2, gateway.Requests.Count);
+        using var input = JsonDocument.Parse(gateway.Requests[^1].Messages.Single(x => x.Role == LlmRole.User).Content!);
+        var entries = input.RootElement.GetProperty("evidence").EnumerateArray().ToArray();
+        Assert.True(input.RootElement.GetProperty("omittedEvidenceCount").GetInt32() > 0);
+        JsonElement Entry(string id) => Assert.Single(entries, x => x.GetProperty("id").GetString() == id);
+        string?[] Facts(JsonElement item) => item.GetProperty("facts").EnumerateArray().Select(x => x.GetString()).ToArray();
+        var recovery = entries.Where(x => x.GetProperty("kind").GetString() == sample.Kind).ToArray();
+        string[] expected = recovered ? [.. alarm.Facts, .. sample.Facts] : alarm.Facts;
+        Assert.Equal(expected, Facts(Entry(alarm.Id)).Concat(recovery.SelectMany(Facts)));
+        var snapshot = Entry(point.Id).GetProperty("point");
+        Assert.Equal(currentAnomaly, snapshot.GetProperty("currentAnomaly").GetString());
+        Assert.Equal(currentValue, snapshot.GetProperty("observation").GetProperty("value").GetDouble());
+        Assert.Equal(currentAt, snapshot.GetProperty("observation").GetProperty("effectiveAt").GetDateTimeOffset());
+        if (recovered)
+        {
+            var excerpt = Assert.Single(recovery);
+            Assert.Equal(sample.Id, excerpt.GetProperty("id").GetString());
+            Assert.Equal("Partial", excerpt.GetProperty("state").GetProperty("availability").GetString());
+            Assert.Equal(Entry(point.Id).GetProperty("subjectRef").GetString(), excerpt.GetProperty("subjectRef").GetString());
+        }
+        else
+        {
+            Assert.Empty(recovery);
+        }
+    }
+
+    private sealed class RecordingScript(IEnumerable<LlmCompletion> responses) : ILlmGateway
+    {
+        private readonly ScriptedLlmGateway script = new(responses);
+
+        public List<LlmRequest> Requests { get; } = [];
+
+        public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return script.CompleteAsync(request, budget, cancellationToken);
+        }
+    }
+
     [Fact]
     public async Task ForbiddenWritesAreRejectedBeforeCallingTheTool()
     {

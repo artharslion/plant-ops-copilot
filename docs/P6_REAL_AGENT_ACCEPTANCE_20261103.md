@@ -294,3 +294,34 @@ The factual claims about VIB 12.6 mm/s and Good quality are supported by the fro
 The full parsed completion, usage, HTTP/SSE diagnostics and validator failure are in `artifacts/investigation-quality/p6-agent-20261103-v33-final-probe/result.json`. The same completion is preserved beside the shared ledger in `requests.jsonl.completion-c906912d9d0143dab12e37fdfb3622d6.json`, with content SHA256 `CD6A15E06493CBBE8543257B2838D3CBB1927196C6745F92847D70623EE58973`. The final directory also contains `complete-audit.json`, its offline audit source, the preflight manifest and the one-time send marker. The frozen evidence, prompt, validator and raw response were used as captured. The probe tested one final response against frozen evidence. Full Agent execution, Proposal generation and work-order creation were outside this run.
 
 This sample confirms transport and wire-Schema compatibility with the configured provider. The strict final-response contract failed, so P6 remains incomplete. The shared authorization is exhausted at **4/4**.
+## 2026-11-09 v3.5 recovery evidence follow-up
+
+The [local workbench acceptance](INVESTIGATION_RESPONSE_V3.md#2026-11-09-local-workbench-acceptance) remains a successful real-model investigation and human-confirmed Draft work order. Recovery interpretation remains an open quality issue.
+
+### Historical run audit
+
+For run `1bccb994-c588-4a2c-b72c-cc1fda0ae3b3`, the acceptance review records frozen E1 with the saved recovery time (08:38:17 Asia/Shanghai) and historical rule (below 8 mm/s for 5 seconds), and E18 with the matching 7 mm/s Good reading. The worker log confirms both read tools succeeded and the run finished with 25 evidence items. The private round-2 completion, keyed to request SHA-256 `7d3e3d05418b4a1145e56839046f0814c8a719ef1d69c1c4367a50cad7afab4a`, confirms that F6 was a Recovery finding and G2 flagged the rule and corresponding observation as unclear. F6 correctly limited what the lower current values establish. Neither item reported the saved recovery. F1 and F2 cited E1 for the historical event. The completion and the digest do not establish the exact E1 and E18 facts in the final User message. Their visibility, field completeness and any omissions in that historical request remain **Unknown**.
+
+### Reproduced failure and fix
+
+**Projection / Budget.** On `7a3cdb8`, a two-round scripted run using the production Engine and default input cap reached the final gateway with both items in its ledger. With recovery and a lower current value, the final User message lost the recovery time and raw excerpt. With recovery and a newly high current value, it lost the saved rule and raw excerpt. The no-recovery control passed. The packer guaranteed only the first alarm fact (the trigger). Later alarm facts and the raw excerpt competed with optional details. The Engine then filtered items that had no facts, point snapshot or derived trend.
+
+The projection now retains the selected alarm's complete snapshot and the first service-ordered recovery excerpt fact before packing optional details. This preserves the leading sample or availability limitation when present. The timestamp and quality of a sample still determine what it supports. The raw excerpt may contain a nearby sample rather than a sample at the exact recovery time. The byte ceiling and rejection path still apply. Retaining these facts can displace optional context and increases the minimum request size. Prompt text and version, schema, v3.5 aliases, validator, stored history, read authorization and manual approval follow their existing paths. The request digest identifies the changed request bytes.
+
+The evidence and tool records show collection succeeded for the reported facts. There is no demonstrated collection, tool selection or typed-contract defect for this omission. The schema permits recovery findings and the validator accepts well-formed references and scopes. Whether the historical model overlooked facts it actually received is unresolved. The regression proves that the new request can carry the facts under pressure. It does not establish how a real model will interpret them.
+
+### Separate semantic review
+
+Evaluate these as paraphrase-tolerant human review cases. Record the claim, supporting evidence, scope, rationale and any erroneous acceptance or rejection. Use a separate reviewer-controlled holdout for new model acceptance.
+
+| Case | Expected distinction | Error to record |
+| --- | --- | --- |
+| A. Saved recovery with a trusted sample and a sparse raw window | Report the recorded transition, its rule and time, and the corresponding observation with provenance. Distinguish the service's determination that the rule was met from independent reconstruction of the full qualifying interval. | Rejecting the saved transition because the raw interval is incomplete, or accepting one sample as proof of continuous coverage. |
+| B. Trusted high value after saved recovery | Preserve the historical trigger and recovery. Evaluate the later trusted threshold comparison independently as a current condition. | Treating historical recovery as current normality or evidence that a fault or its cause has been resolved. |
+| C. Low reading without a saved recovery | Report the scoped observation and the unavailable recovery determination. A configured rule plus a single low value does not establish a recorded transition. | Inferring a transition, qualifying duration or equipment health from the low observation. |
+
+The scripted checks assert evidence preservation and scope separation. They do not score model prose. No external model call was performed for this follow-up. Real-model recovery semantics remain unverified.
+
+### Local verification
+
+The focused .NET run passed 94 tests with three opt-in real-model cases skipped. It used a disposable loopback PostgreSQL 17 instance, the dedicated `plantops_tests` database and independent fixture schemas. The full solution run without a database connection passed 699 tests with 146 database or opt-in cases skipped. Build and the CI format check (excluding generated migrations) passed.

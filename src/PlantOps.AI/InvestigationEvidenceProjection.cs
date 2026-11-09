@@ -28,9 +28,14 @@ internal static class InvestigationEvidenceProjection
         }).ToArray();
         var result = items.Select(x =>
         {
-            // Data-quality evidence is ordered by the service. Keep its leading limitation
-            // even when the optional fact allowance is exhausted.
-            var facts = x.Kind is "Alarm" or "Asset" or "DataQuality" ? x.Facts.Take(1).ToArray() : [];
+            // The selected alarm snapshot carries the trigger, lifecycle and historical rule.
+            // The service puts the recovery-anchor excerpt (or availability limitation) first.
+            var facts = x.Kind switch
+            {
+                "Alarm" => x.Facts,
+                "RecoveryReadings" or "Asset" or "DataQuality" => x.Facts.Take(1).ToArray(),
+                _ => []
+            };
             return new Item(x.Id, x.Kind, facts, x.Facts.Length - facts.Length, x.State);
         }).ToArray();
         var candidates = items.SelectMany((item, index) => item.Facts.Select((fact, round) => new { index, fact, round }))
