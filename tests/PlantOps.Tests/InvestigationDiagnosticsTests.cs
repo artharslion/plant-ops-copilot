@@ -25,7 +25,7 @@ public sealed class InvestigationDiagnosticsTests
                 PointStatus: new() { PointId = point, CurrentTrust = "Trusted", CurrentAnomaly = "Present" }),
             new("D1", "Document", "Manual", ["Inspection procedure."], "h", DateTimeOffset.UtcNow, Guid.NewGuid())
         ];
-        var advice = InvestigationAdviceTests.Valid(point.ToString(), "E1");
+        var advice = InvestigationAdviceTests.Valid(new InvestigationModelSubjects(evidence).AliasFor(point)!, "E1");
         advice = advice with
         {
             Hypotheses = [new("H-private", "PRIVATE_REJECTED_TEXT", "Weak", overlap ? ["E1"] : ["D1"], overlap ? ["E1"] : [], ["R1"])]

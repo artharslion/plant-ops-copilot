@@ -21,24 +21,23 @@ public sealed class InvestigationAdviceLiveTests
         var target = Path.Combine(reportRoot, scenario + ".json");
         Assert.False(File.Exists(target), "Reports are immutable; use a fresh report directory.");
         var evidence = Fixture(scenario);
-        var subjects = InvestigationSubjects.FromEvidence(evidence);
+        var modelSubjects = new InvestigationModelSubjects(evidence);
         var context = JsonSerializer.Serialize(new
         {
             mode = InvestigationEngine.PromptVersion,
             language = "zh-CN",
             asOf = new DateTimeOffset(2026, 10, 30, 8, 0, 0, TimeSpan.Zero),
-            subjects,
-            findingSubjects = InvestigationSubjects.FindingRefs(evidence),
+            subjects = modelSubjects.Subjects,
+            findingSubjects = modelSubjects.FindingRefs,
             evidence = evidence.Select(x => new
             {
                 x.Id,
                 x.Kind,
-                x.ResourceId,
+                subjectRef = modelSubjects.AliasFor(x.ResourceId),
                 x.Facts,
                 x.State,
                 point = x.PointStatus == null ? null : new
                 {
-                    x.PointStatus.PointId,
                     x.PointStatus.Code,
                     x.PointStatus.CurrentTrust,
                     x.PointStatus.CurrentAnomaly
@@ -75,7 +74,7 @@ public sealed class InvestigationAdviceLiveTests
         {
             completion = await gateway.CompleteAsync(request, budget);
             checks["NoToolWrites"] = completion.ToolCalls.Count == 0;
-            advice = InvestigationAdviceContract.ParseAndValidate(completion.Content!, evidence);
+            advice = InvestigationAdviceContract.ParseModelResponse(completion.Content!, evidence, modelSubjects);
             checks["ContractValid"] = true;
             checks["RelevantAdvice"] = advice.Recommendations.Length > 0;
             var temp = evidence.Single(x => x.Id == "T1");

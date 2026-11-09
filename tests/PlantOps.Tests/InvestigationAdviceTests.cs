@@ -167,8 +167,9 @@ public sealed class InvestigationAdviceTests
         var allowed = InvestigationAdviceContract.ForModel([.. Evidence, asset]).Schema.GetProperty("$defs")
             .GetProperty("findingSubjects").GetProperty("items").GetProperty("enum")
             .EnumerateArray().Select(x => x.GetString()).ToArray();
-        Assert.Contains(Point.ToString(), allowed);
-        Assert.DoesNotContain(asset.ResourceId.ToString(), allowed);
+        var subjects = new InvestigationModelSubjects([.. Evidence, asset]);
+        Assert.Contains(subjects.AliasFor(Point), allowed);
+        Assert.DoesNotContain(subjects.AliasFor(asset.ResourceId), allowed);
     }
 
     [Fact]
@@ -228,7 +229,7 @@ public sealed class InvestigationAdviceTests
             Facts = [new string('x', 6000)]
         }).ToArray();
         var gateway = new ScriptedLlmGateway([
-            new(InvestigationAdviceContract.Serialize(Valid(Point.ToString())), [], "fixture", new(6000, 50))
+            new(InvestigationAdviceContract.Serialize(Valid(new InvestigationModelSubjects(verboseEvidence).AliasFor(Point)!)), [], "fixture", new(6000, 50))
         ]);
         var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions { Provider = "OpenAiCompatible" })).ExecuteAsync(verboseEvidence,
             (_, _, _) => throw new InvalidOperationException("No extra reads are needed for this scoped review."), _ => Task.CompletedTask,
@@ -240,7 +241,7 @@ public sealed class InvestigationAdviceTests
     [Fact]
     public async Task IncompleteButValidAdviceCompletesTheModelRunWithoutAnotherRetry()
     {
-        var advice = Valid(Point.ToString()) with
+        var advice = Valid(new InvestigationModelSubjects(Evidence).AliasFor(Point)!) with
         {
             Status = "NeedsMoreEvidence",
             BlockingGapIds = ["G1"],
@@ -260,7 +261,7 @@ public sealed class InvestigationAdviceTests
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
         var gateway = new ScriptedLlmGateway([
             new(null, [new("read", "get_recent_alarms", "{}")], "fixture", new(100, 20)),
-            new(InvestigationAdviceContract.Serialize(Valid(Point.ToString())), [], "fixture", new(100, 50))
+            new(InvestigationAdviceContract.Serialize(Valid(new InvestigationModelSubjects(Evidence).AliasFor(Point)!)), [], "fixture", new(100, 50))
         ]);
         var reads = new List<string>();
         var result = await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,

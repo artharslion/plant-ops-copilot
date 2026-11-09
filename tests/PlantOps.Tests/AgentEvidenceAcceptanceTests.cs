@@ -34,7 +34,7 @@ public sealed class AgentEvidenceAcceptanceTests
             State: new("Available", "Trusted", "Present"));
         var document = new InvestigationEvidence("D2", "Document", "Authorized procedure", ["Record independent observations"], "tool",
             DateTimeOffset.UtcNow, Guid.NewGuid(), State: new(scenario == "unavailable" ? "Unavailable" : "Available"));
-        var advice = InvestigationAdviceTests.Valid(point.ToString());
+        var advice = InvestigationAdviceTests.Valid(new InvestigationModelSubjects([initial]).AliasFor(point)!);
         if (scenario is "read-and-cite" or "some-empty" or "typed-empty" or "mixed-failure" or "forged-hash" or "foreign-evidence" or "missing-trace" or "repeated-choice")
         {
             advice = advice with

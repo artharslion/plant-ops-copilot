@@ -20,7 +20,7 @@
 | P1–P4 | 业务权限、资产、测量、规则告警、资料、实时通知、手动调查及人工工单创建/备注 | [架构](ARCHITECTURE.md)、[本地开发](docs/DEVELOPMENT.md) |
 | P5 最小链路 | 受控多点 OPC UA、普通 Worker 入库、三点场景及有限停服恢复 | [集成边界](docs/OPCUA_INTEGRATION.md)、[三点协议验证](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md) |
 | P6 证据 | 逐点可信度、当前/事件/恢复窗口、原始升温派生事实、按需只读工具、冻结证据和引用核查 | [逐点可信度](docs/P6_POINT_TRUST_VALIDATION.md)、[升温分析](docs/P6_HEATING_VALIDATION.md)、[按需取证](docs/P6_2_ON_DEMAND_VALIDATION.md) |
-| P6 当前输出 | 新调查使用 v3 建议、类型化判断、建议任务复用到工单、页面展示及旧结果兼容；生产注册为 `InvestigationEngine`，当前 Prompt 为 `investigation-advice-v3.2` | [v3 契约](docs/INVESTIGATION_RESPONSE_V3.md)、[当前引擎](src/PlantOps.AI/InvestigationEngine.cs) |
+| P6 当前输出 | 新调查使用 v3 建议、类型化判断、建议任务复用到工单、页面展示及旧结果兼容；生产注册为 `InvestigationEngine`，当前 Prompt 为 `investigation-advice-v3.5` | [v3 契约](docs/INVESTIGATION_RESPONSE_V3.md)、[当前引擎](src/PlantOps.AI/InvestigationEngine.cs) |
 | P8 已有增量 | 运行版本/hash、用量来源、外部请求额度账本及关联诊断 | [运行记录](docs/P8_1_RUN_RECORD_VALIDATION.md)、[诊断](docs/INVESTIGATION_DIAGNOSTICS.md) |
 
 v1/v2 只保留历史结果展示与回放兼容，`LegacyInvestigationEngine` 不注册为生产调查服务。旧固定摘要、逐字摘录、预取五工具及旧 Prompt 版本不代表新调查契约。
@@ -40,12 +40,12 @@ v1/v2 只保留历史结果展示与回放兼容，`LegacyInvestigationEngine` �
 
 P6.1–P6.4 的证据、工具、v3 输出与页面已有增量，不能按旧计划从零重做；完整 P6.1 仍不标记完成。
 
-1. **优先补闭环验收**：在独立测试数据中，以新鲜三点协议观测触发规则告警，用户手动调查，核对温升解释、引用重算、浏览器证据及关联工单。已有温升成功样本只证明有限场景。
+1. **扩展闭环验收**：本地 IndustrialSim 三点场景已完成一次规则告警、用户手动调查、人工确认及关联 Draft 工单。保留这一成功样本，继续核对恢复证据利用，并在独立测试数据中覆盖不同工况和证据质量。
 2. **补自主取证与建议语义**：覆盖温度 Bad 与可信高振动并存、全部当前点不可验证、可信稳定、连接故障、有关联规程及无规程等场景；设备异常与测量链问题分开，缺失/冲突明确，建议具有记录、完成条件及升级责任。文档注入、撤回与权限回归继续保留。
-3. **补真实自主闭环**：最新 v3 报告记录了五类直接回答场景的有效输出；自主取证回答在修正误拒后通过离线回放，但完整“自主真实模型 → proposal API”成功尚未观察到，最后一次请求上游失败。离线回放不等同在线成功。
+3. **真实自主闭环已有一轮在线证据**：v3.5 在本地工作台用真实模型自主读取设备详情和测量记录，生成可用建议与工单提案。用户确认后生成了一张关联草稿工单。恢复阶段仍存在已保存证据未被正确利用的问题。
 4. **持续兼容**：v3 的调查执行状态、建议可用状态、发现状态和工单就绪状态独立；复用既有人工确认与事务执行路径，旧结果不改写。
 
-当前判定以 [v3 契约](docs/INVESTIGATION_RESPONSE_V3.md) 和 [10 月 30 日 v3 验证](docs/INVESTIGATION_V3_REAL_VALIDATION_20261030.md) 为准。只有回放旧版本时才查 10 月 29/30 日早期报告，不把历史轮次额度或失败归因为当前结论。
+当前判定见 [v3 契约](docs/INVESTIGATION_RESPONSE_V3.md) 和 [11 月 9 日本地验收](docs/INVESTIGATION_RESPONSE_V3.md#2026-11-09-local-workbench-acceptance)。早期报告用于对应版本的复盘，历史请求额度仅限原验证轮次。
 
 ## 5. P7：设备知识与 RAG 增强
 

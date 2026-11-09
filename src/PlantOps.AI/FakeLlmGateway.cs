@@ -131,7 +131,7 @@ public sealed class FakeLlmGateway : ILlmGateway
         {
             var point = item.GetProperty("point");
             var id = item.GetProperty("id").GetString()!;
-            var subject = item.GetProperty("resourceId").GetString()!;
+            var subject = item.GetProperty("subjectRef").GetString()!;
             var trusted = point.GetProperty("currentTrust").GetString() == "Trusted";
             var anomaly = point.GetProperty("currentAnomaly").GetString();
             var status = trusted ? anomaly == "Present" ? "AnomalySupported" : anomaly == "NotFound" ? "NoAnomalyFound" : "Inconclusive" : "Inconclusive";
@@ -163,7 +163,7 @@ public sealed class FakeLlmGateway : ILlmGateway
                 continue;
             }
 
-            findings.Add(new("F" + (findings.Count + 1), [item.GetProperty("resourceId").GetString()!],
+            findings.Add(new("F" + (findings.Count + 1), [item.GetProperty("subjectRef").GetString()!],
                 item.GetProperty("kind").GetString() == "CurrentDerivedTrend" ? "Current" : "AlarmEvent",
                 "MeasurementChain", "AnomalySupported",
                 L("已提供有序观测变化；仅解释该窗口，不证明物理连续过程或原因。", "Ordered observation changes are supplied for this window; they establish neither physical continuity nor cause."),

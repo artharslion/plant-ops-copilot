@@ -11,7 +11,7 @@ namespace PlantOps.AI;
 public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions> options,
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
-    public const string PromptVersion = "investigation-advice-v3.4";
+    public const string PromptVersion = "investigation-advice-v3.5";
 
     public static void ValidateTool(string name, JsonElement arguments) => InvestigationToolPolicy.Validate(name, arguments);
 
@@ -92,7 +92,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             IReadOnlyList<LlmTool> available = budget.RemainingInputTokens < 8000
                 || budget.ModelRounds + 1 >= budget.Limits.MaxModelRounds ? [] : Tools;
             var inputLimit = Math.Min(8000, budget.RemainingInputTokens);
-            var providerSchema = InvestigationAdviceContract.ForModel(ledger);
+            var modelSubjects = new InvestigationModelSubjects(ledger);
+            var providerSchema = InvestigationAdviceContract.ForModel(ledger, modelSubjects);
             var trendOrder = ledger.Where(x => x.DerivedTrend != null)
                 .OrderByDescending(x => x.DerivedTrend!.IsAlarmPoint)
                 .ThenByDescending(x => x.DerivedTrend!.Change != null || x.DerivedTrend.RiseSegments.Length > 0)
@@ -130,13 +131,12 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     {
                         x.Id,
                         x.Kind,
-                        resourceId = compact && x.Kind == "DataQuality" ? (Guid?)null : source.ResourceId,
+                        subjectRef = modelSubjects.AliasFor(source.ResourceId),
                         facts = compact && x.Facts.Length == 0 ? null : x.Facts,
                         omittedFactCount = compact && x.OmittedFactCount == 0 ? (int?)null : x.OmittedFactCount,
                         state,
                         point = source.PointStatus == null ? null : new
                         {
-                            pointId = compact && source.PointStatus.PointId == source.ResourceId ? (Guid?)null : source.PointStatus.PointId,
                             source.PointStatus.Code,
                             source.PointStatus.Unit,
                             source.PointStatus.SourceKind,
@@ -171,8 +171,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     mode = PromptVersion,
                     language,
                     asOf = budget.EvidenceAsOf,
-                    subjects = InvestigationSubjects.FromEvidence(ledger),
-                    findingSubjects = InvestigationSubjects.FindingRefs(ledger),
+                    subjects = modelSubjects.Subjects,
+                    findingSubjects = modelSubjects.FindingRefs,
                     evidence = evidenceContext,
                     omittedEvidenceCount = packed.Length - evidenceContext.Length,
                     toolOutcomes = reads,
@@ -277,7 +277,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
 
                 try
                 {
-                    var result = InvestigationAdviceContract.ParseAndValidate(completion.Content, ledger, language);
+                    var result = InvestigationAdviceContract.ParseModelResponse(completion.Content, ledger, modelSubjects, language);
                     budget.RecordDiagnostic("advice-validation", "Accepted", new
                     {
                         adviceStatus = result.Status,

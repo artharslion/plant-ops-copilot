@@ -171,8 +171,53 @@ public sealed class InvestigationAdviceSchemaTests
             Status = "NeedsMoreEvidence",
             BlockingGapIds = [gapId]
         };
-        Assert.True(Accepts(JsonSerializer.SerializeToElement(advice, new JsonSerializerOptions(JsonSerializerDefaults.Web)), JsonNode.Parse(schema.GetRawText())!, schema));
+        Assert.True(ModelAccepts(advice, evidence));
         Assert.Equal(gapId, Assert.Single(InvestigationAdviceContract.ParseAndValidate(InvestigationAdviceContract.Serialize(advice), evidence).BlockingGapIds));
+    }
+
+    [Fact]
+    public void ModelSubjectAliasesResolveToStoredIdsAndRejectPlaceholderOrDisallowedTargets()
+    {
+        var alarm = Guid.NewGuid();
+        var asset = Guid.NewGuid();
+        InvestigationEvidence[] evidence =
+        [
+            new("E1", "Alarm", "Alarm", ["Observation"], "h", DateTimeOffset.UtcNow, alarm),
+            new("E2", "Asset", "Pump", ["Asset context"], "h", DateTimeOffset.UtcNow, asset)
+        ];
+        var subjects = new InvestigationModelSubjects(evidence);
+        var advice = Advice(alarm, "E1");
+        var wire = advice with
+        {
+            Findings = [advice.Findings[0] with { SubjectRefs = [subjects.AliasFor(alarm)!] }],
+            Recommendations = [advice.Recommendations[0] with { SubjectRefs = [subjects.AliasFor(asset)!] }]
+        };
+        var schema = InvestigationAdviceContract.ForModel(evidence, subjects).Schema;
+        var root = JsonNode.Parse(schema.GetRawText())!;
+        InvestigationAdvice Parse(InvestigationAdvice candidate) => InvestigationAdviceContract.ParseModelResponse(
+            InvestigationAdviceContract.Serialize(candidate), evidence, subjects);
+        bool SchemaAccepts(InvestigationAdvice candidate) => Accepts(JsonSerializer.SerializeToElement(candidate,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)), root, schema);
+
+        Assert.True(SchemaAccepts(wire));
+        var stored = Parse(wire);
+        Assert.Equal(alarm.ToString(), Assert.Single(stored.Findings[0].SubjectRefs));
+        Assert.Equal(asset.ToString(), Assert.Single(stored.Recommendations[0].SubjectRefs));
+        foreach (var invalidRef in new[] { Guid.Empty.ToString(), "S99", subjects.AliasFor(asset)! })
+        {
+            var invalid = wire with
+            {
+                Findings = [wire.Findings[0] with { SubjectRefs = [invalidRef] }]
+            };
+            Assert.False(SchemaAccepts(invalid));
+            Assert.Equal("$.findings[0].subjectRefs", Assert.Throws<LlmException>(() => Parse(invalid)).ValidationDetails!.Path);
+        }
+        var badRecommendation = wire with
+        {
+            Recommendations = [wire.Recommendations[0] with { SubjectRefs = [Guid.Empty.ToString()] }]
+        };
+        Assert.False(SchemaAccepts(badRecommendation));
+        Assert.Equal("$.recommendations[0].subjectRefs", Assert.Throws<LlmException>(() => Parse(badRecommendation)).ValidationDetails!.Path);
     }
 
     [Theory]
@@ -204,10 +249,11 @@ public sealed class InvestigationAdviceSchemaTests
     }
 
     [Theory]
-    [InlineData(0, 7000, true)]
-    [InlineData(3, 8250, true)]
-    [InlineData(39, 12500, false)]
-    public async Task ScopedSchemaRespectsExistingEngineBudget(int currentPoints, int schemaLimit, bool fitsBudget)
+    [InlineData(0, 7000, 32000, true)]
+    [InlineData(3, 8250, 32000, true)]
+    [InlineData(39, 12500, 32000, true)]
+    [InlineData(39, 12500, 8000, false)]
+    public async Task ScopedSchemaRespectsExistingEngineBudget(int currentPoints, int schemaLimit, int inputBudget, bool fitsBudget)
     {
         var point = Guid.NewGuid();
         var evidence = Enumerable.Range(1, 40).Select(i =>
@@ -235,8 +281,12 @@ public sealed class InvestigationAdviceSchemaTests
             Assert.Empty(FindFields(JsonNode.Parse(schema.GetRawText())!, keyword));
         }
         Assert.True(System.Text.Encoding.UTF8.GetByteCount(schema.GetRawText()) < schemaLimit);
-        var advice = Advice(point, evidence[0].Id);
-        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var advice = InvestigationAdviceTests.Valid(new InvestigationModelSubjects(evidence).AliasFor(point)!, evidence[0].Id);
+        advice = advice with
+        {
+            Findings = [advice.Findings[0] with { Scope = "AlarmEvent" }]
+        };
+        using var budget = new LlmBudget(new(MaxInputTokens: inputBudget, MaxOutputTokens: 6000));
         var engine = new InvestigationEngine(
             new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "script", new(100, 100))]),
             Options.Create(new AiOptions()));
@@ -313,7 +363,14 @@ public sealed class InvestigationAdviceSchemaTests
 
     private static bool ModelAccepts(InvestigationAdvice advice, IReadOnlyList<InvestigationEvidence> evidence)
     {
-        var schema = InvestigationAdviceContract.ForModel(evidence).Schema;
+        var subjects = new InvestigationModelSubjects(evidence);
+        string[] Aliases(string[] refs) => refs.Select(x => subjects.AliasFor(Guid.Parse(x)) ?? x).ToArray();
+        advice = advice with
+        {
+            Findings = advice.Findings.Select(x => x with { SubjectRefs = Aliases(x.SubjectRefs) }).ToArray(),
+            Recommendations = advice.Recommendations.Select(x => x with { SubjectRefs = Aliases(x.SubjectRefs) }).ToArray()
+        };
+        var schema = InvestigationAdviceContract.ForModel(evidence, subjects).Schema;
         using var result = JsonDocument.Parse(InvestigationAdviceContract.Serialize(advice));
         return Accepts(result.RootElement, JsonNode.Parse(schema.GetRawText())!, schema);
     }
