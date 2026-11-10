@@ -1184,7 +1184,10 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.evidence-link:hover,
+.evidence-link:hover {
+  background: transparent;
+  text-decoration: underline;
+}
 .settings-link {
   text-decoration: underline;
 }
