@@ -11,7 +11,7 @@ import InvestigationAdvicePanel from './InvestigationAdvicePanel.vue'
 import type { InvestigationAdvice } from '../investigationAdvice'
 import ActionProposalPanel from './ActionProposalPanel.vue'
 import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
-import { request } from '../api'
+import { ApiError, request } from '../api'
 import { useSession } from '../stores/session'
 
 const session = useSession()
@@ -297,11 +297,15 @@ const usageNote = computed(() => {
 const active = computed(
   () => selected.value && ['Pending', 'Running'].includes(selected.value.status),
 )
+const hasActiveRun = computed(() =>
+  runs.value.some((run) => run.status === 'Pending' || run.status === 'Running'),
+)
 const canStart = computed(
   () =>
     !!capabilities.value &&
     !loadingRuns.value &&
-    !active.value &&
+    !error.value &&
+    !hasActiveRun.value &&
     !busy.value &&
     !proposalBusy.value &&
     !proposalDirty.value,
@@ -310,9 +314,9 @@ const labels = computed<Record<string, string>>(() => ({
   Pending: t('等待调查'),
   Running: t('调查进行中'),
   Succeeded: t('调查完成'),
-  Failed: t('调查未完成'),
+  Failed: t('调查失败'),
   Cancelled: t('已取消'),
-  Invalidated: t('资料或权限已变化'),
+  Invalidated: t('调查结果已失效'),
 }))
 const adviceLabels = computed(() => ({
   Ready: t('建议已可用'),
@@ -365,7 +369,9 @@ async function refresh() {
     error.value = ''
   } catch (e) {
     if (disposed || current !== generation) return
-    runs.value = []
+    // Keep the proposal mounted during a transport or server failure; clear it on access errors.
+    const transient = e instanceof ApiError && (e.status === 0 || e.status >= 500)
+    if (!transient || (!proposalBusy.value && !proposalDirty.value)) runs.value = []
     evidenceGeneration++
     expanded.value = null
     error.value = () => (e instanceof Error ? e.message : t('调查记录暂不可读。'))
@@ -464,7 +470,7 @@ onUnmounted(() => {
       </div>
       <div class="actions">
         <el-button :disabled="!canStart" @click="start" type="primary">
-          {{ active ? t('正在调查…') : t('开始只读调查') }}
+          {{ hasActiveRun ? t('正在调查…') : t('开始只读调查') }}
         </el-button>
         <el-button v-if="active" :disabled="busy" @click="cancel">{{ t('取消调查') }}</el-button>
       </div>
@@ -483,6 +489,12 @@ onUnmounted(() => {
       :closable="false"
       show-icon
     />
+    <div v-if="error" class="actions history-retry">
+      <el-button :disabled="busy" @click="refresh">{{ t('重试读取调查记录') }}</el-button>
+      <span v-if="selected" class="path-note">{{
+        t('调查记录暂不可读，保留上次读取的内容和当前提案操作。')
+      }}</span>
+    </div>
     <div v-if="capabilitiesError" class="actions">
       <p role="alert" class="error-banner">{{ capabilitiesError }}</p>
       <el-button @click="loadCapabilities">{{ t('重试') }}</el-button>
@@ -602,11 +614,15 @@ onUnmounted(() => {
             <template v-if="advice.workOrder.draft">
               <p>
                 <strong>{{ advice.workOrder.draft.title }}</strong> ·
-                {{ priorities[advice.workOrder.draft.priority] ?? advice.workOrder.draft.priority }}
+                {{
+                  t('优先级 {0}', [
+                    priorities[advice.workOrder.draft.priority] ?? advice.workOrder.draft.priority,
+                  ])
+                }}
               </p>
               <p class="work-order-purpose">{{ advice.workOrder.draft.objective }}</p>
               <p class="path-note">
-                {{ t('{0} 项核查任务', [advice.workOrder.draft.recommendationIds.length]) }}
+                {{ t('核查任务数 {0}', [advice.workOrder.draft.recommendationIds.length]) }}
               </p>
               <details>
                 <summary>{{ t('查看工单建议详情') }}</summary>
@@ -976,6 +992,12 @@ onUnmounted(() => {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
+}
+.history-retry {
+  margin-block: 8px;
+}
+.history-retry .path-note {
+  margin: 0;
 }
 .investigation-panel .section-title h3 {
   margin: 0;

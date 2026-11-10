@@ -247,6 +247,66 @@ test('run history loads independently of capabilities and loading blocks a new r
   assert.equal(state.canStart, true)
 })
 
+test('starting requires readable history and no active run, even while viewing a past run', async (t) => {
+  const { ApiError } = await import(new URL('panel-mocks.mjs', cache))
+  let unavailable = true
+  const runs = [
+    { id: 'new', status: 'Running' },
+    { id: 'old', status: 'Succeeded' },
+  ]
+  const writes = []
+  const state = await mount(
+    t,
+    'InvestigationPanel',
+    { alarmId: 'alarm-1' },
+    async (path, method) => {
+      if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+      if (method === 'POST') writes.push(path)
+      if (unavailable) throw new ApiError(503)
+      return structuredClone(runs)
+    },
+  )
+  assert.equal(state.loadingRuns, false)
+  assert.equal(state.canStart, false)
+  await state.start()
+  unavailable = false
+  await state.refresh()
+  state.selectedId = 'old'
+  assert.equal(state.active, false)
+  assert.equal(state.canStart, false)
+  await state.start()
+  assert.deepEqual(writes, [])
+  runs[0].status = 'Failed'
+  await state.refresh()
+  assert.equal(state.canStart, true)
+})
+
+test('temporary history failure preserves an in-progress proposal while access denial clears the snapshot', async (t) => {
+  const { ApiError } = await import(new URL('panel-mocks.mjs', cache))
+  let status = 200
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
+    if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+    if (status !== 200) throw new ApiError(status)
+    return [{ id: 'run-1', status: 'Succeeded' }]
+  })
+  status = 503
+  for (const flags of [
+    { busy: false, dirty: true },
+    { busy: true, dirty: false },
+  ]) {
+    state.proposalPanel = flags
+    state.expanded = { id: 'E1' }
+    await state.refresh()
+    assert.equal(state.selected.id, 'run-1')
+    assert.equal(state.expanded, null)
+    assert.equal(state.canStart, false)
+  }
+  status = 403
+  await state.refresh()
+  assert.equal(state.selected, null)
+  assert.equal(state.canStart, false)
+})
+
 test('investigation keeps server point labels and opens their frozen evidence; legacy remains unclassified', async (t) => {
   const calls = []
   const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {

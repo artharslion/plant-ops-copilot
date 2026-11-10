@@ -44,15 +44,16 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
         <li v-for="item in advice.recommendations" :key="item.id">
           <details :id="recommendationPrefix + item.id" class="task-row">
             <summary>
-              <strong>{{ taskKinds[item.kind] ?? item.kind }}</strong>
-              <small class="detail-meta">{{ item.id }}</small>
+              <span class="detail-meta"
+                >{{ taskKinds[item.kind] ?? item.kind }} · {{ item.id }}</span
+              >
               <small
                 v-if="advice.workOrder.draft?.recommendationIds.includes(item.id)"
                 class="task-draft"
               >
                 {{ t('纳入工单建议') }}
               </small>
-              <span class="task-text">{{ item.task }}</span>
+              <strong class="task-text">{{ item.task }}</strong>
             </summary>
             <div class="task-details">
               <p v-if="item.subjectRefs.length" class="detail-meta">
@@ -250,9 +251,6 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
 .detail-links > span {
   color: var(--muted);
   font-size: 13px;
-}
-.task-row summary .detail-meta {
-  margin-inline-start: 8px;
 }
 .detail-entry {
   padding-block: 8px;
