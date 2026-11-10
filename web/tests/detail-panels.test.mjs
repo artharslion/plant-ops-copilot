@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { compileScript, parse } from '@vue/compiler-sfc'
-import { createRenderer, nextTick, reactive } from 'vue'
+import { createRenderer, createSSRApp, h, nextTick, reactive } from 'vue'
+import { renderToString } from 'vue/server-renderer'
 import ts from 'typescript'
 
 // Exercise the actual component setup and lifecycle without a browser or new dependencies.
@@ -51,7 +52,8 @@ for (const name of [
     'utf8',
   )
   const { descriptor } = parse(source)
-  let script = compileScript(descriptor, { id: name }).content
+  const renderAdvice = name === 'InvestigationAdvicePanel'
+  let script = compileScript(descriptor, { id: name, inlineTemplate: renderAdvice }).content
   script = script
     .replace(/from ['"]\.\.\/evidencePresentation['"]/g, `from '${evidencePresentationUrl}'`)
     .replace(/from ['"]\.\.\/time['"]/g, "from './panel-time.mjs'")
@@ -70,7 +72,7 @@ for (const name of [
   const path = new URL(`panel-${name}.mjs`, cache)
   await fs.writeFile(path, output)
   const component = (await import(path.href)).default
-  component.render = () => null
+  if (!renderAdvice) component.render = () => null
   components[name] = component
 }
 const renderer = createRenderer({
@@ -193,23 +195,116 @@ test('compact investigation overview follows server assessment and keeps legacy 
   assert.deepEqual(state.runs[0].warnings, ['保留完整提示'])
 })
 
-test('maintenance disclosure cannot hide busy work or unsaved proposal input', async (t) => {
-  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
-    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
-  )
-  let blocked = 0
-  const event = {
-    preventDefault() {
-      blocked++
+test('busy or unsaved maintenance proposals protect the workspace and prevent a new run', async (t) => {
+  const writes = []
+  const state = await mount(
+    t,
+    'InvestigationPanel',
+    { alarmId: 'alarm-1' },
+    async (path, method) => {
+      if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+      if (method === 'POST') writes.push(path)
+      return []
     },
+  )
+  for (const flags of [
+    { busy: false, dirty: true },
+    { busy: true, dirty: false },
+  ]) {
+    state.proposalPanel = flags
+    assert.equal(state.proposalBusy, flags.busy)
+    assert.equal(state.proposalDirty, flags.dirty)
+    assert.equal(state.canStart, false)
+    await state.start()
   }
-  state.proposalPanel = { busy: false, dirty: true }
-  state.guardWorkflowCollapse(event)
-  state.proposalPanel = { busy: true, dirty: false }
-  state.guardWorkflowCollapse(event)
+  assert.deepEqual(writes, [])
   state.proposalPanel = { busy: false, dirty: false }
-  state.guardWorkflowCollapse(event)
-  assert.equal(blocked, 2)
+  assert.equal(state.canStart, true)
+})
+
+test('run history loads independently of capabilities and loading blocks a new run', async (t) => {
+  let resolveRuns
+  let capabilitiesAvailable = false
+  const runs = new Promise((resolve) => {
+    resolveRuns = resolve
+  })
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
+    if (path !== '/investigation-capabilities') return runs
+    if (!capabilitiesAvailable) throw new Error('Configuration unavailable')
+    return { model: 'fixture', externalData: false }
+  })
+  assert.equal(state.loadingRuns, true)
+  assert.equal(state.canStart, false)
+  resolveRuns([{ id: 'run-1', status: 'Failed', failureCode: 'Timeout' }])
+  await flush()
+  assert.equal(state.loadingRuns, false)
+  assert.equal(state.selected.failureCode, 'Timeout')
+  assert.equal(state.capabilitiesError, 'Configuration unavailable')
+  assert.equal(state.canStart, false)
+  capabilitiesAvailable = true
+  await state.loadCapabilities()
+  assert.equal(state.capabilitiesError, '')
+  assert.equal(state.canStart, true)
+})
+
+test('starting requires readable history and no active run, even while viewing a past run', async (t) => {
+  const { ApiError } = await import(new URL('panel-mocks.mjs', cache))
+  let unavailable = true
+  const runs = [
+    { id: 'new', status: 'Running' },
+    { id: 'old', status: 'Succeeded' },
+  ]
+  const writes = []
+  const state = await mount(
+    t,
+    'InvestigationPanel',
+    { alarmId: 'alarm-1' },
+    async (path, method) => {
+      if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+      if (method === 'POST') writes.push(path)
+      if (unavailable) throw new ApiError(503)
+      return structuredClone(runs)
+    },
+  )
+  assert.equal(state.loadingRuns, false)
+  assert.equal(state.canStart, false)
+  await state.start()
+  unavailable = false
+  await state.refresh()
+  state.selectedId = 'old'
+  assert.equal(state.active, false)
+  assert.equal(state.canStart, false)
+  await state.start()
+  assert.deepEqual(writes, [])
+  runs[0].status = 'Failed'
+  await state.refresh()
+  assert.equal(state.canStart, true)
+})
+
+test('temporary history failure preserves an in-progress proposal while access denial clears the snapshot', async (t) => {
+  const { ApiError } = await import(new URL('panel-mocks.mjs', cache))
+  let status = 200
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
+    if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+    if (status !== 200) throw new ApiError(status)
+    return [{ id: 'run-1', status: 'Succeeded' }]
+  })
+  status = 503
+  for (const flags of [
+    { busy: false, dirty: true },
+    { busy: true, dirty: false },
+  ]) {
+    state.proposalPanel = flags
+    state.expanded = { id: 'E1' }
+    await state.refresh()
+    assert.equal(state.selected.id, 'run-1')
+    assert.equal(state.expanded, null)
+    assert.equal(state.canStart, false)
+  }
+  status = 403
+  await state.refresh()
+  assert.equal(state.selected, null)
+  assert.equal(state.canStart, false)
 })
 
 test('investigation keeps server point labels and opens their frozen evidence; legacy remains unclassified', async (t) => {
@@ -1150,6 +1245,165 @@ test('v3 investigation decisions come from fields while legacy records remain re
   }
   assert.equal(state.advice, null)
   assert.equal(state.legacyResult.summary, '旧调查结果')
+})
+
+test('the summary displays only the matching trusted alarm point from the investigation snapshot', async (t) => {
+  const state = await mount(
+    t,
+    'InvestigationPanel',
+    { alarmId: 'alarm-1', pointCode: 'VIBRATION' },
+    async (path) =>
+      path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  state.runs = [
+    {
+      id: 'run-1',
+      assessment: {
+        anomalyEvidence: 'Insufficient',
+        points: [
+          { code: 'TEMPERATURE', currentTrust: 'Trusted', observation: { value: 65 } },
+          { code: 'VIBRATION', currentTrust: 'Trusted', observation: { value: 0 } },
+        ],
+      },
+    },
+  ]
+  state.selectedId = 'run-1'
+  assert.equal(state.trustedAlarmPoint.observation.value, 0)
+  assert.match(state.overview, /证据不足/)
+  state.runs[0].assessment.points[1].currentTrust = 'Unverifiable'
+  assert.equal(state.trustedAlarmPoint, undefined)
+  state.runs[0].assessment = null
+  assert.equal(state.trustedAlarmPoint, undefined)
+})
+
+test('the next step uses a unique explicit blocker link and never defaults to the first task', async (t) => {
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
+    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  state.runs = [
+    {
+      id: 'run-1',
+      result: {
+        schemaVersion: '3',
+        recommendations: [{ id: 'R1' }, { id: 'R2' }],
+        blockingGapIds: ['G2'],
+        gaps: [
+          { id: 'G1', resolutionRecommendationIds: ['R1'] },
+          { id: 'G2', resolutionRecommendationIds: ['R2'] },
+        ],
+      },
+      evidence: [
+        { id: 'E1', kind: 'Alarm' },
+        { id: 'E2', kind: 'FutureSource' },
+        { id: 'E3', kind: 'Document' },
+        { id: 'E4', kind: 'TriggerReading' },
+      ],
+    },
+  ]
+  state.selectedId = 'run-1'
+  assert.equal(state.nextRecommendation.id, 'R2')
+  state.runs[0].result.blockingGapIds.push('G1')
+  assert.equal(state.nextRecommendation, undefined)
+  state.runs[0].result.blockingGapIds = []
+  assert.equal(state.nextRecommendation, undefined)
+  state.runs[0].result.recommendations = [{ id: 'R2' }]
+  assert.equal(state.nextRecommendation.id, 'R2')
+  assert.deepEqual(
+    state.evidenceGroups.map((group) => group.items.map(({ id }) => id)),
+    [['E1', 'E4'], ['E3'], ['E2']],
+  )
+})
+
+test('a late evidence response cannot replace the newer citation or reappear after a run change', async (t) => {
+  const requests = new Map()
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
+    if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+    if (path.endsWith('/investigations')) return []
+    return new Promise((resolve) => requests.set(path.split('/').at(-1), resolve))
+  })
+  state.runs = [{ id: 'run-1' }, { id: 'run-2' }]
+  state.selectedId = 'run-1'
+  const older = state.expand('E1')
+  const newer = state.expand('E2')
+  requests.get('E2')({ id: 'E2' })
+  await newer
+  requests.get('E1')({ id: 'E1' })
+  await older
+  assert.equal(state.expanded.id, 'E2')
+  const previousRun = state.expand('E3')
+  state.selectedId = 'run-2'
+  state.choose()
+  requests.get('E3')({ id: 'E3' })
+  await previousRun
+  assert.equal(state.expanded, null)
+})
+
+test('the advice view renders distinct tasks once and preserves explicit links to checks and evidence', async () => {
+  const check = {
+    kind: 'Inspect',
+    subjectRefs: ['P-101'],
+    evidenceRefs: ['E1'],
+    record: 'Record operating load.',
+    completionCriteria: 'Readings recorded.',
+    escalation: { condition: 'Vibration persists.', responsibleRole: 'MaintenanceEngineer' },
+  }
+  const app = createSSRApp(components.InvestigationAdvicePanel, {
+    recommendationPrefix: 'check-',
+    taskListId: 'task-list',
+    taskKinds: { Inspect: '现场核查' },
+    subjects: [],
+    advice: {
+      blockingGapIds: ['G1'],
+      recommendations: [
+        { ...check, id: 'R1', task: 'Inspect the drive-end bearing.' },
+        { ...check, id: 'R2', task: 'Inspect the non-drive-end bearing.' },
+      ],
+      hypotheses: [
+        {
+          id: 'H1',
+          description: 'Load variation may contribute.',
+          support: 'Weak',
+          supportingEvidenceRefs: ['E1'],
+          contradictingEvidenceRefs: [],
+          verificationRecommendationIds: ['R1'],
+        },
+      ],
+      gaps: [
+        {
+          id: 'G1',
+          kind: 'RequiresOnSite',
+          description: 'Operating load is unknown.',
+          whyItMatters: 'Compare equivalent operating conditions.',
+          evidenceRefs: ['E1'],
+          resolutionRecommendationIds: ['R2'],
+        },
+      ],
+      findings: [],
+      workOrder: { blockingGapIds: [], draft: { recommendationIds: ['R2'] } },
+    },
+  })
+  app.component('el-button', (_, { attrs, slots }) =>
+    h('button', { 'aria-label': attrs['aria-label'] }, slots.default?.()),
+  )
+  const html = await renderToString(app)
+  assert.equal(html.split('Inspect the drive-end bearing.').length, 2)
+  assert.equal(html.split('Inspect the non-drive-end bearing.').length, 2)
+  assert.match(
+    html,
+    /<details id="check-R1"[^>]*><summary>.*Inspect the drive-end bearing.*<\/summary>/,
+  )
+  assert.match(
+    html,
+    /<details id="check-R2"[^>]*><summary>.*纳入工单建议.*Inspect the non-drive-end bearing.*<\/summary>/,
+  )
+  assert.equal(html.split('纳入工单建议').length, 2)
+  assert.match(html, /Record operating load/)
+  assert.match(html, /Readings recorded/)
+  assert.match(html, /Vibration persists/)
+  assert.match(html, /核实方式：.*aria-label="打开核查任务 R1">R1<\/button>/)
+  assert.match(html, /补证任务.*aria-label="打开核查任务 R2">R2<\/button>/)
+  assert.match(html, /<button aria-label="查看证据 E1">E1<\/button>/)
+  assert.match(html, /<details[^>]* open[^>]*><summary>仍缺少的信息/)
 })
 
 test('v3 draft gating blocks new work orders without disabling investigation review', async (t) => {

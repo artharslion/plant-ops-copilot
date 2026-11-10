@@ -293,13 +293,16 @@ onUnmounted(() => {
       <el-table-column :label="t('人工确认')" min-width="140"
         ><template #default="{ row }"
           >{{ row.acknowledgedAt ? t('已确认') : t('未确认') }}<br /><small>{{
-            row.acknowledgedAt ? at(row.acknowledgedAt) : t('确认不会使告警恢复')
+            row.acknowledgedAt ? at(row.acknowledgedAt, 'seconds') : t('确认不会使告警恢复')
           }}</small></template
         ></el-table-column
       >
       <el-table-column :label="t('发生时间')" min-width="190"
         ><template #default="{ row }"
-          >{{ at(row.startedAt) }}<br /><small>v{{ row.version }}</small></template
+          ><time :datetime="row.startedAt" :title="row.startedAt">{{
+            at(row.startedAt, 'seconds')
+          }}</time
+          ><br /><small>v{{ row.version }}</small></template
         ></el-table-column
       >
     </el-table>
@@ -310,7 +313,6 @@ onUnmounted(() => {
   <SidePanel
     v-if="alarm"
     :title="alarm.ruleName"
-    :subtitle="t('{0} / 告警详情', [alarm.assetCode])"
     :busy="busy || investigation?.busy"
     :dirty="investigation?.dirty"
     @close="closeAlarm"
@@ -318,109 +320,131 @@ onUnmounted(() => {
     <p v-if="actionError" role="alert" class="error-banner">{{ actionError }}</p>
     <p v-if="notice" role="status" class="success-banner">{{ notice }}</p>
     <section class="alarm-detail">
-      <div class="section-title">
+      <header class="alarm-workspace-header">
         <div>
-          <p class="eyebrow">
-            {{ alarm.assetCode }} / {{ alarm.pointCode }} / RULE V{{ alarm.ruleVersion }}
+          <p class="eyebrow">{{ alarm.assetCode }} / {{ alarm.pointCode }}</p>
+          <div class="alarm-state">
+            <el-tag :type="alarm.state === 'Active' ? 'warning' : 'success'">
+              {{ alarm.state === 'Active' ? t('告警活动中') : t('告警已恢复') }}
+            </el-tag>
+            <strong>{{ alarm.acknowledgedAt ? t('已确认') : t('未确认') }}</strong>
+            <span class="path-note">
+              {{ t('触发值') }} {{ Number(alarm.triggerValue).toFixed(2) }} {{ snapshot.Unit }}
+            </span>
+          </div>
+          <p class="path-note">
+            {{
+              alarm.currentObservationTrusted
+                ? t('当前观测可信')
+                : t(
+                    '当前状态无法验证：测量质量、陈旧或采集配置不可用。此提示不会自动恢复活动告警。',
+                  )
+            }}
           </p>
-          <h2>{{ snapshot.Name ?? alarm.ruleName }}</h2>
         </div>
-        <el-button
-          v-if="canAcknowledge && !alarm.acknowledgedAt"
-          :disabled="busy"
-          @click="acknowledge"
-          type="primary"
-        >
-          {{ t('确认告警') }}</el-button
-        ><span v-else class="quality-tag">{{
-          alarm.acknowledgedAt ? t('已记录人工确认') : t('当前角色只读')
-        }}</span>
-      </div>
-      <p class="alarm-status-note">
-        <strong
-          >{{ state(alarm.state) }} · {{ alarm.acknowledgedAt ? t('已确认') : t('未确认') }}</strong
-        ><span>{{
-          alarm.currentObservationTrusted
-            ? t('当前观测可信')
-            : t('当前状态无法验证：测量质量、陈旧或采集配置不可用。此提示不会自动恢复活动告警。')
-        }}</span>
-      </p>
-      <dl class="detail-grid">
-        <div>
-          <dt>{{ t('设备') }}</dt>
-          <dd>{{ alarm.assetName }}</dd>
+        <div class="actions alarm-workspace-actions">
+          <el-button
+            v-if="canAcknowledge && !alarm.acknowledgedAt"
+            :disabled="busy"
+            @click="acknowledge"
+            type="primary"
+            >{{ t('确认告警') }}</el-button
+          >
+          <el-button
+            v-if="canMaintain"
+            @click="
+              workOrderDrawer.open({ assetId: alarm.assetId, orderId: 'new', alarmId: alarm.id })
+            "
+            >{{ t('手动填写关联工单') }}</el-button
+          >
+          <RouterLink
+            v-else
+            class="path-note"
+            :to="{ path: '/assets', query: { assetId: alarm.assetId, alarmId: alarm.id } }"
+            >{{ t('查看设备与维护历史 →') }}</RouterLink
+          >
         </div>
-        <div>
-          <dt>{{ t('触发值 / 标准单位') }}</dt>
-          <dd>{{ Number(alarm.triggerValue).toFixed(2) }} {{ snapshot.Unit }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('触发条件快照') }}</dt>
-          <dd>
-            &gt; {{ snapshot.RaiseAbove }}{{ t('，持续') }} {{ Number(snapshot.RaiseForMs) / 1000 }}
-            {{ t('秒') }}
-          </dd>
-        </div>
-        <div>
-          <dt>{{ t('恢复条件快照') }}</dt>
-          <dd>
-            &lt; {{ snapshot.ClearBelow }}{{ t('，持续') }} {{ Number(snapshot.ClearForMs) / 1000 }}
-            {{ t('秒') }}
-          </dd>
-        </div>
-        <div>
-          <dt>{{ t('最大样本间隔') }}</dt>
-          <dd>{{ Number(snapshot.MaxSampleGapMs) / 1000 }} {{ t('秒') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('恢复时间') }}</dt>
-          <dd>{{ at(alarm.recoveredAt) }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('确认人 / 时间') }}</dt>
-          <dd>{{ alarm.acknowledgedByUserId ?? '—' }}<br />{{ at(alarm.acknowledgedAt) }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('最后评估 / 版本') }}</dt>
-          <dd>{{ at(alarm.lastEvaluatedAt) }} / v{{ alarm.version }}</dd>
-        </div>
-      </dl>
-      <p class="path-note">
-        <el-button
-          v-if="canMaintain"
-          link
-          type="primary"
-          @click="
-            workOrderDrawer.open({ assetId: alarm.assetId, orderId: 'new', alarmId: alarm.id })
-          "
-        >
-          {{ t('创建关联工单 →') }}
-        </el-button>
-        <RouterLink
-          v-else
-          :to="{ path: '/assets', query: { assetId: alarm.assetId, alarmId: alarm.id } }"
-          >{{ t('查看设备与维护历史 →') }}</RouterLink
-        >
-      </p>
-      <InvestigationPanel ref="investigation" :key="alarm.id" :alarm-id="alarm.id" />
-      <h3>{{ t('事件记录') }}</h3>
-      <ol class="alarm-timeline">
-        <li v-for="event in events" :key="event.id">
-          <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
-          ><span>{{ at(event.occurredAt) }} · {{ event.actorUserId ?? t('规则引擎') }}</span
-          ><small v-if="event.readingId">{{ t('观测') }} {{ event.readingId }}</small>
-        </li>
-      </ol>
-      <p v-if="!alarm.triggerReadingAvailable" class="path-note">
-        {{ t('原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。') }}
-      </p>
-      <details>
-        <summary>{{ t('追溯标识') }}</summary>
+      </header>
+      <InvestigationPanel
+        ref="investigation"
+        :key="alarm.id"
+        :alarm-id="alarm.id"
+        :point-code="alarm.pointCode"
+      />
+      <details :key="alarm.id" class="alarm-audit">
+        <summary>{{ t('告警规则快照') }}</summary>
         <p class="path-note">
-          {{ t('告警') }} {{ alarm.id }}<br />{{ t('规则') }} {{ alarm.ruleId }} / v{{
-            alarm.ruleVersion
-          }}<br />{{ t('触发观测') }}
-          {{ alarm.triggerReadingId }}
+          {{ snapshot.Name ?? alarm.ruleName }} · RULE V{{ alarm.ruleVersion }}
+        </p>
+        <dl class="detail-grid">
+          <div>
+            <dt>{{ t('设备') }}</dt>
+            <dd>{{ alarm.assetName }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('触发值 / 标准单位') }}</dt>
+            <dd>{{ Number(alarm.triggerValue).toFixed(2) }} {{ snapshot.Unit }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('触发条件快照') }}</dt>
+            <dd>
+              &gt; {{ snapshot.RaiseAbove }}{{ t('，持续') }}
+              {{ Number(snapshot.RaiseForMs) / 1000 }}
+              {{ t('秒') }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('恢复条件快照') }}</dt>
+            <dd>
+              &lt; {{ snapshot.ClearBelow }}{{ t('，持续') }}
+              {{ Number(snapshot.ClearForMs) / 1000 }}
+              {{ t('秒') }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('最大样本间隔') }}</dt>
+            <dd>{{ Number(snapshot.MaxSampleGapMs) / 1000 }} {{ t('秒') }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('恢复时间') }}</dt>
+            <dd>{{ at(alarm.recoveredAt) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('确认人 / 时间') }}</dt>
+            <dd>{{ alarm.acknowledgedByUserId ?? '—' }}<br />{{ at(alarm.acknowledgedAt) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('最后评估 / 版本') }}</dt>
+            <dd>{{ at(alarm.lastEvaluatedAt) }} / v{{ alarm.version }}</dd>
+          </div>
+        </dl>
+        <details>
+          <summary>{{ t('追溯标识') }}</summary>
+          <p class="path-note">
+            {{ t('告警') }} {{ alarm.id }}<br />{{ t('规则') }} {{ alarm.ruleId }} / v{{
+              alarm.ruleVersion
+            }}<br />{{ t('触发观测') }}
+            {{ alarm.triggerReadingId }}
+          </p>
+        </details>
+      </details>
+      <details :key="alarm.id + ':events'" class="alarm-audit">
+        <summary>{{ t('告警事件记录') }}</summary>
+        <ol class="alarm-timeline">
+          <li v-for="event in events" :key="event.id">
+            <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
+            ><span
+              ><time :datetime="event.occurredAt" :title="event.occurredAt">{{
+                at(event.occurredAt, 'seconds')
+              }}</time>
+              · {{ event.actorUserId ?? t('规则引擎') }}</span
+            ><small v-if="event.readingId">{{ t('观测') }} {{ event.readingId }}</small>
+          </li>
+        </ol>
+        <p v-if="!alarm.triggerReadingAvailable" class="path-note">
+          {{
+            t('原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。')
+          }}
         </p>
       </details>
     </section>
@@ -448,3 +472,46 @@ onUnmounted(() => {
     {{ t('· 页面时间为北京时间。') }}
   </p>
 </template>
+
+<style scoped>
+.alarm-detail {
+  margin-top: 0;
+}
+.alarm-workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.alarm-workspace-header p {
+  margin: 0 0 8px;
+}
+.alarm-state,
+.alarm-workspace-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.alarm-state {
+  margin-bottom: 8px;
+}
+.alarm-state .path-note {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .alarm-detail {
+    padding: 12px;
+  }
+}
+.alarm-audit {
+  margin-top: 16px;
+  padding-block: 6px;
+  border-top: 1px solid var(--line);
+}
+.alarm-audit > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+</style>

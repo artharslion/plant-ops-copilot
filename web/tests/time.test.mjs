@@ -25,6 +25,10 @@ test('all timestamps display in Beijing time, independent of browser timezone', 
     formatDateTime('2026-10-27T02:28:00.1234567Z'),
     '2026-10-27 10:28:00.1234567（北京时间）',
   )
+  assert.equal(
+    formatDateTime('2026-10-27T02:28:00.9999999Z', 'seconds'),
+    '2026-10-27 10:28:00（北京时间）',
+  )
   assert.equal(formatDateTime(null), '—')
   assert.equal(formatDateTime('invalid'), '时间未知')
 })
