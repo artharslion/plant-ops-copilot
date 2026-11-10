@@ -12,7 +12,9 @@ import type { InvestigationAdvice } from '../investigationAdvice'
 import ActionProposalPanel from './ActionProposalPanel.vue'
 import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import { request } from '../api'
+import { useSession } from '../stores/session'
 
+const session = useSession()
 const props = defineProps<{ alarmId: string; pointCode?: string }>()
 const proposalPanel = ref<InstanceType<typeof ActionProposalPanel>>()
 const proposalBusy = computed(() => !!proposalPanel.value?.busy)
@@ -22,6 +24,9 @@ type Evidence = {
   id: string
   kind: string
   resourceId?: string
+  versionId?: string | null
+  chunkId?: string | null
+  sha256?: string
   title: string
   facts: string[]
   retrievedAt: string
@@ -128,6 +133,10 @@ const loadingRuns = ref(true)
 const actionError = messageRef()
 const capabilitiesError = messageRef()
 const recommendationPrefix = useId() + '-recommendation-'
+const taskListId = recommendationPrefix + 'list'
+function focusTaskList() {
+  document.getElementById(taskListId)?.focus()
+}
 function focusRecommendation(id: string) {
   const task = document.getElementById(recommendationPrefix + id)
   if (task instanceof HTMLDetailsElement) {
@@ -159,7 +168,19 @@ const trustedAlarmPoint = computed(() =>
       point.observation?.value != null,
   ),
 )
-const nextRecommendation = computed(() => advice.value?.recommendations[0])
+const nextRecommendation = computed(() => {
+  const result = advice.value
+  if (!result) return undefined
+  if (result.recommendations.length === 1) return result.recommendations[0]
+  const relatedIds = new Set(
+    result.gaps
+      .filter((gap) => result.blockingGapIds.includes(gap.id))
+      .flatMap((gap) => gap.resolutionRecommendationIds),
+  )
+  return relatedIds.size === 1
+    ? result.recommendations.find((item) => relatedIds.has(item.id))
+    : undefined
+})
 const taskKinds = computed<Record<string, string>>(() => ({
   Inspect: t('现场核查'),
   VerifyMeasurement: t('测量核验'),
@@ -177,6 +198,36 @@ const subjects = computed(
       .filter((x) => x.resourceId)
       .map((x) => ({ ref: x.resourceId!, label: formatEvidenceTitle(x) })) ?? [],
 )
+
+const evidenceGroups = computed(() => {
+  const categories = [
+    { label: t('告警与事件'), kinds: ['Alarm', 'AlarmHistory', 'TriggerReading'] },
+    {
+      label: t('测量与趋势'),
+      kinds: [
+        'PointStatus',
+        'EventReadings',
+        'RecoveryReadings',
+        'EventTrend',
+        'RecoveryTrend',
+        'Trend',
+        'EventDerivedTrend',
+        'CurrentDerivedTrend',
+        'RelatedTrend',
+        'RelatedComparison',
+      ],
+    },
+    { label: t('设备与维护资料'), kinds: ['Asset', 'Maintenance'] },
+    { label: t('参考文档'), kinds: ['Document'] },
+    { label: t('取证评估与限制'), kinds: ['Assessment', 'DataQuality'] },
+  ].map((category) => ({ ...category, items: [] as Evidence[] }))
+  const other = { label: t('其他证据'), items: [] as Evidence[] }
+  for (const item of selected.value?.evidence ?? []) {
+    const category = categories.find(({ kinds }) => kinds.includes(item.kind)) ?? other
+    category.items.push(item)
+  }
+  return [...categories, other].filter(({ items }) => items.length)
+})
 
 function evidenceText(value: string) {
   return formatInvestigationText(value, selected.value?.evidence ?? [])
@@ -292,7 +343,8 @@ const failures = computed<Record<string, string>>(() => ({
 }))
 let generation = 0,
   disposed = false,
-  reading = false
+  reading = false,
+  evidenceGeneration = 0
 async function refresh() {
   if (busy.value || disposed || reading) return
   reading = true
@@ -301,13 +353,20 @@ async function refresh() {
     const items = await request<Run[]>(`/alarms/${props.alarmId}/investigations`)
     if (disposed || current !== generation) return
     runs.value = items
-    if (!items.some((run) => run.id === selectedId.value)) selectedId.value = items[0]?.id ?? ''
+    if (!items.some((run) => run.id === selectedId.value)) {
+      choose()
+      selectedId.value = items[0]?.id ?? ''
+    }
     // Hide old excerpts when polling reports invalidation; expansion authorizes each fresh read.
-    if (selected.value?.status === 'Invalidated') expanded.value = null
+    if (selected.value?.status === 'Invalidated') {
+      evidenceGeneration++
+      expanded.value = null
+    }
     error.value = ''
   } catch (e) {
     if (disposed || current !== generation) return
     runs.value = []
+    evidenceGeneration++
     expanded.value = null
     error.value = () => (e instanceof Error ? e.message : t('调查记录暂不可读。'))
   } finally {
@@ -319,7 +378,7 @@ async function start() {
   if (!canStart.value) return
   busy.value = true
   actionError.value = ''
-  expanded.value = null
+  choose()
   generation++
   try {
     const run = await request<Run>(
@@ -353,19 +412,23 @@ async function cancel() {
 async function expand(id: string) {
   const runId = selected.value?.id
   if (!runId) return
+  const current = ++evidenceGeneration
   expanded.value = null
   evidenceError.value = ''
   try {
     const item = await request<Evidence>(
       `/investigations/${runId}/evidence/${encodeURIComponent(id)}`,
     )
-    if (!disposed && selected.value?.id === runId) expanded.value = item
+    if (!disposed && current === evidenceGeneration && selected.value?.id === runId)
+      expanded.value = item
   } catch (e) {
+    if (disposed || current !== evidenceGeneration || selected.value?.id !== runId) return
     evidenceError.value = () => (e instanceof Error ? e.message : t('证据不可读，请重新调查。'))
     void refresh()
   }
 }
 function choose() {
+  evidenceGeneration++
   expanded.value = null
   evidenceError.value = ''
 }
@@ -440,7 +503,11 @@ onUnmounted(() => {
               ? t('模拟结果 · 不代表真实模型诊断')
               : t('模型 {0}', [selected.model])
           }}
-          · {{ at(selected.createdAt) }} {{ t('的调查快照') }}
+          ·
+          <time :datetime="selected.createdAt" :title="selected.createdAt">{{
+            at(selected.createdAt, 'seconds')
+          }}</time>
+          {{ t('的调查快照') }}
           <template v-if="selected.id !== runs[0]?.id"> · {{ t('历史调查') }}</template></span
         >
       </p>
@@ -488,11 +555,19 @@ onUnmounted(() => {
           {{ t('旧调查未记录双维度判断，请核对下方原始事实与限制。') }}
         </p>
         <div v-if="advice" class="advice-summary">
-          <p v-if="nextRecommendation" class="next-recommendation">
+          <p v-if="advice.recommendations.length" class="next-recommendation">
             <strong>{{ t('建议下一步') }}</strong>
-            <el-button link type="primary" @click="focusRecommendation(nextRecommendation.id)">
+            <el-button
+              v-if="nextRecommendation"
+              link
+              type="primary"
+              @click="focusRecommendation(nextRecommendation.id)"
+            >
               {{ taskKinds[nextRecommendation.kind] ?? nextRecommendation.kind }}
             </el-button>
+            <el-button v-else link type="primary" @click="focusTaskList">{{
+              t('查看核查任务')
+            }}</el-button>
           </p>
           <details>
             <summary>{{ t('完整调查摘要') }}</summary>
@@ -529,10 +604,13 @@ onUnmounted(() => {
                 <strong>{{ advice.workOrder.draft.title }}</strong> ·
                 {{ priorities[advice.workOrder.draft.priority] ?? advice.workOrder.draft.priority }}
               </p>
+              <p class="work-order-purpose">{{ advice.workOrder.draft.objective }}</p>
+              <p class="path-note">
+                {{ t('{0} 项核查任务', [advice.workOrder.draft.recommendationIds.length]) }}
+              </p>
               <details>
                 <summary>{{ t('查看工单建议详情') }}</summary>
                 <p>{{ advice.workOrder.reason }}</p>
-                <p>{{ advice.workOrder.draft.objective }}</p>
                 <p>{{ t('优先级依据') }} · {{ advice.workOrder.draft.priorityReason }}</p>
               </details>
             </template>
@@ -544,6 +622,7 @@ onUnmounted(() => {
           :advice="advice"
           :subjects="subjects"
           :task-kinds="taskKinds"
+          :task-list-id="taskListId"
           :recommendation-prefix="recommendationPrefix"
           @evidence="expand"
           @recommendation="focusRecommendation"
@@ -605,6 +684,25 @@ onUnmounted(() => {
             </template>
           </span>
         </summary>
+        <section
+          v-if="evidenceGroups.length"
+          class="evidence-directory"
+          :aria-label="t('证据目录')"
+        >
+          <h4>{{ t('证据目录') }}</h4>
+          <div class="evidence-groups">
+            <section v-for="group in evidenceGroups" :key="group.label">
+              <h5>{{ group.label }} · {{ group.items.length }}</h5>
+              <ul>
+                <li v-for="item in group.items" :key="item.id">
+                  <button type="button" class="evidence-link" @click="expand(item.id)">
+                    {{ formatEvidenceTitle(item) }}
+                  </button>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </section>
         <article v-if="selected.assessment" :aria-label="t('数据可信度与异常证据')">
           <h4>{{ t('测点与时间窗口') }}</h4>
           <p class="path-note">
@@ -740,20 +838,6 @@ onUnmounted(() => {
             </li>
           </ul>
         </article>
-        <details v-if="selected.evidence.length">
-          <summary>{{ t('本次已获取的证据（{0}）', [selected.evidence.length]) }}</summary>
-          <div class="actions">
-            <el-button
-              v-for="item in selected.evidence"
-              :key="item.id"
-              class="secondary citation"
-              @click="expand(item.id)"
-              type="primary"
-            >
-              {{ item.id }} · {{ formatEvidenceTitle(item) }}
-            </el-button>
-          </div>
-        </details>
       </details>
       <p v-if="evidenceError" class="error-banner" role="alert">{{ evidenceError }}</p>
       <SidePanel
@@ -764,10 +848,6 @@ onUnmounted(() => {
         @close="expanded = null"
       >
         <aside class="investigation-evidence">
-          <div class="section-title">
-            <h4>{{ expanded.id }} · {{ formatEvidenceTitle(expanded) }}</h4>
-            <el-button @click="expanded = null">{{ t('收起') }}</el-button>
-          </div>
           <p class="path-note">
             {{ t('取数时间') }} {{ at(expanded.retrievedAt) }}
             {{ t('· 本次展开已重新检查读取权限') }}
@@ -797,11 +877,34 @@ onUnmounted(() => {
               {{ fact }}
             </p>
           </details>
+          <details class="original-evidence">
+            <summary>{{ t('证据来源标识') }}</summary>
+            <dl class="evidence-provenance">
+              <dt>{{ t('证据类型') }}</dt>
+              <dd>{{ expanded.kind }}</dd>
+              <template v-if="expanded.resourceId">
+                <dt>{{ t('来源标识') }}</dt>
+                <dd>{{ expanded.resourceId }}</dd>
+              </template>
+              <template v-if="expanded.versionId">
+                <dt>{{ t('版本标识') }}</dt>
+                <dd>{{ expanded.versionId }}</dd>
+              </template>
+              <template v-if="expanded.chunkId">
+                <dt>{{ t('片段标识') }}</dt>
+                <dd>{{ expanded.chunkId }}</dd>
+              </template>
+              <template v-if="expanded.sha256">
+                <dt>SHA-256</dt>
+                <dd>{{ expanded.sha256 }}</dd>
+              </template>
+            </dl>
+          </details>
         </aside>
       </SidePanel>
     </template>
     <details class="investigation-disclosure">
-      <summary>{{ t('调查历史与设置') }}</summary>
+      <summary>{{ t('调查运行记录') }}</summary>
       <el-form-item v-if="runs.length" :label="t('我的调查记录')"
         ><el-select
           filterable
@@ -813,10 +916,35 @@ onUnmounted(() => {
             v-for="run in runs"
             :key="run.id"
             :value="run.id"
-            :label="at(run.createdAt) + ' · ' + (labels[run.status] ?? run.status)"
+            :label="at(run.createdAt, 'seconds') + ' · ' + (labels[run.status] ?? run.status)"
           />
         </el-select>
       </el-form-item>
+      <template v-if="selected">
+        <p class="path-note">
+          {{ t('调查提交时间') }} {{ at(selected.createdAt) }}
+          <template v-if="selected.completedAt">
+            · {{ t('调查完成时间') }} {{ at(selected.completedAt) }}</template
+          >
+        </p>
+        <div v-if="selected.modelRounds != null" class="run-details">
+          <h4>{{ t('调用与用量记录') }}</h4>
+          <p class="path-note">
+            {{ t('模型') }} {{ selected.modelRounds }} {{ t('轮，读取') }} {{ selected.toolCalls }}
+            {{ t('次；预算核算输入') }} {{ selected.inputTokens }}{{ t('、输出') }}
+            {{ selected.outputTokens }} {{ t('tokens（含未确认预留）。') }}{{ usageNote }}
+          </p>
+        </div>
+      </template>
+    </details>
+    <details class="investigation-disclosure">
+      <summary>{{ t('AI 调查设置') }}</summary>
+      <p v-if="capabilities" class="path-note">
+        {{ t('服务端已配置模型：{0}', [capabilities.model]) }}
+        <RouterLink v-if="session.admin" class="settings-link" to="/settings">{{
+          t('设置')
+        }}</RouterLink>
+      </p>
       <p class="path-note">
         {{ t('调查只读取资料；告警确认、维修与创建工单仍由人员操作。') }}
         <template v-if="capabilities && !capabilities.externalData">
@@ -834,14 +962,6 @@ onUnmounted(() => {
             {{ t('如需用当前语言生成分析建议，请重新发起调查；事实与证据展示可直接切换语言。') }}
           </span>
         </p>
-        <details v-if="selected.modelRounds != null" class="run-details">
-          <summary>{{ t('调用与用量记录') }}</summary>
-          <p class="path-note">
-            {{ t('模型') }} {{ selected.modelRounds }} {{ t('轮，读取') }} {{ selected.toolCalls }}
-            {{ t('次；预算核算输入') }} {{ selected.inputTokens }}{{ t('、输出') }}
-            {{ selected.outputTokens }} {{ t('tokens（含未确认预留）。') }}{{ usageNote }}
-          </p>
-        </details>
       </template>
     </details>
   </section>
@@ -1012,8 +1132,39 @@ onUnmounted(() => {
 }
 .investigation-evidence {
   padding: 16px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.evidence-groups section + section {
+  margin-top: 8px;
+}
+.evidence-groups h5 {
+  margin: 8px 0 4px;
+}
+.evidence-groups ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  gap: 0 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.evidence-link {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.evidence-link:hover,
+.settings-link {
+  text-decoration: underline;
+}
+.evidence-provenance dd {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
 }
 .evidence-text {
   white-space: pre-wrap;

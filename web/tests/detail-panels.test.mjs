@@ -1216,6 +1216,68 @@ test('the summary displays only the matching trusted alarm point from the invest
   assert.equal(state.trustedAlarmPoint, undefined)
 })
 
+test('the next step uses a unique explicit blocker link and never defaults to the first task', async (t) => {
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) =>
+    path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  state.runs = [
+    {
+      id: 'run-1',
+      result: {
+        schemaVersion: '3',
+        recommendations: [{ id: 'R1' }, { id: 'R2' }],
+        blockingGapIds: ['G2'],
+        gaps: [
+          { id: 'G1', resolutionRecommendationIds: ['R1'] },
+          { id: 'G2', resolutionRecommendationIds: ['R2'] },
+        ],
+      },
+      evidence: [
+        { id: 'E1', kind: 'Alarm' },
+        { id: 'E2', kind: 'FutureSource' },
+        { id: 'E3', kind: 'Document' },
+        { id: 'E4', kind: 'TriggerReading' },
+      ],
+    },
+  ]
+  state.selectedId = 'run-1'
+  assert.equal(state.nextRecommendation.id, 'R2')
+  state.runs[0].result.blockingGapIds.push('G1')
+  assert.equal(state.nextRecommendation, undefined)
+  state.runs[0].result.blockingGapIds = []
+  assert.equal(state.nextRecommendation, undefined)
+  state.runs[0].result.recommendations = [{ id: 'R2' }]
+  assert.equal(state.nextRecommendation.id, 'R2')
+  assert.deepEqual(
+    state.evidenceGroups.map((group) => group.items.map(({ id }) => id)),
+    [['E1', 'E4'], ['E3'], ['E2']],
+  )
+})
+
+test('a late evidence response cannot replace the newer citation or reappear after a run change', async (t) => {
+  const requests = new Map()
+  const state = await mount(t, 'InvestigationPanel', { alarmId: 'alarm-1' }, async (path) => {
+    if (path === '/investigation-capabilities') return { model: 'fixture', externalData: false }
+    if (path.endsWith('/investigations')) return []
+    return new Promise((resolve) => requests.set(path.split('/').at(-1), resolve))
+  })
+  state.runs = [{ id: 'run-1' }, { id: 'run-2' }]
+  state.selectedId = 'run-1'
+  const older = state.expand('E1')
+  const newer = state.expand('E2')
+  requests.get('E2')({ id: 'E2' })
+  await newer
+  requests.get('E1')({ id: 'E1' })
+  await older
+  assert.equal(state.expanded.id, 'E2')
+  const previousRun = state.expand('E3')
+  state.selectedId = 'run-2'
+  state.choose()
+  requests.get('E3')({ id: 'E3' })
+  await previousRun
+  assert.equal(state.expanded, null)
+})
+
 test('the advice view renders distinct tasks once and preserves explicit links to checks and evidence', async () => {
   const check = {
     kind: 'Inspect',
@@ -1227,6 +1289,7 @@ test('the advice view renders distinct tasks once and preserves explicit links t
   }
   const app = createSSRApp(components.InvestigationAdvicePanel, {
     recommendationPrefix: 'check-',
+    taskListId: 'task-list',
     taskKinds: { Inspect: '现场核查' },
     subjects: [],
     advice: {
@@ -1259,7 +1322,9 @@ test('the advice view renders distinct tasks once and preserves explicit links t
       workOrder: { blockingGapIds: [], draft: { recommendationIds: ['R2'] } },
     },
   })
-  app.component('el-button', (_, { slots }) => h('button', slots.default?.()))
+  app.component('el-button', (_, { attrs, slots }) =>
+    h('button', { 'aria-label': attrs['aria-label'] }, slots.default?.()),
+  )
   const html = await renderToString(app)
   assert.equal(html.split('Inspect the drive-end bearing.').length, 2)
   assert.equal(html.split('Inspect the non-drive-end bearing.').length, 2)
@@ -1275,9 +1340,9 @@ test('the advice view renders distinct tasks once and preserves explicit links t
   assert.match(html, /Record operating load/)
   assert.match(html, /Readings recorded/)
   assert.match(html, /Vibration persists/)
-  assert.match(html, /核实方式：.*<button>R1<\/button>/)
-  assert.match(html, /补证方式：.*<button>R2<\/button>/)
-  assert.match(html, /<button>查看依据 E1<\/button>/)
+  assert.match(html, /核实方式：.*aria-label="打开核查任务 R1">R1<\/button>/)
+  assert.match(html, /补证任务.*aria-label="打开核查任务 R2">R2<\/button>/)
+  assert.match(html, /<button aria-label="查看证据 E1">E1<\/button>/)
   assert.match(html, /<details[^>]* open[^>]*><summary>仍缺少的信息/)
 })
 

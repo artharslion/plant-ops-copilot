@@ -12,18 +12,21 @@ const beijing = new Intl.DateTimeFormat('zh-CN', {
 
 const timestamp = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})/
 
-function localTime(value: string) {
+function localTime(value: string, precision: 'full' | 'seconds' = 'full') {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return null
   const parts = Object.fromEntries(beijing.formatToParts(date).map((p) => [p.type, p.value]))
   // Keep meaningful sample precision when displaying evidence; remove trailing zeros.
-  const fraction = value.match(/\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1]?.replace(/0+$/, '')
+  const fraction =
+    precision === 'full'
+      ? value.match(/\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1]?.replace(/0+$/, '')
+      : ''
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}${fraction ? '.' + fraction : ''}`
 }
 
-export function formatDateTime(value?: string | null): string {
+export function formatDateTime(value?: string | null, precision?: 'full' | 'seconds'): string {
   if (!value) return '—'
-  const display = localTime(value)
+  const display = localTime(value, precision)
   return display ? t('{0}（北京时间）', [display]) : t('时间未知')
 }
 

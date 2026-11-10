@@ -6,6 +6,7 @@ import type { InvestigationAdvice } from '../investigationAdvice'
 const props = defineProps<{
   advice: InvestigationAdvice
   recommendationPrefix: string
+  taskListId: string
   taskKinds: Record<string, string>
   subjects: { ref: string; label: string }[]
 }>()
@@ -35,7 +36,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
 <template>
   <section class="investigation-advice" :aria-label="t('工程师建议')">
     <article>
-      <h4>{{ t('工程师建议') }}</h4>
+      <h4 :id="taskListId" tabindex="-1">{{ t('工程师建议') }}</h4>
       <p v-if="!advice.recommendations.length" class="path-note">
         {{ t('暂无有依据的核查建议，请先查看证据与缺项。') }}
       </p>
@@ -43,7 +44,8 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
         <li v-for="item in advice.recommendations" :key="item.id">
           <details :id="recommendationPrefix + item.id" class="task-row">
             <summary>
-              <strong>{{ item.id }} · {{ taskKinds[item.kind] ?? item.kind }}</strong>
+              <strong>{{ taskKinds[item.kind] ?? item.kind }}</strong>
+              <small class="detail-meta">{{ item.id }}</small>
               <small
                 v-if="advice.workOrder.draft?.recommendationIds.includes(item.id)"
                 class="task-draft"
@@ -53,23 +55,31 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
               <span class="task-text">{{ item.task }}</span>
             </summary>
             <div class="task-details">
-              <p v-if="item.subjectRefs.length" class="path-note">
+              <p v-if="item.subjectRefs.length" class="detail-meta">
                 {{ item.subjectRefs.map(subject).join('、') }}
               </p>
-              <p>{{ t('需记录：') }} {{ item.record }}</p>
-              <p>{{ t('完成条件：') }} {{ item.completionCriteria }}</p>
-              <p>
-                {{ t('升级条件：') }} {{ item.escalation.condition }} ·
-                {{ label(item.escalation.responsibleRole) }}
-              </p>
-              <el-button
-                v-for="id in item.evidenceRefs"
-                :key="id"
-                link
-                type="primary"
-                @click="emit('evidence', id)"
-                >{{ t('查看依据') }} {{ id }}</el-button
-              >
+              <dl class="execution-fields">
+                <dt>{{ t('记录要求') }}</dt>
+                <dd>{{ item.record }}</dd>
+                <dt>{{ t('完成条件') }}</dt>
+                <dd>{{ item.completionCriteria }}</dd>
+                <dt>{{ t('何时升级') }}</dt>
+                <dd>
+                  {{ item.escalation.condition }} · {{ label(item.escalation.responsibleRole) }}
+                </dd>
+              </dl>
+              <div v-if="item.evidenceRefs.length" class="detail-links">
+                <span>{{ t('证据引用') }}</span>
+                <el-button
+                  v-for="id in item.evidenceRefs"
+                  :key="id"
+                  link
+                  type="primary"
+                  :aria-label="t('查看证据 {0}', [id])"
+                  @click="emit('evidence', id)"
+                  >{{ id }}</el-button
+                >
+              </div>
             </div>
           </details>
         </li>
@@ -77,7 +87,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
     </article>
     <details v-if="advice.hypotheses.length" class="advice-details">
       <summary>{{ t('待验证假设') }} · {{ advice.hypotheses.length }}</summary>
-      <div v-for="item in advice.hypotheses" :key="item.id" class="investigation-statement">
+      <div v-for="item in advice.hypotheses" :key="item.id" class="detail-entry">
         <p>{{ item.description }} · {{ t('证据支持：') }}{{ label(item.support) }}</p>
         <p v-if="item.verificationRecommendationIds.length">
           {{ t('核实方式：') }}
@@ -86,6 +96,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
             :key="id"
             link
             type="primary"
+            :aria-label="t('打开核查任务 {0}', [id])"
             @click="emit('recommendation', id)"
             >{{ id }}</el-button
           >
@@ -97,6 +108,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
             :key="id"
             link
             type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
             @click="emit('evidence', id)"
             >{{ id }}</el-button
           >
@@ -108,6 +120,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
             :key="id"
             link
             type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
             @click="emit('evidence', id)"
             >{{ id }}</el-button
           >
@@ -120,52 +133,64 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
       :open="advice.blockingGapIds.length > 0 || advice.workOrder.blockingGapIds.length > 0"
     >
       <summary>{{ t('仍缺少的信息') }} · {{ advice.gaps.length }}</summary>
-      <div v-for="item in advice.gaps" :key="item.id" class="investigation-statement">
-        <p>
-          <strong>{{ item.id }} · {{ label(item.kind) }}</strong> {{ item.description }}
+      <article v-for="item in advice.gaps" :key="item.id" class="detail-entry">
+        <h5>{{ item.description }}</h5>
+        <p class="detail-meta">
+          {{ item.id }} · {{ label(item.kind) }}
+          <template v-if="advice.blockingGapIds.includes(item.id)">
+            · {{ t('影响调查结论') }}</template
+          >
         </p>
-        <p>{{ item.whyItMatters }}</p>
-        <p v-if="item.resolutionRecommendationIds.length">
-          {{ t('补证方式：') }}
+        <p>
+          <strong>{{ t('影响') }}</strong> {{ item.whyItMatters }}
+        </p>
+        <div v-if="item.resolutionRecommendationIds.length" class="detail-links">
+          <span>{{ t('补证任务') }}</span>
           <el-button
             v-for="id in item.resolutionRecommendationIds"
             :key="id"
             link
             type="primary"
+            :aria-label="t('打开核查任务 {0}', [id])"
             @click="emit('recommendation', id)"
             >{{ id }}</el-button
           >
-        </p>
-        <el-button
-          v-for="id in item.evidenceRefs"
-          :key="id"
-          link
-          type="primary"
-          @click="emit('evidence', id)"
-          >{{ t('查看依据') }} {{ id }}</el-button
-        >
-      </div>
+        </div>
+        <div v-if="item.evidenceRefs.length" class="detail-links">
+          <span>{{ t('证据引用') }}</span>
+          <el-button
+            v-for="id in item.evidenceRefs"
+            :key="id"
+            link
+            type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
+            @click="emit('evidence', id)"
+            >{{ id }}</el-button
+          >
+        </div>
+      </article>
     </details>
     <details v-if="advice.findings.length" class="advice-details">
       <summary>{{ t('调查发现') }} · {{ advice.findings.length }}</summary>
-      <div v-for="item in advice.findings" :key="item.id" class="investigation-statement">
-        <p>
-          <strong>{{ item.id }} · {{ item.subjectRefs.map(subject).join('、') }}</strong>
-        </p>
-        <p class="path-note">
-          {{ label(item.scope) }} · {{ label(item.domain) }} · {{ label(item.status) }}
+      <article v-for="item in advice.findings" :key="item.id" class="detail-entry">
+        <h5>{{ label(item.scope) }} · {{ label(item.domain) }}</h5>
+        <p class="detail-meta">
+          {{ item.id }} · {{ label(item.status) }} · {{ item.subjectRefs.map(subject).join('、') }}
         </p>
         <p>{{ item.interpretation }}</p>
-        <el-button
-          v-for="id in item.evidenceRefs"
-          :key="id"
-          link
-          type="primary"
-          @click="emit('evidence', id)"
-        >
-          {{ t('查看依据') }} {{ id }}
-        </el-button>
-      </div>
+        <div v-if="item.evidenceRefs.length" class="detail-links">
+          <span>{{ t('证据引用') }}</span>
+          <el-button
+            v-for="id in item.evidenceRefs"
+            :key="id"
+            link
+            type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
+            @click="emit('evidence', id)"
+            >{{ id }}</el-button
+          >
+        </div>
+      </article>
     </details>
   </section>
 </template>
@@ -176,6 +201,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
 }
 .investigation-advice h4 {
   margin: 6px 0 12px;
+  scroll-margin-top: 12px;
 }
 .task-list {
   list-style: none;
@@ -219,5 +245,48 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
 }
 .advice-details > summary {
   font-weight: 600;
+}
+.detail-meta,
+.detail-links > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.task-row summary .detail-meta {
+  margin-inline-start: 8px;
+}
+.detail-entry {
+  padding-block: 8px;
+}
+.detail-entry + .detail-entry {
+  border-top: 1px solid var(--line);
+}
+.detail-entry h5,
+.detail-entry p {
+  margin: 0 0 5px;
+  line-height: 1.55;
+}
+.detail-entry h5 {
+  font-size: 14px;
+}
+.execution-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.execution-fields dt {
+  font-weight: 600;
+}
+.execution-fields dd {
+  margin: 0;
+}
+.detail-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.detail-links .el-button {
+  margin-left: 0;
 }
 </style>

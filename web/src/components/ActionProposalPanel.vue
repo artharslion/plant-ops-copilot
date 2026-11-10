@@ -372,7 +372,7 @@ defineExpose({ busy, dirty })
         type="primary"
         :disabled="busy || dirty || uncertain || proposal?.status === 'Pending'"
         @click="create()"
-        >{{ t('整理工单草稿') }}</el-button
+        >{{ t('准备调查工单草稿') }}</el-button
       >
     </div>
     <slot />
@@ -389,7 +389,7 @@ defineExpose({ busy, dirty })
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <div v-if="canMaintain && available && proposal?.status !== 'Pending'" class="actions">
       <el-button :disabled="busy || dirty || uncertain" @click="loadTargets()">{{
-        t('选择已有工单追加备注')
+        t('选择工单以追加调查备注')
       }}</el-button>
       <template v-if="targetsLoaded">
         <el-select
@@ -431,7 +431,7 @@ defineExpose({ busy, dirty })
           v-for="item in items"
           :key="item.id"
           :value="item.id"
-          :label="`${item.actionType === 'AppendWorkOrderNote' ? t('追加备注') : t('创建工单')} · ${labels[item.status] ?? item.status} · ${at(item.expiresAt)}`"
+          :label="`${item.actionType === 'AppendWorkOrderNote' ? t('追加备注') : t('创建工单')} · ${labels[item.status] ?? item.status} · ${at(item.expiresAt, 'seconds')}`"
         />
       </el-select>
       <el-button :disabled="busy || (dirty && !uncertain)" @click="read()">{{
@@ -441,7 +441,10 @@ defineExpose({ busy, dirty })
     <template v-if="proposal">
       <p role="status">
         <strong>{{ labels[proposal.status] ?? proposal.status }}</strong> · {{ proposal.assetName }}
-        {{ t('· 有效期至') }} {{ at(proposal.expiresAt) }}
+        {{ t('· 有效期至') }}
+        <time :datetime="proposal.expiresAt" :title="proposal.expiresAt">{{
+          at(proposal.expiresAt, 'seconds')
+        }}</time>
       </p>
       <p v-if="isNote" class="path-note">
         {{ t('目标工单：') }}{{ proposal.targetWorkOrderTitle }} ·
@@ -449,10 +452,13 @@ defineExpose({ busy, dirty })
         }}{{ proposal.targetWorkOrderVersion }} {{ t('· 工单') }}
         {{ proposal.targetWorkOrderId }}
       </p>
-      <p class="path-note">
-        {{ t('关联设备：') }}{{ proposal.assetId }}<br />{{ t('关联告警：') }}{{ proposal.alarmId
-        }}<br />{{ t('调查记录：') }}{{ proposal.aiRunId }}
-      </p>
+      <details class="path-note proposal-trace">
+        <summary>{{ t('追溯标识') }}</summary>
+        <p>
+          {{ t('关联设备：') }}{{ proposal.assetId }}<br />{{ t('关联告警：') }}{{ proposal.alarmId
+          }}<br />{{ t('调查记录：') }}{{ proposal.aiRunId }}
+        </p>
+      </details>
       <el-alert
         v-if="proposal.unavailableReason"
         :title="proposal.unavailableReason"
@@ -631,6 +637,9 @@ defineExpose({ busy, dirty })
 .proposal-panel .el-button :deep(span) {
   min-width: 0;
   text-align: left;
+}
+.proposal-trace {
+  overflow-wrap: anywhere;
 }
 .proposal-description {
   white-space: pre-wrap;

@@ -293,13 +293,16 @@ onUnmounted(() => {
       <el-table-column :label="t('人工确认')" min-width="140"
         ><template #default="{ row }"
           >{{ row.acknowledgedAt ? t('已确认') : t('未确认') }}<br /><small>{{
-            row.acknowledgedAt ? at(row.acknowledgedAt) : t('确认不会使告警恢复')
+            row.acknowledgedAt ? at(row.acknowledgedAt, 'seconds') : t('确认不会使告警恢复')
           }}</small></template
         ></el-table-column
       >
       <el-table-column :label="t('发生时间')" min-width="190"
         ><template #default="{ row }"
-          >{{ at(row.startedAt) }}<br /><small>v{{ row.version }}</small></template
+          ><time :datetime="row.startedAt" :title="row.startedAt">{{
+            at(row.startedAt, 'seconds')
+          }}</time
+          ><br /><small>v{{ row.version }}</small></template
         ></el-table-column
       >
     </el-table>
@@ -352,7 +355,7 @@ onUnmounted(() => {
             @click="
               workOrderDrawer.open({ assetId: alarm.assetId, orderId: 'new', alarmId: alarm.id })
             "
-            >{{ t('创建关联工单 →') }}</el-button
+            >{{ t('手动填写关联工单') }}</el-button
           >
           <RouterLink
             v-else
@@ -369,7 +372,7 @@ onUnmounted(() => {
         :point-code="alarm.pointCode"
       />
       <details :key="alarm.id" class="alarm-audit">
-        <summary>{{ t('告警规则快照与事件记录') }}</summary>
+        <summary>{{ t('告警规则快照') }}</summary>
         <p class="path-note">
           {{ snapshot.Name ?? alarm.ruleName }} · RULE V{{ alarm.ruleVersion }}
         </p>
@@ -415,19 +418,6 @@ onUnmounted(() => {
             <dd>{{ at(alarm.lastEvaluatedAt) }} / v{{ alarm.version }}</dd>
           </div>
         </dl>
-        <h3>{{ t('事件记录') }}</h3>
-        <ol class="alarm-timeline">
-          <li v-for="event in events" :key="event.id">
-            <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
-            ><span>{{ at(event.occurredAt) }} · {{ event.actorUserId ?? t('规则引擎') }}</span
-            ><small v-if="event.readingId">{{ t('观测') }} {{ event.readingId }}</small>
-          </li>
-        </ol>
-        <p v-if="!alarm.triggerReadingAvailable" class="path-note">
-          {{
-            t('原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。')
-          }}
-        </p>
         <details>
           <summary>{{ t('追溯标识') }}</summary>
           <p class="path-note">
@@ -437,6 +427,25 @@ onUnmounted(() => {
             {{ alarm.triggerReadingId }}
           </p>
         </details>
+      </details>
+      <details :key="alarm.id + ':events'" class="alarm-audit">
+        <summary>{{ t('告警事件记录') }}</summary>
+        <ol class="alarm-timeline">
+          <li v-for="event in events" :key="event.id">
+            <b>{{ eventNames[event.eventType] ?? event.eventType }}</b
+            ><span
+              ><time :datetime="event.occurredAt" :title="event.occurredAt">{{
+                at(event.occurredAt, 'seconds')
+              }}</time>
+              · {{ event.actorUserId ?? t('规则引擎') }}</span
+            ><small v-if="event.readingId">{{ t('观测') }} {{ event.readingId }}</small>
+          </li>
+        </ol>
+        <p v-if="!alarm.triggerReadingAvailable" class="path-note">
+          {{
+            t('原始样本已过保留期；当前展示告警触发值、阈值快照与保留事件，观测标识仅用于追溯。')
+          }}
+        </p>
       </details>
     </section>
   </SidePanel>
