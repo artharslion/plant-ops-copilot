@@ -696,6 +696,10 @@ onUnmounted(() => {
               <ul>
                 <li v-for="item in group.items" :key="item.id">
                   <button type="button" class="evidence-link" @click="expand(item.id)">
+                    <template v-if="item.kind === 'EventReadings'">{{ t('告警事件') }} · </template>
+                    <template v-else-if="item.kind === 'RecoveryReadings'"
+                      >{{ t('恢复阶段') }} ·
+                    </template>
                     {{ formatEvidenceTitle(item) }}
                   </button>
                 </li>
