@@ -10,7 +10,7 @@ import SidePanel from './SidePanel.vue'
 import InvestigationAdvicePanel from './InvestigationAdvicePanel.vue'
 import type { InvestigationAdvice } from '../investigationAdvice'
 import ActionProposalPanel from './ActionProposalPanel.vue'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import { request } from '../api'
 
 const props = defineProps<{ alarmId: string }>()
@@ -124,6 +124,13 @@ const runs = ref<Run[]>([]),
   selectedId = ref(''),
   busy = ref(false),
   error = messageRef()
+const loadingRuns = ref(true)
+const actionError = messageRef()
+const capabilitiesError = messageRef()
+const recommendationPrefix = useId() + '-recommendation-'
+function focusRecommendation(id: string) {
+  document.getElementById(recommendationPrefix + id)?.focus()
+}
 const capabilities = ref<{ model: string; externalData: boolean } | null>(null)
 const expanded = ref<Evidence | null>(null),
   evidenceError = messageRef()
@@ -195,9 +202,6 @@ const overview = computed(() => {
     }[assessment.anomalyEvidence] ?? t('请结合取证范围核查。')
   )
 })
-function guardWorkflowCollapse(event: MouseEvent) {
-  if (proposalBusy.value || proposalDirty.value) event.preventDefault()
-}
 const usageNote = computed(() => {
   const record = selected.value?.runRecord
   const usage = record?.usage
@@ -221,6 +225,15 @@ const usageNote = computed(() => {
 const active = computed(
   () => selected.value && ['Pending', 'Running'].includes(selected.value.status),
 )
+const canStart = computed(
+  () =>
+    !!capabilities.value &&
+    !loadingRuns.value &&
+    !active.value &&
+    !busy.value &&
+    !proposalBusy.value &&
+    !proposalDirty.value,
+)
 const labels = computed<Record<string, string>>(() => ({
   Pending: t('等待调查'),
   Running: t('调查进行中'),
@@ -228,6 +241,21 @@ const labels = computed<Record<string, string>>(() => ({
   Failed: t('调查未完成'),
   Cancelled: t('已取消'),
   Invalidated: t('资料或权限已变化'),
+}))
+const adviceLabels = computed(() => ({
+  Ready: t('建议已可用'),
+  NeedsMoreEvidence: t('需要补充关键证据'),
+  NeedsExpertReview: t('需要专家复核'),
+}))
+const workOrderLabels = computed(() => ({
+  DraftReady: t('可形成工单草稿'),
+  NeedsInformation: t('缺少工单起草条件'),
+  NotRecommended: t('暂不建议建单'),
+}))
+const priorities = computed<Record<string, string>>(() => ({
+  Low: t('低'),
+  Medium: t('中'),
+  High: t('高'),
 }))
 const failures = computed<Record<string, string>>(() => ({
   Unavailable: t('模型服务暂时不可用，请稍后重试。'),
@@ -242,9 +270,11 @@ const failures = computed<Record<string, string>>(() => ({
   LeaseExpired: t('调查执行中断且无法恢复，请重新开始。'),
 }))
 let generation = 0,
-  disposed = false
+  disposed = false,
+  reading = false
 async function refresh() {
-  if (busy.value || disposed) return
+  if (busy.value || disposed || reading) return
+  reading = true
   const current = ++generation
   try {
     const items = await request<Run[]>(`/alarms/${props.alarmId}/investigations`)
@@ -259,12 +289,15 @@ async function refresh() {
     runs.value = []
     expanded.value = null
     error.value = () => (e instanceof Error ? e.message : t('调查记录暂不可读。'))
+  } finally {
+    reading = false
+    if (current === generation) loadingRuns.value = false
   }
 }
 async function start() {
-  if (busy.value || !capabilities.value) return
+  if (!canStart.value) return
   busy.value = true
-  error.value = ''
+  actionError.value = ''
   expanded.value = null
   generation++
   try {
@@ -276,7 +309,7 @@ async function start() {
     runs.value = [run, ...runs.value.filter((item) => item.id !== run.id)]
     selectedId.value = run.id
   } catch (e) {
-    error.value = () => (e instanceof Error ? e.message : t('无法开始调查。'))
+    actionError.value = () => (e instanceof Error ? e.message : t('无法开始调查。'))
   } finally {
     busy.value = false
   }
@@ -285,12 +318,13 @@ async function cancel() {
   const run = selected.value
   if (!run || busy.value) return
   busy.value = true
+  actionError.value = ''
   generation++
   try {
     const stopped = await request<Run>(`/investigations/${run.id}/cancel`, 'POST')
     if (!disposed) runs.value = runs.value.map((item) => (item.id === stopped.id ? stopped : item))
   } catch (e) {
-    error.value = () => (e instanceof Error ? e.message : t('取消失败，请刷新状态。'))
+    actionError.value = () => (e instanceof Error ? e.message : t('取消失败，请刷新状态。'))
   } finally {
     busy.value = false
   }
@@ -314,13 +348,17 @@ function choose() {
   expanded.value = null
   evidenceError.value = ''
 }
-onMounted(async () => {
+async function loadCapabilities() {
+  capabilitiesError.value = ''
   try {
     capabilities.value = await request('/investigation-capabilities')
   } catch (e) {
-    error.value = () => (e instanceof Error ? e.message : t('调查服务暂不可用。'))
+    capabilitiesError.value = () => (e instanceof Error ? e.message : t('调查服务暂不可用。'))
   }
-  await refresh()
+}
+onMounted(() => {
+  void loadCapabilities()
+  void refresh()
 })
 const timer = setInterval(() => void refresh(), 3000)
 const clockTimer = setInterval(() => {
@@ -341,56 +379,38 @@ onUnmounted(() => {
         <h3>{{ t('AI 调查') }}</h3>
       </div>
       <div class="actions">
-        <el-button
-          :disabled="busy || proposalBusy || proposalDirty || !capabilities || !!active"
-          @click="start"
-          type="primary"
-        >
+        <el-button :disabled="!canStart" @click="start" type="primary">
           {{ active ? t('正在调查…') : t('开始只读调查') }}
         </el-button>
         <el-button v-if="active" :disabled="busy" @click="cancel">{{ t('取消调查') }}</el-button>
       </div>
     </div>
-    <p class="path-note">
+    <p v-if="capabilities?.externalData" class="path-note">
       {{
-        !capabilities
-          ? t('正在读取调查服务配置。')
-          : capabilities.externalData
-            ? t('外部模型：{0}。将发送本设备必要的告警、趋势、维护摘要和授权资料节选。', [
-                capabilities.model,
-              ])
-            : t('当前使用模拟模型，不向外部发送业务资料。')
+        t('外部模型：{0}。将发送本设备必要的告警、趋势、维护摘要和授权资料节选。', [
+          capabilities.model,
+        ])
       }}
-      {{ t('调查只读取资料；告警确认、维修与创建工单仍由人员操作。') }}
     </p>
-    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-    <el-form-item v-if="runs.length" :label="t('我的调查记录')"
-      ><el-select
-        filterable
-        v-model="selectedId"
-        :disabled="proposalBusy || proposalDirty"
-        @change="choose"
-      >
-        <el-option
-          v-for="run in runs"
-          :key="run.id"
-          :value="run.id"
-          :label="at(run.createdAt) + ' · ' + (labels[run.status] ?? run.status)"
-        />
-      </el-select>
-    </el-form-item>
-    <p v-else class="path-note">{{ t('尚无调查记录。开始后可在此查看进度与引用。') }}</p>
+    <el-alert
+      v-if="error || actionError"
+      :title="error || actionError"
+      type="error"
+      :closable="false"
+      show-icon
+    />
+    <div v-if="capabilitiesError" class="actions">
+      <p role="alert" class="error-banner">{{ capabilitiesError }}</p>
+      <el-button @click="loadCapabilities">{{ t('重试') }}</el-button>
+    </div>
+    <p v-else-if="!capabilities" class="path-note" role="status">
+      {{ t('正在读取调查服务配置。') }}
+    </p>
+    <p v-if="loadingRuns" class="path-note" role="status">{{ t('正在读取调查记录。') }}</p>
+    <p v-else-if="!selected && !error" class="path-note">
+      {{ t('尚无调查记录。开始后可在此查看进度与引用。') }}
+    </p>
     <template v-if="selected">
-      <p class="path-note">
-        {{
-          t('调查语言：{0}。事实可随界面切换语言，原文可在证据详情查看。', [
-            selected.language === 'en' ? 'English' : '简体中文',
-          ])
-        }}
-        <span v-if="(selected.language ?? 'zh-CN') !== locale">
-          {{ t('如需用当前语言生成分析建议，请重新发起调查；事实与证据展示可直接切换语言。') }}
-        </span>
-      </p>
       <p class="investigation-status" role="status">
         <strong>{{ labels[selected.status] ?? selected.status }}</strong
         ><span
@@ -399,7 +419,8 @@ onUnmounted(() => {
               ? t('模拟结果 · 不代表真实模型诊断')
               : t('模型 {0}', [selected.model])
           }}
-          · {{ at(selected.createdAt) }} {{ t('的调查快照') }}</span
+          · {{ at(selected.createdAt) }} {{ t('的调查快照') }}
+          <template v-if="selected.id !== runs[0]?.id"> · {{ t('历史调查') }}</template></span
         >
       </p>
       <p v-if="active" class="path-note">
@@ -428,38 +449,83 @@ onUnmounted(() => {
             {{ t('数据：{0}', [trustLabels[selected.assessment.dataTrust] ?? t('不可验证')]) }}
           </el-tag>
           <el-tag :type="selected.assessment.anomalyEvidence === 'Present' ? 'danger' : 'info'">
-            {{ t('异常证据：')
-            }}{{ anomalyLabels[selected.assessment.anomalyEvidence] ?? t('证据不足') }}
+            {{ t('异常证据：') }}
+            {{ anomalyLabels[selected.assessment.anomalyEvidence] ?? t('证据不足') }}
           </el-tag>
         </div>
         <p v-if="selected.assessment" class="path-note">
-          {{ t('截至') }} {{ at(selected.assessment.asOf) }} {{ t('· 已检查') }}
-          {{ selected.assessment.points.length }} {{ t('个测点')
-          }}<span v-if="selected.assessment.uninspectedPointCount"
-            >{{ t('，另有') }} {{ selected.assessment.uninspectedPointCount }}
-            {{ t('个启用测点未检查') }}</span
-          >。
-          <span v-if="selected.assessment.dataTrust !== 'Trusted'">{{
-            t('部分测点或覆盖范围尚未核实。')
-          }}</span>
           {{ t('这是取证快照，不代表此刻状态，也不确认根因或设备安全。') }}
         </p>
         <p v-else class="path-note">
           {{ t('旧调查未记录双维度判断，请核对下方原始事实与限制。') }}
         </p>
-        <p v-if="selected.warnings.length" class="path-note">
-          {{ t('含') }} {{ selected.warnings.length }}
-          {{ t('项数据或范围提示，可在“事实、依据与限制”中核对。') }}
-        </p>
+        <div v-if="advice" class="advice-summary">
+          <el-tag :type="advice.status === 'Ready' ? 'info' : 'warning'">
+            {{ adviceLabels[advice.status] ?? advice.status }}
+          </el-tag>
+          <p>{{ advice.summary }}</p>
+          <p class="path-note">{{ advice.statusReason }}</p>
+          <div v-if="advice.blockingGapIds.length" class="path-note">
+            {{ t('关键缺项：') }}{{ advice.blockingGapIds.join('、') }}
+          </div>
+        </div>
+        <p v-else-if="legacyResult?.summary">{{ evidenceText(legacyResult.summary) }}</p>
       </article>
-      <InvestigationAdvicePanel
-        v-if="advice"
-        :advice="advice"
-        :subjects="subjects"
-        @evidence="expand"
-      />
-      <article v-if="legacyResult?.analysis?.length" :aria-label="t('趋势分析')">
-        <h4>{{ t('趋势分析') }}</h4>
+      <div class="investigation-workspace" :class="{ 'with-tasks': advice }">
+        <ActionProposalPanel
+          v-if="['Succeeded', 'Invalidated'].includes(selected.status)"
+          :key="selected.id"
+          ref="proposalPanel"
+          :run-id="selected.id"
+          :asset-id="selected.assetId"
+          :available="selected.status === 'Succeeded'"
+          :can-create-work-order="!advice || advice.workOrder.status === 'DraftReady'"
+          @evidence="expand"
+        >
+          <div v-if="advice" class="work-order-suggestion">
+            <el-tag :type="advice.workOrder.status === 'NeedsInformation' ? 'warning' : 'info'">
+              {{ workOrderLabels[advice.workOrder.status] ?? advice.workOrder.status }}
+            </el-tag>
+            <p>{{ advice.workOrder.reason }}</p>
+            <p v-if="advice.workOrder.blockingGapIds.length" class="path-note">
+              {{ t('关键缺项：') }}{{ advice.workOrder.blockingGapIds.join('、') }}
+            </p>
+            <template v-if="advice.workOrder.draft">
+              <p>
+                <strong>{{ advice.workOrder.draft.title }}</strong> ·
+                {{ priorities[advice.workOrder.draft.priority] ?? advice.workOrder.draft.priority }}
+              </p>
+              <p class="work-order-task-links">
+                <span>{{ t('建议纳入的任务') }}</span>
+                <el-button
+                  v-for="id in advice.workOrder.draft.recommendationIds"
+                  :key="id"
+                  link
+                  type="primary"
+                  @click="focusRecommendation(id)"
+                  >{{ id }}</el-button
+                >
+              </p>
+              <details>
+                <summary>{{ t('查看工单建议详情') }}</summary>
+                <p>{{ advice.workOrder.draft.objective }}</p>
+                <p>{{ t('优先级依据') }} · {{ advice.workOrder.draft.priorityReason }}</p>
+              </details>
+            </template>
+          </div>
+        </ActionProposalPanel>
+        <InvestigationAdvicePanel
+          v-if="advice"
+          :key="selected.id + ':advice'"
+          :advice="advice"
+          :subjects="subjects"
+          :recommendation-prefix="recommendationPrefix"
+          @evidence="expand"
+          @recommendation="focusRecommendation"
+        />
+      </div>
+      <details v-if="legacyResult?.analysis?.length" class="investigation-disclosure">
+        <summary>{{ t('趋势分析') }}</summary>
         <div
           v-for="(item, index) in legacyResult.analysis"
           :key="index"
@@ -477,7 +543,7 @@ onUnmounted(() => {
             {{ t('查看依据') }} {{ id }}
           </el-button>
         </div>
-      </article>
+      </details>
       <article v-if="legacyResult" class="investigation-next" :aria-label="t('下一步核查')">
         <h4>{{ t('下一步核查') }}</h4>
         <p v-if="!legacyResult.nextChecks.length" class="path-note">
@@ -507,7 +573,12 @@ onUnmounted(() => {
       <details class="investigation-disclosure" :key="selected.id + ':evidence'">
         <summary>
           {{ t('事实、依据与限制') }}
-          <span class="disclosure-count">{{ selected.evidence.length }} {{ t('项证据') }}</span>
+          <span class="disclosure-count">
+            {{ selected.evidence.length }} {{ t('项证据') }}
+            <template v-if="selected.warnings.length">
+              · {{ t('{0} 项数据与范围提示', [selected.warnings.length]) }}
+            </template>
+          </span>
         </summary>
         <article v-if="selected.assessment" :aria-label="t('数据可信度与异常证据')">
           <h4>{{ t('测点与时间窗口') }}</h4>
@@ -517,6 +588,10 @@ onUnmounted(() => {
             {{ t('的取证快照，不代表页面此刻状态。仅限下列测点与启用阈值；未检查启用测点') }}
             {{ selected.assessment.uninspectedPointCount }}
             {{ t('个。历史窗口单列；这些判断不确认根因、持续超限或设备安全。') }}
+            {{ t('已检查测点数 {0}。', [selected.assessment.points.length]) }}
+            <template v-if="selected.assessment.dataTrust !== 'Trusted'">
+              {{ t('部分测点或覆盖范围尚未核实。') }}
+            </template>
           </p>
           <div
             v-for="(point, index) in selected.assessment.points"
@@ -650,36 +725,6 @@ onUnmounted(() => {
             </el-button>
           </div>
         </details>
-        <details v-if="selected.modelRounds != null" class="run-details">
-          <summary>{{ t('调用与用量记录') }}</summary>
-          <p class="path-note">
-            {{ t('模型') }} {{ selected.modelRounds }} {{ t('轮，读取') }} {{ selected.toolCalls }}
-            {{ t('次；预算核算输入') }} {{ selected.inputTokens }}{{ t('、输出') }}
-            {{ selected.outputTokens }} {{ t('tokens（含未确认预留）。') }}{{ usageNote }}
-          </p>
-        </details>
-      </details>
-      <details
-        v-if="['Succeeded', 'Invalidated'].includes(selected.status)"
-        class="investigation-disclosure maintenance-disclosure"
-        :key="selected.id + ':maintenance'"
-      >
-        <summary @click="guardWorkflowCollapse">
-          {{ t('安排维护') }}
-          <span class="disclosure-count">{{
-            proposalDirty ? t('有未保存内容') : proposalBusy ? t('处理中') : t('整理工单或追加备注')
-          }}</span>
-        </summary>
-        <ActionProposalPanel
-          v-if="['Succeeded', 'Invalidated'].includes(selected.status)"
-          :key="selected.id"
-          ref="proposalPanel"
-          :run-id="selected.id"
-          :asset-id="selected.assetId"
-          :available="selected.status === 'Succeeded'"
-          :can-create-work-order="!advice || advice.workOrder.status === 'DraftReady'"
-          @evidence="expand"
-        />
       </details>
       <p v-if="evidenceError" class="error-banner" role="alert">{{ evidenceError }}</p>
       <SidePanel
@@ -726,19 +771,101 @@ onUnmounted(() => {
         </aside>
       </SidePanel>
     </template>
+    <details class="investigation-disclosure">
+      <summary>{{ t('调查历史与设置') }}</summary>
+      <el-form-item v-if="runs.length" :label="t('我的调查记录')"
+        ><el-select
+          filterable
+          v-model="selectedId"
+          :disabled="busy || proposalBusy || proposalDirty"
+          @change="choose"
+        >
+          <el-option
+            v-for="run in runs"
+            :key="run.id"
+            :value="run.id"
+            :label="at(run.createdAt) + ' · ' + (labels[run.status] ?? run.status)"
+          />
+        </el-select>
+      </el-form-item>
+      <p class="path-note">
+        {{ t('调查只读取资料；告警确认、维修与创建工单仍由人员操作。') }}
+        <template v-if="capabilities && !capabilities.externalData">
+          {{ t('当前使用模拟模型，不向外部发送业务资料。') }}
+        </template>
+      </p>
+      <template v-if="selected">
+        <p class="path-note">
+          {{
+            t('调查语言：{0}。事实可随界面切换语言，原文可在证据详情查看。', [
+              selected.language === 'en' ? 'English' : '简体中文',
+            ])
+          }}
+          <span v-if="(selected.language ?? 'zh-CN') !== locale">
+            {{ t('如需用当前语言生成分析建议，请重新发起调查；事实与证据展示可直接切换语言。') }}
+          </span>
+        </p>
+        <details v-if="selected.modelRounds != null" class="run-details">
+          <summary>{{ t('调用与用量记录') }}</summary>
+          <p class="path-note">
+            {{ t('模型') }} {{ selected.modelRounds }} {{ t('轮，读取') }} {{ selected.toolCalls }}
+            {{ t('次；预算核算输入') }} {{ selected.inputTokens }}{{ t('、输出') }}
+            {{ selected.outputTokens }} {{ t('tokens（含未确认预留）。') }}{{ usageNote }}
+          </p>
+        </details>
+      </template>
+    </details>
   </section>
 </template>
 
 <style scoped>
 .investigation-panel {
-  margin-top: 24px;
+  margin-top: 16px;
   padding: 20px;
-  background: #f3f5f1;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 .investigation-panel .section-title h3 {
   margin: 0;
+}
+.investigation-panel .section-title {
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+.advice-summary {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.advice-summary p {
+  margin-block: 6px;
+}
+.investigation-workspace {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+.investigation-workspace > * {
+  min-width: 0;
+}
+@media (min-width: 1000px) {
+  .investigation-workspace.with-tasks {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+}
+.work-order-suggestion {
+  overflow-wrap: anywhere;
+}
+.work-order-suggestion p {
+  margin-block: 6px;
+}
+.work-order-task-links .el-button + .el-button {
+  margin-left: 0;
+}
+.work-order-task-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .investigation-status {
   display: flex;
@@ -752,7 +879,10 @@ onUnmounted(() => {
   color: var(--muted);
 }
 .investigation-overview {
-  padding: 4px 0 12px;
+  padding: 0 0 12px;
+}
+.investigation-overview .path-note {
+  margin-top: 6px;
 }
 .investigation-overview h4 {
   margin: 8px 0 12px;
@@ -850,7 +980,7 @@ onUnmounted(() => {
   margin: 4px 8px 4px 0;
 }
 .run-details {
-  margin-top: 16px;
+  margin-top: 8px;
 }
 .investigation-evidence {
   padding: 16px;

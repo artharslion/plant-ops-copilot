@@ -375,6 +375,7 @@ defineExpose({ busy, dirty })
         >{{ t('整理工单草稿') }}</el-button
       >
     </div>
+    <slot />
     <p class="path-note">
       {{
         t(
@@ -418,7 +419,7 @@ defineExpose({ busy, dirty })
         </p>
       </template>
     </div>
-    <div class="actions">
+    <div class="actions" v-if="items.length || error || uncertain">
       <el-select
         v-if="items.length"
         :model-value="proposal?.id"
@@ -610,9 +611,29 @@ defineExpose({ busy, dirty })
 
 <style scoped>
 .proposal-panel {
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid #d4d9cc;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--el-bg-color);
+}
+.proposal-panel .section-title {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+.proposal-panel h4 {
+  margin-block: 6px;
+}
+.proposal-panel .el-button {
+  max-width: 100%;
+  height: auto;
+  min-height: var(--el-component-size);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.proposal-panel .el-button :deep(span) {
+  min-width: 0;
+  text-align: left;
 }
 .proposal-description {
   white-space: pre-wrap;
