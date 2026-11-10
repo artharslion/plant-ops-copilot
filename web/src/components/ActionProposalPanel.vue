@@ -611,10 +611,7 @@ defineExpose({ busy, dirty })
 
 <style scoped>
 .proposal-panel {
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--el-bg-color);
+  padding-block: 6px;
 }
 .proposal-panel .section-title {
   flex-wrap: wrap;
@@ -641,9 +638,8 @@ defineExpose({ busy, dirty })
 }
 .proposal-confirmation,
 .proposal-receipt {
-  padding: 16px;
-  background: white;
-  border: 1px solid #d4d9cc;
+  padding: 12px 16px;
+  border-inline-start: 2px solid var(--el-color-primary);
 }
 .actions {
   flex-wrap: wrap;

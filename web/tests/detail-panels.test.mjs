@@ -1187,6 +1187,35 @@ test('v3 investigation decisions come from fields while legacy records remain re
   assert.equal(state.legacyResult.summary, '旧调查结果')
 })
 
+test('the summary displays only the matching trusted alarm point from the investigation snapshot', async (t) => {
+  const state = await mount(
+    t,
+    'InvestigationPanel',
+    { alarmId: 'alarm-1', pointCode: 'VIBRATION' },
+    async (path) =>
+      path === '/investigation-capabilities' ? { model: 'fixture', externalData: false } : [],
+  )
+  state.runs = [
+    {
+      id: 'run-1',
+      assessment: {
+        anomalyEvidence: 'Insufficient',
+        points: [
+          { code: 'TEMPERATURE', currentTrust: 'Trusted', observation: { value: 65 } },
+          { code: 'VIBRATION', currentTrust: 'Trusted', observation: { value: 0 } },
+        ],
+      },
+    },
+  ]
+  state.selectedId = 'run-1'
+  assert.equal(state.trustedAlarmPoint.observation.value, 0)
+  assert.match(state.overview, /证据不足/)
+  state.runs[0].assessment.points[1].currentTrust = 'Unverifiable'
+  assert.equal(state.trustedAlarmPoint, undefined)
+  state.runs[0].assessment = null
+  assert.equal(state.trustedAlarmPoint, undefined)
+})
+
 test('the advice view renders distinct tasks once and preserves explicit links to checks and evidence', async () => {
   const check = {
     kind: 'Inspect',
@@ -1198,6 +1227,7 @@ test('the advice view renders distinct tasks once and preserves explicit links t
   }
   const app = createSSRApp(components.InvestigationAdvicePanel, {
     recommendationPrefix: 'check-',
+    taskKinds: { Inspect: '现场核查' },
     subjects: [],
     advice: {
       blockingGapIds: ['G1'],
@@ -1226,15 +1256,25 @@ test('the advice view renders distinct tasks once and preserves explicit links t
         },
       ],
       findings: [],
-      workOrder: { blockingGapIds: [] },
+      workOrder: { blockingGapIds: [], draft: { recommendationIds: ['R2'] } },
     },
   })
   app.component('el-button', (_, { slots }) => h('button', slots.default?.()))
   const html = await renderToString(app)
   assert.equal(html.split('Inspect the drive-end bearing.').length, 2)
   assert.equal(html.split('Inspect the non-drive-end bearing.').length, 2)
-  assert.match(html, /id="check-R1" tabindex="-1"/)
-  assert.match(html, /id="check-R2" tabindex="-1"/)
+  assert.match(
+    html,
+    /<details id="check-R1"[^>]*><summary>.*Inspect the drive-end bearing.*<\/summary>/,
+  )
+  assert.match(
+    html,
+    /<details id="check-R2"[^>]*><summary>.*纳入工单建议.*Inspect the non-drive-end bearing.*<\/summary>/,
+  )
+  assert.equal(html.split('纳入工单建议').length, 2)
+  assert.match(html, /Record operating load/)
+  assert.match(html, /Readings recorded/)
+  assert.match(html, /Vibration persists/)
   assert.match(html, /核实方式：.*<button>R1<\/button>/)
   assert.match(html, /补证方式：.*<button>R2<\/button>/)
   assert.match(html, /<button>查看依据 E1<\/button>/)

@@ -13,7 +13,7 @@ import ActionProposalPanel from './ActionProposalPanel.vue'
 import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import { request } from '../api'
 
-const props = defineProps<{ alarmId: string }>()
+const props = defineProps<{ alarmId: string; pointCode?: string }>()
 const proposalPanel = ref<InstanceType<typeof ActionProposalPanel>>()
 const proposalBusy = computed(() => !!proposalPanel.value?.busy)
 const proposalDirty = computed(() => !!proposalPanel.value?.dirty)
@@ -129,7 +129,11 @@ const actionError = messageRef()
 const capabilitiesError = messageRef()
 const recommendationPrefix = useId() + '-recommendation-'
 function focusRecommendation(id: string) {
-  document.getElementById(recommendationPrefix + id)?.focus()
+  const task = document.getElementById(recommendationPrefix + id)
+  if (task instanceof HTMLDetailsElement) {
+    task.open = true
+    task.querySelector('summary')?.focus()
+  }
 }
 const capabilities = ref<{ model: string; externalData: boolean } | null>(null)
 const expanded = ref<Evidence | null>(null),
@@ -147,6 +151,23 @@ const advice = computed(() => {
     ? (result as InvestigationAdvice)
     : null
 })
+const trustedAlarmPoint = computed(() =>
+  selected.value?.assessment?.points.find(
+    (point) =>
+      point.code === props.pointCode &&
+      point.currentTrust === 'Trusted' &&
+      point.observation?.value != null,
+  ),
+)
+const nextRecommendation = computed(() => advice.value?.recommendations[0])
+const taskKinds = computed<Record<string, string>>(() => ({
+  Inspect: t('现场核查'),
+  VerifyMeasurement: t('测量核验'),
+  CollectEvidence: t('补充证据'),
+  ReviewProcedure: t('规程复核'),
+  Monitor: t('跟踪观察'),
+  Escalate: t('提交复核'),
+}))
 const legacyResult = computed(() =>
   advice.value ? null : (selected.value?.result as Answer | null),
 )
@@ -443,16 +464,23 @@ onUnmounted(() => {
         {{ failures[selected.failureCode] ?? t('调查未完成，请核查已有证据后重试。') }}
       </p>
       <article v-if="overview" class="investigation-overview" :aria-label="t('调查概览')">
-        <h4>{{ overview }}</h4>
-        <div v-if="selected.assessment" class="assessment-tags">
-          <el-tag :type="selected.assessment.dataTrust === 'Trusted' ? 'success' : 'warning'">
+        <h4>{{ t('调查评估') }} · {{ overview }}</h4>
+        <div class="assessment-tags">
+          <el-tag v-if="advice" :type="advice.status === 'Ready' ? 'info' : 'warning'">{{
+            adviceLabels[advice.status] ?? advice.status
+          }}</el-tag>
+          <el-tag
+            v-if="selected.assessment"
+            :type="selected.assessment.dataTrust === 'Trusted' ? 'success' : 'warning'"
+          >
             {{ t('数据：{0}', [trustLabels[selected.assessment.dataTrust] ?? t('不可验证')]) }}
           </el-tag>
-          <el-tag :type="selected.assessment.anomalyEvidence === 'Present' ? 'danger' : 'info'">
-            {{ t('异常证据：') }}
-            {{ anomalyLabels[selected.assessment.anomalyEvidence] ?? t('证据不足') }}
-          </el-tag>
         </div>
+        <p v-if="trustedAlarmPoint?.observation" class="snapshot-fact">
+          <strong>{{ t('调查时告警测点读数') }}</strong>
+          {{ trustedAlarmPoint.code }} · {{ trustedAlarmPoint.observation.value }}
+          {{ trustedAlarmPoint.unit }}
+        </p>
         <p v-if="selected.assessment" class="path-note">
           {{ t('这是取证快照，不代表此刻状态，也不确认根因或设备安全。') }}
         </p>
@@ -460,14 +488,20 @@ onUnmounted(() => {
           {{ t('旧调查未记录双维度判断，请核对下方原始事实与限制。') }}
         </p>
         <div v-if="advice" class="advice-summary">
-          <el-tag :type="advice.status === 'Ready' ? 'info' : 'warning'">
-            {{ adviceLabels[advice.status] ?? advice.status }}
-          </el-tag>
-          <p>{{ advice.summary }}</p>
-          <p class="path-note">{{ advice.statusReason }}</p>
-          <div v-if="advice.blockingGapIds.length" class="path-note">
-            {{ t('关键缺项：') }}{{ advice.blockingGapIds.join('、') }}
-          </div>
+          <p v-if="nextRecommendation" class="next-recommendation">
+            <strong>{{ t('建议下一步') }}</strong>
+            <el-button link type="primary" @click="focusRecommendation(nextRecommendation.id)">
+              {{ taskKinds[nextRecommendation.kind] ?? nextRecommendation.kind }}
+            </el-button>
+          </p>
+          <details>
+            <summary>{{ t('完整调查摘要') }}</summary>
+            <p>{{ advice.summary }}</p>
+            <p class="path-note">{{ advice.statusReason }}</p>
+            <p v-if="advice.blockingGapIds.length" class="path-note">
+              {{ t('关键缺项：') }}{{ advice.blockingGapIds.join('、') }}
+            </p>
+          </details>
         </div>
         <p v-else-if="legacyResult?.summary">{{ evidenceText(legacyResult.summary) }}</p>
       </article>
@@ -486,7 +520,7 @@ onUnmounted(() => {
             <el-tag :type="advice.workOrder.status === 'NeedsInformation' ? 'warning' : 'info'">
               {{ workOrderLabels[advice.workOrder.status] ?? advice.workOrder.status }}
             </el-tag>
-            <p>{{ advice.workOrder.reason }}</p>
+            <p v-if="!advice.workOrder.draft">{{ advice.workOrder.reason }}</p>
             <p v-if="advice.workOrder.blockingGapIds.length" class="path-note">
               {{ t('关键缺项：') }}{{ advice.workOrder.blockingGapIds.join('、') }}
             </p>
@@ -495,19 +529,9 @@ onUnmounted(() => {
                 <strong>{{ advice.workOrder.draft.title }}</strong> ·
                 {{ priorities[advice.workOrder.draft.priority] ?? advice.workOrder.draft.priority }}
               </p>
-              <p class="work-order-task-links">
-                <span>{{ t('建议纳入的任务') }}</span>
-                <el-button
-                  v-for="id in advice.workOrder.draft.recommendationIds"
-                  :key="id"
-                  link
-                  type="primary"
-                  @click="focusRecommendation(id)"
-                  >{{ id }}</el-button
-                >
-              </p>
               <details>
                 <summary>{{ t('查看工单建议详情') }}</summary>
+                <p>{{ advice.workOrder.reason }}</p>
                 <p>{{ advice.workOrder.draft.objective }}</p>
                 <p>{{ t('优先级依据') }} · {{ advice.workOrder.draft.priorityReason }}</p>
               </details>
@@ -519,6 +543,7 @@ onUnmounted(() => {
           :key="selected.id + ':advice'"
           :advice="advice"
           :subjects="subjects"
+          :task-kinds="taskKinds"
           :recommendation-prefix="recommendationPrefix"
           @evidence="expand"
           @recommendation="focusRecommendation"
@@ -582,6 +607,10 @@ onUnmounted(() => {
         </summary>
         <article v-if="selected.assessment" :aria-label="t('数据可信度与异常证据')">
           <h4>{{ t('测点与时间窗口') }}</h4>
+          <p class="path-note">
+            {{ t('异常证据：') }}
+            {{ anomalyLabels[selected.assessment.anomalyEvidence] ?? t('证据不足') }}
+          </p>
           <p class="path-note">
             {{ t('截至') }}
             {{ at(selected.assessment.asOf) }}
@@ -821,9 +850,8 @@ onUnmounted(() => {
 <style scoped>
 .investigation-panel {
   margin-top: 16px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 .investigation-panel .section-title h3 {
   margin: 0;
@@ -838,6 +866,17 @@ onUnmounted(() => {
 }
 .advice-summary p {
   margin-block: 6px;
+}
+.snapshot-fact {
+  margin: 8px 0 0;
+}
+.snapshot-fact strong,
+.next-recommendation strong {
+  margin-inline-end: 8px;
+}
+.advice-summary > details > summary {
+  font-size: 13px;
+  color: var(--green);
 }
 .investigation-workspace {
   display: grid;
@@ -858,21 +897,12 @@ onUnmounted(() => {
 .work-order-suggestion p {
   margin-block: 6px;
 }
-.work-order-task-links .el-button + .el-button {
-  margin-left: 0;
-}
-.work-order-task-links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
 .investigation-status {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
-  padding-block: 12px;
-  border-block: 1px solid var(--line);
+  margin-block: 8px;
+  padding-block: 8px;
 }
 .investigation-status span {
   font-size: 13px;
@@ -885,7 +915,7 @@ onUnmounted(() => {
   margin-top: 6px;
 }
 .investigation-overview h4 {
-  margin: 8px 0 12px;
+  margin: 0 0 8px;
   font-size: 16px;
   line-height: 1.6;
 }
@@ -924,11 +954,9 @@ onUnmounted(() => {
   color: var(--el-color-primary);
 }
 .investigation-disclosure {
-  margin-top: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--el-bg-color);
+  margin-top: 10px;
+  padding-block: 6px;
+  border-top: 1px solid var(--line);
 }
 .investigation-disclosure > summary {
   font-weight: 600;
@@ -995,12 +1023,6 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 @media (max-width: 760px) {
-  .investigation-panel {
-    padding: 16px;
-  }
-  .investigation-disclosure {
-    padding: 10px 12px;
-  }
   .disclosure-count {
     display: block;
     margin-left: 18px;

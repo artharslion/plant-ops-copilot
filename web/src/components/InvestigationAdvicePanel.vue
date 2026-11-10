@@ -6,6 +6,7 @@ import type { InvestigationAdvice } from '../investigationAdvice'
 const props = defineProps<{
   advice: InvestigationAdvice
   recommendationPrefix: string
+  taskKinds: Record<string, string>
   subjects: { ref: string; label: string }[]
 }>()
 const emit = defineEmits<{ evidence: [id: string]; recommendation: [id: string] }>()
@@ -18,12 +19,6 @@ const labels = computed<Record<string, string>>(() => ({
   AnomalySupported: t('有异常证据'),
   NoAnomalyFound: t('本范围未发现异常'),
   Inconclusive: t('暂不能判断'),
-  Inspect: t('现场核查'),
-  VerifyMeasurement: t('测量核验'),
-  CollectEvidence: t('补充证据'),
-  ReviewProcedure: t('规程复核'),
-  Monitor: t('跟踪观察'),
-  Escalate: t('提交复核'),
   MaintenanceEngineer: t('维护工程师'),
   Operator: t('操作人员'),
   Weak: t('有限'),
@@ -45,34 +40,38 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
         {{ t('暂无有依据的核查建议，请先查看证据与缺项。') }}
       </p>
       <ol v-else class="task-list">
-        <li
-          v-for="item in advice.recommendations"
-          :key="item.id"
-          :id="recommendationPrefix + item.id"
-          tabindex="-1"
-        >
-          <p>
-            <strong>{{ item.id }} · {{ label(item.kind) }}</strong> {{ item.task }}
-          </p>
-          <p class="path-note">{{ item.subjectRefs.map(subject).join('、') }}</p>
-          <details>
-            <summary>{{ t('查看依据与执行条件') }}</summary>
-            <p>{{ t('需记录：') }}{{ item.record }}</p>
-            <p>{{ t('完成条件：') }}{{ item.completionCriteria }}</p>
-            <p>
-              {{ t('升级条件：') }}{{ item.escalation.condition }} ·
-              {{ label(item.escalation.responsibleRole) }}
-            </p>
+        <li v-for="item in advice.recommendations" :key="item.id">
+          <details :id="recommendationPrefix + item.id" class="task-row">
+            <summary>
+              <strong>{{ item.id }} · {{ taskKinds[item.kind] ?? item.kind }}</strong>
+              <small
+                v-if="advice.workOrder.draft?.recommendationIds.includes(item.id)"
+                class="task-draft"
+              >
+                {{ t('纳入工单建议') }}
+              </small>
+              <span class="task-text">{{ item.task }}</span>
+            </summary>
+            <div class="task-details">
+              <p v-if="item.subjectRefs.length" class="path-note">
+                {{ item.subjectRefs.map(subject).join('、') }}
+              </p>
+              <p>{{ t('需记录：') }} {{ item.record }}</p>
+              <p>{{ t('完成条件：') }} {{ item.completionCriteria }}</p>
+              <p>
+                {{ t('升级条件：') }} {{ item.escalation.condition }} ·
+                {{ label(item.escalation.responsibleRole) }}
+              </p>
+              <el-button
+                v-for="id in item.evidenceRefs"
+                :key="id"
+                link
+                type="primary"
+                @click="emit('evidence', id)"
+                >{{ t('查看依据') }} {{ id }}</el-button
+              >
+            </div>
           </details>
-          <el-button
-            v-for="id in item.evidenceRefs"
-            :key="id"
-            link
-            type="primary"
-            @click="emit('evidence', id)"
-          >
-            {{ t('查看依据') }} {{ id }}
-          </el-button>
         </li>
       </ol>
     </article>
@@ -179,29 +178,46 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
   margin: 6px 0 12px;
 }
 .task-list {
-  display: grid;
-  gap: 8px;
   list-style: none;
   padding: 0;
+  margin-block: 0 8px;
 }
-.task-list li,
+.task-row,
 .advice-details {
-  padding: 10px 16px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--el-bg-color);
+  padding-block: 6px;
+  border-top: 1px solid var(--line);
 }
-.task-list li:focus {
-  outline: 2px solid var(--el-color-primary);
-}
-.task-list p {
-  margin: 4px 0;
-}
-.advice-details {
-  margin-block: 8px;
-}
+.task-row summary,
 .advice-details > summary {
   cursor: pointer;
+}
+.task-row summary:focus,
+.advice-details > summary:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.task-text {
+  display: block;
+  margin: 4px 0 0 16px;
+  line-height: 1.5;
+}
+.task-row:not([open]) .task-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.task-draft {
+  margin-inline-start: 8px;
+  color: var(--muted);
+}
+.task-details {
+  padding-inline-start: 16px;
+}
+.task-details p {
+  margin: 6px 0;
+}
+.advice-details > summary {
   font-weight: 600;
 }
 </style>

@@ -322,7 +322,7 @@ onUnmounted(() => {
           <p class="eyebrow">{{ alarm.assetCode }} / {{ alarm.pointCode }}</p>
           <div class="alarm-state">
             <el-tag :type="alarm.state === 'Active' ? 'warning' : 'success'">
-              {{ state(alarm.state) }}
+              {{ alarm.state === 'Active' ? t('告警活动中') : t('告警已恢复') }}
             </el-tag>
             <strong>{{ alarm.acknowledgedAt ? t('已确认') : t('未确认') }}</strong>
             <span class="path-note">
@@ -362,7 +362,12 @@ onUnmounted(() => {
           >
         </div>
       </header>
-      <InvestigationPanel ref="investigation" :key="alarm.id" :alarm-id="alarm.id" />
+      <InvestigationPanel
+        ref="investigation"
+        :key="alarm.id"
+        :alarm-id="alarm.id"
+        :point-code="alarm.pointCode"
+      />
       <details :key="alarm.id" class="alarm-audit">
         <summary>{{ t('告警规则快照与事件记录') }}</summary>
         <p class="path-note">
@@ -493,9 +498,8 @@ onUnmounted(() => {
 }
 .alarm-audit {
   margin-top: 16px;
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  padding-block: 6px;
+  border-top: 1px solid var(--line);
 }
 .alarm-audit > summary {
   cursor: pointer;
