@@ -325,3 +325,11 @@ The scripted checks assert evidence preservation and scope separation. They do n
 ### Local verification
 
 The focused .NET run passed 94 tests with three opt-in real-model cases skipped. It used a disposable loopback PostgreSQL 17 instance, the dedicated `plantops_tests` database and independent fixture schemas. The full solution run without a database connection passed 699 tests with 146 database or opt-in cases skipped. Build and the CI format check (excluding generated migrations) passed.
+
+## 2026-11-10 recovery wording follow-up
+
+The user reran the same P-101 alarm on deployed commit `01f7125`. Run `91589cff-5151-45f7-9422-992309e67d5a` succeeded with real `gpt-6.1-sol` and returned `Ready` and `DraftReady`. The private final completion matches the saved request and content digests. F3 cites E1 and E18, reports the recorded transition and the matching 7 mm/s Good sample below 8 mm/s, and separates it from verification of the full interval and from current condition. The completion omits the saved time (08:38:17 Asia/Shanghai) and the rule's five-second duration.
+
+The remaining issue is semantic completeness. The deployed projection keeps the complete E1 alarm snapshot in a successful request. The previous prompt gave scope and inference boundaries without stating which details to report for a saved transition. Prompt `investigation-advice-v3.6` asks for the available recovery time, historical threshold and required duration, and matching observation when describing a recorded recovery. Schema and stored v3 results retain their existing format. New runs record the updated prompt version and digest. This adds no reads, rounds or retries.
+
+For the review cases above, score the cited time, threshold, duration and observation when available. Verify that a report still describes a saved transition when the original sequence is incomplete and evaluates a later threshold exceedance independently. With no saved transition, a single low reading supplies neither a recovery time nor evidence that the required duration was met. Use an unseen variant with a different rule and duration for independent review. No external model call was performed for the prompt change. Its effect on real-model output remains unverified.
