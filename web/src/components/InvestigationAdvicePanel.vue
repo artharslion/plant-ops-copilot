@@ -5,16 +5,13 @@ import type { InvestigationAdvice } from '../investigationAdvice'
 
 const props = defineProps<{
   advice: InvestigationAdvice
+  recommendationPrefix: string
+  taskListId: string
+  taskKinds: Record<string, string>
   subjects: { ref: string; label: string }[]
 }>()
-const emit = defineEmits<{ evidence: [id: string] }>()
+const emit = defineEmits<{ evidence: [id: string]; recommendation: [id: string] }>()
 const labels = computed<Record<string, string>>(() => ({
-  Ready: t('建议已可用'),
-  NeedsMoreEvidence: t('需要补充关键证据'),
-  NeedsExpertReview: t('需要专家复核'),
-  DraftReady: t('可形成工单草稿'),
-  NeedsInformation: t('缺少工单起草条件'),
-  NotRecommended: t('暂不建议建单'),
   AlarmEvent: t('告警事件'),
   Recovery: t('恢复阶段'),
   Current: t('当前快照'),
@@ -23,19 +20,10 @@ const labels = computed<Record<string, string>>(() => ({
   AnomalySupported: t('有异常证据'),
   NoAnomalyFound: t('本范围未发现异常'),
   Inconclusive: t('暂不能判断'),
-  Inspect: t('现场核查'),
-  VerifyMeasurement: t('测量核验'),
-  CollectEvidence: t('补充证据'),
-  ReviewProcedure: t('规程复核'),
-  Monitor: t('跟踪观察'),
-  Escalate: t('提交复核'),
   MaintenanceEngineer: t('维护工程师'),
   Operator: t('操作人员'),
   Weak: t('有限'),
   Moderate: t('中等'),
-  Low: t('低'),
-  Medium: t('中'),
-  High: t('高'),
   Missing: t('缺少信息'),
   InsufficientDetail: t('细节不足'),
   Conflicting: t('证据冲突'),
@@ -43,76 +31,76 @@ const labels = computed<Record<string, string>>(() => ({
 }))
 const label = (value: string) => labels.value[value] ?? value
 const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.label ?? value
-const recommendation = (id: string) =>
-  props.advice.recommendations.find((x) => x.id === id)?.task ?? id
 </script>
 
 <template>
   <section class="investigation-advice" :aria-label="t('工程师建议')">
     <article>
-      <h4>{{ label(advice.status) }}</h4>
-      <p>{{ advice.summary }}</p>
-      <p class="path-note">{{ advice.statusReason }}</p>
-      <p v-if="advice.blockingGapIds.length" class="path-note">
-        {{ t('关键缺项：') }}{{ advice.blockingGapIds.join('、') }}
+      <h4 :id="taskListId" tabindex="-1">{{ t('工程师建议') }}</h4>
+      <p v-if="!advice.recommendations.length" class="path-note">
+        {{ t('暂无有依据的核查建议，请先查看证据与缺项。') }}
       </p>
-    </article>
-    <article v-if="advice.findings.length">
-      <h4>{{ t('调查发现') }}</h4>
-      <div v-for="item in advice.findings" :key="item.id" class="investigation-statement">
-        <p>
-          <strong>{{ item.id }} · {{ item.subjectRefs.map(subject).join('、') }}</strong>
-        </p>
-        <p class="path-note">
-          {{ label(item.scope) }} · {{ label(item.domain) }} · {{ label(item.status) }}
-        </p>
-        <p>{{ item.interpretation }}</p>
-        <el-button
-          v-for="id in item.evidenceRefs"
-          :key="id"
-          link
-          type="primary"
-          @click="emit('evidence', id)"
-        >
-          {{ t('查看依据') }} {{ id }}
-        </el-button>
-      </div>
-    </article>
-    <article v-if="advice.recommendations.length">
-      <h4>{{ t('工程师建议') }}</h4>
-      <ol class="next-checks">
-        <li v-for="item in advice.recommendations" :key="item.id" :id="'advice-' + item.id">
-          <p>
-            <strong>{{ item.id }} · {{ label(item.kind) }}</strong> {{ item.task }}
-          </p>
-          <p class="path-note">{{ item.subjectRefs.map(subject).join('、') }}</p>
-          <details>
-            <summary>{{ t('查看依据与执行条件') }}</summary>
-            <p>{{ t('需记录：') }}{{ item.record }}</p>
-            <p>{{ t('完成条件：') }}{{ item.completionCriteria }}</p>
-            <p>
-              {{ t('升级条件：') }}{{ item.escalation.condition }} ·
-              {{ label(item.escalation.responsibleRole) }}
-            </p>
-            <el-button
-              v-for="id in item.evidenceRefs"
-              :key="id"
-              link
-              type="primary"
-              @click="emit('evidence', id)"
-            >
-              {{ t('查看依据') }} {{ id }}
-            </el-button>
+      <ol v-else class="task-list">
+        <li v-for="item in advice.recommendations" :key="item.id">
+          <details :id="recommendationPrefix + item.id" class="task-row">
+            <summary>
+              <span class="detail-meta"
+                >{{ taskKinds[item.kind] ?? item.kind }} · {{ item.id }}</span
+              >
+              <small
+                v-if="advice.workOrder.draft?.recommendationIds.includes(item.id)"
+                class="task-draft"
+              >
+                {{ t('纳入工单建议') }}
+              </small>
+              <strong class="task-text">{{ item.task }}</strong>
+            </summary>
+            <div class="task-details">
+              <p v-if="item.subjectRefs.length" class="detail-meta">
+                {{ item.subjectRefs.map(subject).join('、') }}
+              </p>
+              <dl class="execution-fields">
+                <dt>{{ t('记录要求') }}</dt>
+                <dd>{{ item.record }}</dd>
+                <dt>{{ t('完成条件') }}</dt>
+                <dd>{{ item.completionCriteria }}</dd>
+                <dt>{{ t('何时升级') }}</dt>
+                <dd>
+                  {{ item.escalation.condition }} · {{ label(item.escalation.responsibleRole) }}
+                </dd>
+              </dl>
+              <div v-if="item.evidenceRefs.length" class="detail-links">
+                <span>{{ t('证据引用') }}</span>
+                <el-button
+                  v-for="id in item.evidenceRefs"
+                  :key="id"
+                  link
+                  type="primary"
+                  :aria-label="t('查看证据 {0}', [id])"
+                  @click="emit('evidence', id)"
+                  >{{ id }}</el-button
+                >
+              </div>
+            </div>
           </details>
         </li>
       </ol>
     </article>
-    <article v-if="advice.hypotheses.length">
-      <h4>{{ t('待验证假设') }}</h4>
-      <div v-for="item in advice.hypotheses" :key="item.id" class="investigation-statement">
+    <details v-if="advice.hypotheses.length" class="advice-details">
+      <summary>{{ t('待验证假设') }} · {{ advice.hypotheses.length }}</summary>
+      <div v-for="item in advice.hypotheses" :key="item.id" class="detail-entry">
         <p>{{ item.description }} · {{ t('证据支持：') }}{{ label(item.support) }}</p>
-        <p v-for="id in item.verificationRecommendationIds" :key="id">
-          {{ t('核实方式：') }}{{ recommendation(id) }}
+        <p v-if="item.verificationRecommendationIds.length">
+          {{ t('核实方式：') }}
+          <el-button
+            v-for="id in item.verificationRecommendationIds"
+            :key="id"
+            link
+            type="primary"
+            :aria-label="t('打开核查任务 {0}', [id])"
+            @click="emit('recommendation', id)"
+            >{{ id }}</el-button
+          >
         </p>
         <p v-if="item.supportingEvidenceRefs.length">
           {{ t('支持依据：') }}
@@ -121,6 +109,7 @@ const recommendation = (id: string) =>
             :key="id"
             link
             type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
             @click="emit('evidence', id)"
             >{{ id }}</el-button
           >
@@ -132,51 +121,170 @@ const recommendation = (id: string) =>
             :key="id"
             link
             type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
             @click="emit('evidence', id)"
             >{{ id }}</el-button
           >
         </p>
       </div>
-    </article>
-    <article v-if="advice.gaps.length">
-      <h4>{{ t('仍缺少的信息') }}</h4>
-      <div v-for="item in advice.gaps" :key="item.id" class="investigation-statement">
+    </details>
+    <details
+      v-if="advice.gaps.length"
+      class="advice-details"
+      :open="advice.blockingGapIds.length > 0 || advice.workOrder.blockingGapIds.length > 0"
+    >
+      <summary>{{ t('仍缺少的信息') }} · {{ advice.gaps.length }}</summary>
+      <article v-for="item in advice.gaps" :key="item.id" class="detail-entry">
+        <h5>{{ item.description }}</h5>
+        <p class="detail-meta">
+          {{ item.id }} · {{ label(item.kind) }}
+          <template v-if="advice.blockingGapIds.includes(item.id)">
+            · {{ t('影响调查结论') }}</template
+          >
+        </p>
         <p>
-          <strong>{{ item.id }} · {{ label(item.kind) }}</strong> {{ item.description }}
+          <strong>{{ t('影响') }}</strong> {{ item.whyItMatters }}
         </p>
-        <p>{{ item.whyItMatters }}</p>
-        <p v-for="id in item.resolutionRecommendationIds" :key="id">
-          {{ t('补证方式：') }}{{ recommendation(id) }}
+        <div v-if="item.resolutionRecommendationIds.length" class="detail-links">
+          <span>{{ t('补证任务') }}</span>
+          <el-button
+            v-for="id in item.resolutionRecommendationIds"
+            :key="id"
+            link
+            type="primary"
+            :aria-label="t('打开核查任务 {0}', [id])"
+            @click="emit('recommendation', id)"
+            >{{ id }}</el-button
+          >
+        </div>
+        <div v-if="item.evidenceRefs.length" class="detail-links">
+          <span>{{ t('证据引用') }}</span>
+          <el-button
+            v-for="id in item.evidenceRefs"
+            :key="id"
+            link
+            type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
+            @click="emit('evidence', id)"
+            >{{ id }}</el-button
+          >
+        </div>
+      </article>
+    </details>
+    <details v-if="advice.findings.length" class="advice-details">
+      <summary>{{ t('调查发现') }} · {{ advice.findings.length }}</summary>
+      <article v-for="item in advice.findings" :key="item.id" class="detail-entry">
+        <h5>{{ label(item.scope) }} · {{ label(item.domain) }}</h5>
+        <p class="detail-meta">
+          {{ item.id }} · {{ label(item.status) }} · {{ item.subjectRefs.map(subject).join('、') }}
         </p>
-        <el-button
-          v-for="id in item.evidenceRefs"
-          :key="id"
-          link
-          type="primary"
-          @click="emit('evidence', id)"
-          >{{ t('查看依据') }} {{ id }}</el-button
-        >
-      </div>
-    </article>
-    <article>
-      <h4>{{ label(advice.workOrder.status) }}</h4>
-      <p>{{ advice.workOrder.reason }}</p>
-      <p v-if="advice.workOrder.blockingGapIds.length">
-        {{ t('关键缺项：') }}{{ advice.workOrder.blockingGapIds.join('、') }}
-      </p>
-      <template v-if="advice.workOrder.draft">
-        <p>
-          <strong>{{ advice.workOrder.draft.title }}</strong> ·
-          {{ label(advice.workOrder.draft.priority) }}
-        </p>
-        <p>{{ advice.workOrder.draft.priorityReason }}</p>
-        <p>{{ advice.workOrder.draft.objective }}</p>
-        <ul>
-          <li v-for="id in advice.workOrder.draft.recommendationIds" :key="id">
-            {{ recommendation(id) }}
-          </li>
-        </ul>
-      </template>
-    </article>
+        <p>{{ item.interpretation }}</p>
+        <div v-if="item.evidenceRefs.length" class="detail-links">
+          <span>{{ t('证据引用') }}</span>
+          <el-button
+            v-for="id in item.evidenceRefs"
+            :key="id"
+            link
+            type="primary"
+            :aria-label="t('查看证据 {0}', [id])"
+            @click="emit('evidence', id)"
+            >{{ id }}</el-button
+          >
+        </div>
+      </article>
+    </details>
   </section>
 </template>
+
+<style scoped>
+.investigation-advice {
+  overflow-wrap: anywhere;
+}
+.investigation-advice h4 {
+  margin: 6px 0 12px;
+  scroll-margin-top: 12px;
+}
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin-block: 0 8px;
+}
+.task-row,
+.advice-details {
+  padding-block: 6px;
+  border-top: 1px solid var(--line);
+}
+.task-row summary,
+.advice-details > summary {
+  cursor: pointer;
+}
+.task-row summary:focus,
+.advice-details > summary:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.task-text {
+  display: block;
+  margin: 4px 0 0 16px;
+  line-height: 1.5;
+}
+.task-row:not([open]) .task-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.task-draft {
+  margin-inline-start: 8px;
+  color: var(--muted);
+}
+.task-details {
+  padding-inline-start: 16px;
+}
+.task-details p {
+  margin: 6px 0;
+}
+.advice-details > summary {
+  font-weight: 600;
+}
+.detail-meta,
+.detail-links > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.detail-entry {
+  padding-block: 8px;
+}
+.detail-entry + .detail-entry {
+  border-top: 1px solid var(--line);
+}
+.detail-entry h5,
+.detail-entry p {
+  margin: 0 0 5px;
+  line-height: 1.55;
+}
+.detail-entry h5 {
+  font-size: 14px;
+}
+.execution-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.execution-fields dt {
+  font-weight: 600;
+}
+.execution-fields dd {
+  margin: 0;
+}
+.detail-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.detail-links .el-button {
+  margin-left: 0;
+}
+</style>
