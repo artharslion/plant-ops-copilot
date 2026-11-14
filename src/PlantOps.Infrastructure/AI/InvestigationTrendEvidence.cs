@@ -48,6 +48,10 @@ public sealed partial class InvestigationService
         {
             risingFacts.Add($"测点 {trend.Code} 的{trend.WindowKind}非下降观测段：{rise.From:O} 至 {rise.To:O}，首值 {Number(rise.FirstValue)} {trend.Unit}，末值 {Number(rise.LastValue)} {trend.Unit}，变化量 {Number(rise.Change)} {trend.Unit}，观测间平均变化率 {Number(rise.RatePerMinute)} {trend.Unit}/min，样本数 {rise.SampleCount}，严格上升次数 {rise.IncreaseCount}；允许平台值，仅限该段，不确认根因或设备安全。");
         }
+        if (trend.LatestSegment is { } latest)
+        {
+            facts.Add($"测点 {trend.Code} 的{trend.WindowKind}末段已入库观测：{latest.From:O} 至 {latest.To:O}，最小值 {Number(latest.Min)} {trend.Unit}，最大值 {Number(latest.Max)} {trend.Unit}，样本数 {latest.SampleCount}；仅限该段内的已记录样本，不代表整个窗口或采样间的物理状态。");
+        }
         if (facts.Count == 0 && risingFacts.Count == 0)
         {
             facts.Add($"测点 {trend.Code} 的{trend.WindowKind}没有可验证的连续观测段变化；保留样本和限制，不跨坏值、缺口或未知配置计算变化。");

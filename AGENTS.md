@@ -1,5 +1,7 @@
 # Repository Context
 
+- After completing and verifying each implementation stage, create a local Git commit for that stage. Stage only related changes and keep unfinished work separate.
+
 - Before GitHub mutations, verify the authenticated account, target repository and required repository permissions. Use the account authorized by the current user for the task; do not assume Git SSH and API/connector sessions share an identity. Do not prescribe a contributor account or local SSH alias.
 
 - Keep context task-scoped. Locate the relevant source files first; use `docs/README.md` only when documentation is needed and `ROADMAP.md` when current priorities or acceptance scope matter. Do not read all top-level documents at session start.

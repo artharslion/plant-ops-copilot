@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -14,6 +15,141 @@ namespace PlantOps.Tests;
 [Collection("Database")]
 public sealed class InvestigationAdviceServiceTests
 {
+    [DatabaseScenarioTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HistoricalRecoveryAndCurrentExceedanceStaySeparateThroughDraftConfirmation(bool qualifiesForRecovery)
+    {
+        var gateway = new MeasurementReadGateway();
+        var clock = new AlarmTests.Clock();
+        await using var session = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection(), configureServices: services =>
+            services.AddSingleton<ILlmGateway>(gateway));
+        await session.Initialize();
+        await session.Login();
+        var (fixture, alarm, recoveryAt, highAt) = await RecoveryAlarmFixture.Create(session, clock, qualifiesForRecovery);
+        await using var scope = session.Factory.Services.CreateAsyncScope();
+        var alarmPath = $"/api/v1/alarms/{alarm.Id}";
+        var selected = (await session.Client.GetFromJsonAsync<AlarmDto>(alarmPath))!;
+        Assert.Equal(recoveryAt, selected.RecoveredAt);
+        Assert.Equal(qualifiesForRecovery ? "Recovered" : "Active", selected.State);
+        Assert.Null(selected.AcknowledgedAt);
+
+        using var started = await session.Client.PostAsync(alarmPath + "/investigations", null);
+        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        var run = (await started.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
+        Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
+        var runPath = $"/api/v1/investigations/{run.Id}";
+        run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>(runPath))!;
+        Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+
+        var snapshot = Assert.Single(run.Evidence, x => x.Kind == "Alarm");
+        using var savedRule = JsonDocument.Parse(selected.ThresholdSnapshot);
+        Assert.Equal(6, savedRule.RootElement.GetProperty("ClearBelow").GetDouble());
+        Assert.Equal(3000, savedRule.RootElement.GetProperty("ClearForMs").GetInt32());
+        Assert.Contains(snapshot.Facts, fact => fact.Contains(selected.ThresholdSnapshot, StringComparison.Ordinal));
+        Assert.Equal(snapshot.Facts, gateway.ProjectedFacts(snapshot.Id));
+        var current = Assert.Single(run.Assessment!.Points);
+        Assert.Equal("Trusted", current.CurrentTrust);
+        Assert.Equal("Present", current.CurrentAnomaly);
+        Assert.Equal(14, current.Observation!.Value);
+        Assert.Equal(highAt, current.Observation.EffectiveAt);
+        var currentEvidence = run.Evidence.Last(x => x.PointStatus?.PointId == fixture.Point.Id);
+        var projected = gateway.ProjectedEvidence(currentEvidence.Id).GetProperty("point");
+        Assert.Equal("Present", projected.GetProperty("currentAnomaly").GetString());
+        Assert.Equal(highAt, projected.GetProperty("observation").GetProperty("effectiveAt").GetDateTimeOffset());
+
+        var advice = InvestigationAdviceContract.ParseAndValidate(run.Result!.Value.GetRawText(), run.Evidence);
+        Assert.Contains(advice.Findings, x => x.Scope == "Current" && x.Status == "AnomalySupported"
+            && x.EvidenceRefs.Contains(currentEvidence.Id));
+        if (recoveryAt is { } recordedAt)
+        {
+            var timestamp = recordedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            Assert.Contains(snapshot.Facts, fact => fact.Contains(timestamp, StringComparison.Ordinal));
+            var recovery = Assert.Single(run.Evidence, x => x.Kind == "RecoveryReadings");
+            Assert.Contains(timestamp, recovery.Facts[0]);
+            Assert.Contains("5 mm/s", recovery.Facts[0]);
+            Assert.Contains("Good", recovery.Facts[0]);
+            Assert.Equal(recovery.Facts[0], gateway.ProjectedFacts(recovery.Id)[0]);
+            var finding = Assert.Single(advice.Findings, x => x.Scope == "Recovery");
+            Assert.Equal(new[] { snapshot.Id, recovery.Id }, finding.EvidenceRefs);
+            var expanded = (await session.Client.GetFromJsonAsync<InvestigationEvidence>($"{runPath}/evidence/{recovery.Id}"))!;
+            Assert.Equal(recovery.Sha256, expanded.Sha256);
+            Assert.Equal(recovery.Facts, expanded.Facts);
+        }
+        else
+        {
+            var events = Assert.Single(run.Evidence, x => x.Kind == "EventReadings");
+            Assert.Contains(events.Facts, fact => fact.Contains("值 5 mm/s，质量 Good", StringComparison.Ordinal));
+            var postTriggerLowAt = highAt.AddSeconds(-1).ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            Assert.Contains(gateway.ProjectedFacts(events.Id), fact =>
+                fact?.Contains(postTriggerLowAt, StringComparison.Ordinal) == true
+                && fact.Contains("值 5 mm/s，质量 Good", StringComparison.Ordinal));
+            Assert.DoesNotContain(run.Evidence, x => x.Kind == "RecoveryReadings");
+            Assert.DoesNotContain(advice.Findings, x => x.Scope == "Recovery");
+        }
+
+        using var proposed = await session.Client.PostAsync(runPath + "/proposals", null);
+        Assert.True(proposed.IsSuccessStatusCode, await proposed.Content.ReadAsStringAsync());
+        var proposal = (await proposed.Content.ReadFromJsonAsync<ActionProposalDto>())!;
+        Assert.Equal("Pending", proposal.Status);
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        Assert.False(await db.WorkOrders.AnyAsync());
+        var confirmation = new ConfirmActionProposal(proposal.Version, proposal.PayloadHash, "p6-recovery-fixture");
+        using var confirmed = await session.Client.PostAsJsonAsync($"/api/v1/action-proposals/{proposal.Id}/execute", confirmation);
+        Assert.True(confirmed.IsSuccessStatusCode, await confirmed.Content.ReadAsStringAsync());
+        var receipt = (await confirmed.Content.ReadFromJsonAsync<ActionProposalDto>())!;
+        var order = await db.WorkOrders.SingleAsync();
+        Assert.Equal(receipt.ResultEntityId, order.Id);
+        Assert.Equal(alarm.Id, order.AlarmId);
+        Assert.Equal(proposal.Id, order.AiProposalId);
+        Assert.Equal("Draft", order.Status);
+        var reread = (await session.Client.GetFromJsonAsync<AlarmDto>(alarmPath))!;
+        Assert.Equal(selected.State, reread.State);
+        Assert.Equal(selected.RecoveredAt, reread.RecoveredAt);
+        Assert.Null(reread.AcknowledgedAt);
+    }
+
+    // The scripted response exercises references and workflow. A reviewer evaluates interpretation separately.
+    private sealed class MeasurementReadGateway : ILlmGateway
+    {
+        private JsonElement[] finalEvidence = [];
+
+        public JsonElement ProjectedEvidence(string id) =>
+            Assert.Single(finalEvidence, x => x.GetProperty("id").GetString() == id);
+
+        public string?[] ProjectedFacts(string id) =>
+            ProjectedEvidence(id).GetProperty("facts").EnumerateArray().Select(x => x.GetString()).ToArray();
+
+        public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
+        {
+            using var input = JsonDocument.Parse(request.Messages.Single(x => x.Role == LlmRole.User).Content!);
+            if (input.RootElement.GetProperty("toolOutcomes").GetArrayLength() == 0)
+            {
+                return new ScriptedLlmGateway([new(null, [new("read", "get_recent_measurements", "{}")], "fixture", new(100, 20))])
+                    .CompleteAsync(request, budget, cancellationToken);
+            }
+
+            finalEvidence = input.RootElement.GetProperty("evidence").EnumerateArray().Select(x => x.Clone()).ToArray();
+            var advice = FakeLlmGateway.SimulateAdvice(input.RootElement);
+            var recovery = finalEvidence.SingleOrDefault(x => x.GetProperty("kind").GetString() == "RecoveryReadings");
+            if (recovery.ValueKind != JsonValueKind.Undefined)
+            {
+                var alarm = Assert.Single(finalEvidence, x => x.GetProperty("kind").GetString() == "Alarm");
+                var finding = new InvestigationFinding("F-recovery", [recovery.GetProperty("subjectRef").GetString()!],
+                    "Recovery", "EquipmentCondition", "Inconclusive",
+                    "告警快照记录了恢复，原始节选只支持核查所列观测。",
+                    [alarm.GetProperty("id").GetString()!, recovery.GetProperty("id").GetString()!]);
+                advice = advice with
+                {
+                    Findings = [.. advice.Findings, finding]
+                };
+            }
+
+            return new ScriptedLlmGateway([new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 50))])
+                .CompleteAsync(request, budget, cancellationToken);
+        }
+    }
+
     [DatabaseScenarioTheory]
     [InlineData(false)]
     [InlineData(true)]

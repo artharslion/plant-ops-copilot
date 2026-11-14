@@ -1247,7 +1247,7 @@ test('v3 investigation decisions come from fields while legacy records remain re
   assert.equal(state.legacyResult.summary, '旧调查结果')
 })
 
-test('the summary displays only the matching trusted alarm point from the investigation snapshot', async (t) => {
+test('the summary uses the matching alarm point and preserves a retained observation with its trust', async (t) => {
   const state = await mount(
     t,
     'InvestigationPanel',
@@ -1258,22 +1258,47 @@ test('the summary displays only the matching trusted alarm point from the invest
   state.runs = [
     {
       id: 'run-1',
+      evidence: [
+        { id: 'E8', kind: 'EventDerivedTrend', resourceId: 'temperature' },
+        {
+          id: 'E9',
+          kind: 'EventDerivedTrend',
+          resourceId: 'vibration',
+          derivedTrend: {
+            change: { from: '2026-11-14T06:01:23.690722Z', to: '2026-11-14T06:02:00.18771Z' },
+          },
+        },
+      ],
       assessment: {
         anomalyEvidence: 'Insufficient',
         points: [
-          { code: 'TEMPERATURE', currentTrust: 'Trusted', observation: { value: 65 } },
-          { code: 'VIBRATION', currentTrust: 'Trusted', observation: { value: 0 } },
+          {
+            pointId: 'temperature',
+            code: 'TEMPERATURE',
+            currentTrust: 'Trusted',
+            observation: { value: 65 },
+          },
+          {
+            pointId: 'vibration',
+            code: 'VIBRATION',
+            currentTrust: 'Trusted',
+            observation: { value: 0, effectiveAt: '2026-11-14T06:02:00.18771Z', quality: 'Good' },
+          },
         ],
       },
     },
   ]
   state.selectedId = 'run-1'
-  assert.equal(state.trustedAlarmPoint.observation.value, 0)
+  assert.equal(state.observedAlarmPoint.observation.value, 0)
   assert.match(state.overview, /证据不足/)
   state.runs[0].assessment.points[1].currentTrust = 'Unverifiable'
-  assert.equal(state.trustedAlarmPoint, undefined)
+  assert.equal(state.observedAlarmPoint.currentTrust, 'Unverifiable')
+  assert.equal(state.observedAlarmPoint.observation.effectiveAt, '2026-11-14T06:02:00.18771Z')
+  assert.equal(state.alarmEventTrend.id, 'E9')
+  state.runs[0].assessment.points[1].observation = null
+  assert.equal(state.observedAlarmPoint, undefined)
   state.runs[0].assessment = null
-  assert.equal(state.trustedAlarmPoint, undefined)
+  assert.equal(state.observedAlarmPoint, undefined)
 })
 
 test('the next step uses a unique explicit blocker link and never defaults to the first task', async (t) => {
@@ -1378,7 +1403,18 @@ test('the advice view renders distinct tasks once and preserves explicit links t
           resolutionRecommendationIds: ['R2'],
         },
       ],
-      findings: [],
+      findings: [
+        {
+          id: 'F1',
+          scope: 'AlarmEvent',
+          domain: 'MeasurementChain',
+          status: 'AnomalySupported',
+          subjectRefs: ['P-101'],
+          evidenceRefs: ['E1'],
+          interpretation:
+            '历史观测段为 2026-11-14T06:01:23.690722Z 至 2026-11-14T06:02:00.18771Z。',
+        },
+      ],
       workOrder: { blockingGapIds: [], draft: { recommendationIds: ['R2'] } },
     },
   })
@@ -1400,6 +1436,10 @@ test('the advice view renders distinct tasks once and preserves explicit links t
   assert.match(html, /Record operating load/)
   assert.match(html, /Readings recorded/)
   assert.match(html, /Vibration persists/)
+  assert.match(
+    html,
+    /历史观测段为 2026-11-14 14:01:23\.690722（北京时间） 至 2026-11-14 14:02:00\.18771（北京时间）/,
+  )
   assert.match(html, /核实方式：.*aria-label="打开核查任务 R1">R1<\/button>/)
   assert.match(html, /补证任务.*aria-label="打开核查任务 R2">R2<\/button>/)
   assert.match(html, /<button aria-label="查看证据 E1">E1<\/button>/)

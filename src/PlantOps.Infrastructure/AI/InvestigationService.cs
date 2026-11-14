@@ -442,6 +442,10 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                             var raw = await telemetry.TrendAsync(actor, run.AssetId, point.Id, anchor.At.AddMinutes(-1), end, "raw");
                             var atCutoff = raw.Samples.Where(x => x.ReceivedAt <= capturedAt && x.EffectiveAt <= capturedAt).ToArray();
                             var selected = atCutoff.Where(x => x.EffectiveAt >= anchor.At).Take(1)
+                                .Concat(atCutoff.Where(x => x.Value.HasValue && x.Quality == "Good" && !x.TimeAnomaly)
+                                    .OrderBy(x => x.Value)
+                                    .ThenBy(x => x.EffectiveAt < anchor.At)
+                                    .Take(1))
                                 .Concat(atCutoff.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
                                 .Concat(atCutoff.Take(1)).Concat(atCutoff.TakeLast(1)).DistinctBy(x => x.Id);
                             supplied.Add(Add(anchor.Kind, "事件原始观测（有界节选）", point.Id,

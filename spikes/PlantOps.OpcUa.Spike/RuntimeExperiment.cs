@@ -34,7 +34,8 @@ internal static class RuntimeExperiment
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
-    public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null)
+    public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false,
+        bool disconnected = false, bool stable = false)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -51,7 +52,7 @@ internal static class RuntimeExperiment
             throw new InvalidOperationException("Runtime experiment requires 2 GiB free before setup.");
         }
         var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating;
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(liveHeating ? 900 : 150));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(liveHeating ? 900 : disconnected ? 480 : 150));
         var ct = deadline.Token;
         var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -167,7 +168,21 @@ internal static class RuntimeExperiment
         var application = industrial ? null : await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
         var scenario = minimalScenario ? new MinimalScenario() : null;
         var server = industrial ? null : new SimulatorServer(new(Constant: false), scenario);
-        await using var external = industrial ? new IndustrialSimProcess(industrialSimRoot!, Path.Combine(root, "industrial-sim")) : null;
+        string? scenarioPath = null;
+        if (briefLow)
+        {
+            scenarioPath = Path.Combine(root, "brief-low.yaml");
+            var baseline = await File.ReadAllTextAsync(Path.Combine(industrialSimRoot!, "examples/scenarios/plantops-three-point.yaml"), ct);
+            var pulse = baseline[..baseline.LastIndexOf("    - at:", StringComparison.Ordinal)]
+                .Replace("plantops-three-point-v1", "plantops-brief-low-v1", StringComparison.Ordinal);
+            await File.WriteAllTextAsync(scenarioPath, pulse + """
+                    - at: 58s
+                      set: { device: plantops-p101, datapoint: temperature, value: 60 }
+                    - at: 61s
+                      set: { device: plantops-p101, datapoint: temperature, value: 90 }
+                """ + "\n", ct);
+        }
+        await using var external = industrial ? new IndustrialSimProcess(industrialSimRoot!, Path.Combine(root, "industrial-sim"), scenarioPath) : null;
         double ElapsedSeconds() => external?.ElapsedSeconds ?? scenario!.ElapsedSeconds;
         var worker = provider.GetRequiredService<MeasurementWorker>();
         var phases = new List<object>();
@@ -176,6 +191,8 @@ internal static class RuntimeExperiment
         string? failure = null;
         DateTimeOffset? stoppedAt = null;
         DateTimeOffset? restartedAt = null;
+        var disconnectedSnapshotPath = Path.Combine(root, "disconnected-ready.json");
+        var stableSnapshotPath = Path.Combine(root, "stable-ready.json");
         async Task WaitAsync(Func<PlantOpsDbContext, Task<bool>> predicate)
         {
             while (true)
@@ -280,7 +297,12 @@ internal static class RuntimeExperiment
                     }).ToArray()
                 });
             }
-            stoppedAt = external?.StartedAt.AddSeconds(MinimalScenario.StopAtSecond) ?? DateTimeOffset.UtcNow;
+            stoppedAt = disconnected ? DateTimeOffset.UtcNow
+                : external?.StartedAt.AddSeconds(MinimalScenario.StopAtSecond) ?? DateTimeOffset.UtcNow;
+            if (disconnected)
+            {
+                await external!.DisposeAsync();
+            }
             if (server != null)
             {
                 await server.StopAsync();
@@ -292,33 +314,114 @@ internal static class RuntimeExperiment
                 Phase = "ServerStoppedAndReconnecting",
                 At = DateTimeOffset.UtcNow
             });
-            if (scenario != null)
+            if (disconnected)
             {
-                await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= MinimalScenario.RestartAtSecond));
                 await using var scope = provider.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
-                if (!await db.Alarms.AnyAsync(alarm => alarm.PointId == pointIds[0] && alarm.State == "Active", ct))
+                var outage = await db.DataSourceHealth.AsNoTracking().SingleAsync(health => health.DataSourceId == sourceId, ct);
+                var outageAlarm = await db.Alarms.AsNoTracking().SingleAsync(alarm => alarm.PointId == pointIds[0], ct);
+                var outageReadings = await db.MeasurementReadings.AsNoTracking().Where(reading => pointIds.Contains(reading.PointId)).ToArrayAsync(ct);
+                if (outage.State != "Reconnecting" || outageAlarm.State != "Active" || outageAlarm.RecoveredAt != null
+                    || !pointIds.All(id => outageReadings.Any(reading => reading.PointId == id && reading.SourceKind == "OpcUa"
+                        && reading.Quality == "Good" && !reading.TimeAnomaly)))
                 {
-                    throw new InvalidOperationException("Stopping the server must not recover the temperature alarm.");
+                    throw new InvalidOperationException("The outage must preserve an active alarm and prior trusted observations for all three points.");
                 }
+
+                var readyTemp = disconnectedSnapshotPath + ".tmp";
+                await File.WriteAllTextAsync(readyTemp, JsonSerializer.Serialize(new
+                {
+                    Passed = true,
+                    RealOpcUa = true,
+                    Schema = parsed.SearchPath,
+                    ScenarioVersion = "plantops-disconnected-v1",
+                    CapturedAt = DateTimeOffset.UtcNow,
+                    StoppedAt = stoppedAt,
+                    Health = outage,
+                    Alarms = new[] { outageAlarm },
+                    LastGood = pointIds.Select(id => outageReadings.Where(reading => reading.PointId == id
+                        && reading.SourceKind == "OpcUa" && reading.Quality == "Good" && !reading.TimeAnomaly)
+                        .MaxBy(reading => reading.EffectiveAt))
+                }, new JsonSerializerOptions { WriteIndented = true }), ct);
+                File.Move(readyTemp, disconnectedSnapshotPath);
+                await WaitAsync(_ => Task.FromResult(File.Exists(Path.Combine(root, "release"))));
             }
             else
             {
-                await Task.Delay(2500, ct);
+                if (scenario != null)
+                {
+                    await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= MinimalScenario.RestartAtSecond));
+                    await using var scope = provider.CreateAsyncScope();
+                    var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+                    if (!await db.Alarms.AnyAsync(alarm => alarm.PointId == pointIds[0] && alarm.State == "Active", ct))
+                    {
+                        throw new InvalidOperationException("Stopping the server must not recover the temperature alarm.");
+                    }
+                }
+                else
+                {
+                    await Task.Delay(2500, ct);
+                }
+                restartedAt = external?.StartedAt.AddSeconds(MinimalScenario.RestartAtSecond) ?? DateTimeOffset.UtcNow;
+                if (!industrial)
+                {
+                    server = new SimulatorServer(new(ReorderNamespaces: true, Constant: true), scenario);
+                    await application!.StartAsync(server);
+                }
+                await WaitAsync(async db => (briefLow
+                        ? ElapsedSeconds() >= 66
+                        : await db.Alarms.AnyAsync(alarm => alarm.State == "Recovered" && pointIds.Contains(alarm.PointId), ct))
+                    && await db.SamplingProfiles.CountAsync(profile => pointIds.Contains(profile.PointId), ct) >= 6);
+                phases.Add(new
+                {
+                    Phase = briefLow ? "BriefLowObservationWindowCompleted"
+                        : industrial ? "IndustrialSimRestartedAndRecoveredAlarm" : "NamespaceReorderedAndRecoveredAlarm",
+                    At = DateTimeOffset.UtcNow
+                });
+                if (stable)
+                {
+                    await WaitAsync(async db =>
+                    {
+                        var now = DateTimeOffset.UtcNow;
+                        var alarm = await db.Alarms.AsNoTracking().SingleAsync(x => x.PointId == pointIds[0], ct);
+                        var health = await db.DataSourceHealth.AsNoTracking().SingleAsync(x => x.DataSourceId == sourceId, ct);
+                        if (alarm.RecoveredAt is not { } recoveredAt || health.State != "Connected")
+                        {
+                            return false;
+                        }
+                        var observations = await db.MeasurementReadings.AsNoTracking().Where(x => pointIds.Contains(x.PointId)
+                            && x.EffectiveAt > recoveredAt && x.EffectiveAt <= now && x.ReceivedAt <= now)
+                            .OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ToArrayAsync(ct);
+                        var expected = new[] { 60.0, 62.0, 4.0 };
+                        for (var i = 0; i < pointIds.Length; i++)
+                        {
+                            var samples = observations.Where(x => x.PointId == pointIds[i]).TakeLast(4).ToArray();
+                            if (samples.Length < 4 || samples.Any(x => x.NumericValue != expected[i] || x.Quality != "Good" || x.TimeAnomaly)
+                                || samples.Select(x => x.EffectiveAt).Distinct().Count() < 4
+                                || now - samples[^1].EffectiveAt > TimeSpan.FromSeconds(5))
+                            {
+                                return false;
+                            }
+                        }
+                        await File.WriteAllTextAsync(stableSnapshotPath + ".tmp", JsonSerializer.Serialize(new
+                        {
+                            Passed = true,
+                            RealOpcUa = true,
+                            Schema = parsed.SearchPath,
+                            ScenarioVersion = "plantops-stable-v1",
+                            CapturedAt = now,
+                            Health = health,
+                            Alarms = new[] { alarm },
+                            Observations = observations
+                        }, new JsonSerializerOptions { WriteIndented = true }), ct);
+                        File.Move(stableSnapshotPath + ".tmp", stableSnapshotPath);
+                        return true;
+                    });
+                    var releaseDeadline = DateTimeOffset.UtcNow.AddSeconds(12);
+                    await WaitAsync(_ => Task.FromResult(File.Exists(Path.Combine(root, "release"))
+                        || DateTimeOffset.UtcNow >= releaseDeadline));
+                }
             }
-            restartedAt = external?.StartedAt.AddSeconds(MinimalScenario.RestartAtSecond) ?? DateTimeOffset.UtcNow;
-            if (!industrial)
-            {
-                server = new SimulatorServer(new(ReorderNamespaces: true, Constant: true), scenario);
-                await application!.StartAsync(server);
-            }
-            await WaitAsync(async db => await db.Alarms.AnyAsync(alarm => alarm.State == "Recovered" && pointIds.Contains(alarm.PointId), ct)
-                && await db.SamplingProfiles.CountAsync(profile => pointIds.Contains(profile.PointId), ct) >= 6);
-            phases.Add(new
-            {
-                Phase = industrial ? "IndustrialSimRestartedAndRecoveredAlarm" : "NamespaceReorderedAndRecoveredAlarm",
-                At = DateTimeOffset.UtcNow
-            });
             passed = true;
         }
         catch (Exception exception)
@@ -347,10 +450,18 @@ internal static class RuntimeExperiment
         var health = await finalDb.DataSourceHealth.AsNoTracking().SingleAsync(health => health.DataSourceId == sourceId);
         var alarms = await finalDb.Alarms.AsNoTracking().Where(alarm => pointIds.Contains(alarm.PointId)).ToArrayAsync();
         passed &= external == null || external.CompletedSuccessfully;
+        var postPulseTemperature = readings.Where(reading => reading.PointId == pointIds[0]
+            && reading.SourceTimestamp > restartedAt).OrderBy(reading => reading.SourceTimestamp).ToArray();
+        var lowSamples = postPulseTemperature.Where(reading => reading.NumericValue < 75).ToArray();
+        var briefLowObserved = lowSamples.Length > 0 && postPulseTemperature.Any(reading =>
+            reading.NumericValue > 80 && reading.SourceTimestamp > lowSamples[^1].SourceTimestamp);
         passed &= readings.Select(reading => reading.PointId).Distinct().Count() == 3 && readings.All(reading => reading.SourceKind == "OpcUa")
-            && profiles.Length >= 6 && profiles.All(profile => profile.EffectiveTo != null) && gaps.Length >= 3
-            && gaps.All(gap => gap.To != null) && health.ReconnectCount > 0 && health.State == "Stopped"
-            && alarms.Length == 1 && alarms[0].State == "Recovered";
+            && profiles.All(profile => profile.EffectiveTo != null) && health.ReconnectCount > 0 && health.State == "Stopped"
+            && alarms.Length == 1 && (disconnected
+                ? File.Exists(disconnectedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
+                : profiles.Length >= 6 && gaps.Length >= 3 && gaps.All(gap => gap.To != null)
+                    && (briefLow ? briefLowObserved && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
+                        : alarms[0].State == "Recovered"));
         var scenarioChecks = scenario == null ? null : new
         {
             TemperatureStages = new[] { 60.0, 75.0, 90.0 }.All(value => readings.Any(reading =>
@@ -369,7 +480,8 @@ internal static class RuntimeExperiment
         if (scenarioChecks != null)
         {
             passed &= scenarioChecks.TemperatureStages && scenarioChecks.IndependentVibration && scenarioChecks.ConstantUpdatesTime
-                && scenarioChecks.UnitsQualityAndTime && scenarioChecks.MatchesActualGeneration != false && scenarioChecks.AllPointsAfterRestart;
+                && scenarioChecks.UnitsQualityAndTime && scenarioChecks.MatchesActualGeneration != false
+                && (disconnected || scenarioChecks.AllPointsAfterRestart);
         }
         // Leave the retained experiment inert; never disable or alter business configuration.
         await finalDb.SourceMappings.Where(mapping => mapping.DataSourceId == sourceId).ExecuteUpdateAsync(update => update.SetProperty(mapping => mapping.Enabled, false));
@@ -391,7 +503,7 @@ internal static class RuntimeExperiment
             Health = health,
             Alarms = alarms,
             Failure = failure,
-            ScenarioVersion = scenario == null ? null : MinimalScenario.Version,
+            ScenarioVersion = disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
             ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,

@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][string]$LedgerPath,
-    [ValidateRange(1, 4)][int]$ExpectedLimit = 4
+    [ValidateRange(1, 100)][int]$ExpectedLimit = 4
 )
 $ErrorActionPreference = 'Stop'
 $file = $null

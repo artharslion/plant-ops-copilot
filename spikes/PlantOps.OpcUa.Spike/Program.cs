@@ -19,10 +19,13 @@ internal static class Program
     {
         var root = Path.GetFullPath(args.ElementAtOrDefault(1) ?? "artifacts/p2/spike");
         Directory.CreateDirectory(root);
-        if (args.FirstOrDefault() is "runtime" or "scenario" or "industrial-scenario")
+        if (args.FirstOrDefault() is "runtime" or "scenario" or "industrial-scenario" or "industrial-brief-low" or "industrial-disconnected" or "industrial-stable")
         {
+            var industrial = args[0].StartsWith("industrial-", StringComparison.Ordinal);
             await RuntimeExperiment.RunAsync(root, args[0] != "runtime",
-                args[0] == "industrial-scenario" ? Path.GetFullPath(args.ElementAtOrDefault(2) ?? throw new ArgumentException("Simulator root required.")) : null);
+                industrial ? Path.GetFullPath(args.ElementAtOrDefault(2) ?? throw new ArgumentException("Simulator root required.")) : null,
+                briefLow: args[0] == "industrial-brief-low", disconnected: args[0] == "industrial-disconnected",
+                stable: args[0] == "industrial-stable");
             return;
         }
         var telemetry = new SpikeTelemetry();
