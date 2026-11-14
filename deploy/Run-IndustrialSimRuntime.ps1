@@ -3,7 +3,8 @@ param(
     [string]$SimulatorRoot = 'D:/Repos/industrial-device-simulation-framework',
     [string]$Run = ('industrial_' + (Get-Date -Format 'yyyyMMdd_HHmmss')),
     [switch]$UseTestConnection,
-    [switch]$BriefLow
+    [switch]$BriefLow,
+    [switch]$Disconnected
 )
 $ErrorActionPreference = 'Stop'
-& "$PSScriptRoot/Run-LocalOpcUaRuntime.ps1" -Run $Run -IndustrialSimRoot $SimulatorRoot -UseTestConnection:$UseTestConnection -BriefLow:$BriefLow
+& "$PSScriptRoot/Run-LocalOpcUaRuntime.ps1" -Run $Run -IndustrialSimRoot $SimulatorRoot -UseTestConnection:$UseTestConnection -BriefLow:$BriefLow -Disconnected:$Disconnected

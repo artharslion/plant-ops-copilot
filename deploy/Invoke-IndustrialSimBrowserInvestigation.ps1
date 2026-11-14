@@ -3,17 +3,23 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9_]{1,40}$')][string]$Run,
     [switch]$RealAi,
     [string]$LedgerPath,
-    [ValidateRange(1, 4)][int]$MaxRequests = 4
+    [ValidateRange(1, 4)][int]$MaxRequests = 4,
+    [switch]$Disconnected
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $root = Join-Path $repoRoot "artifacts/opcua-runtime/$Run"
-$result = Get-Content -LiteralPath (Join-Path $root 'result.json') -Raw | ConvertFrom-Json
+$reportName = if ($Disconnected) { 'disconnected-ready.json' } else { 'result.json' }
+$result = Get-Content -LiteralPath (Join-Path $root $reportName) -Raw | ConvertFrom-Json
 $schema = "opcua_runtime_$Run"
-$expectedState = if ($result.ScenarioVersion -ceq 'plantops-brief-low-v1') { 'Active' } else { 'Recovered' }
+$expectedState = if ($Disconnected -or $result.ScenarioVersion -ceq 'plantops-brief-low-v1') { 'Active' } else { 'Recovered' }
 if (-not $result.Passed -or -not $result.RealOpcUa -or $result.Schema -cne $schema -or
     @($result.Alarms).Count -ne 1 -or $result.Alarms[0].State -cne $expectedState) {
     throw 'A successful isolated protocol run with the expected alarm state is required.'
+}
+if ($Disconnected -and ($result.ScenarioVersion -cne 'plantops-disconnected-v1' -or
+    $result.Health.State -cne 'Reconnecting' -or (Test-Path -LiteralPath (Join-Path $root 'result.json')))) {
+    throw 'The disconnected protocol run must still be held for investigation.'
 }
 $connection = [System.Data.Common.DbConnectionStringBuilder]::new()
 try { $connection.set_ConnectionString($env:PLANTOPS_TEST_CONNECTION) } catch { throw 'Invalid dedicated test connection.' }

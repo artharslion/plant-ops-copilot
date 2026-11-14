@@ -39,6 +39,12 @@
 
 ## 本轮真实执行
 
+2026-11-14 断流场景在隔离库中通过 `-UseTestConnection -Disconnected` 启动。活动告警形成后关闭本轮 IndustrialSim 进程，等待采集器报告 Reconnecting，保存 `disconnected-ready.json`。采集器在重新连接期间继续报告状态，直到在本轮目录创建 `release` 文件或达到 480 秒总时限。浏览器发起调查后，使用 `Invoke-IndustrialSimBrowserInvestigation.ps1 -Disconnected` 处理队列。调查取得断流证据后即可创建 `release`，模型继续使用冻结快照。
+
+联合轮 `p6_disconnected_20261114` 采到三点共 114 条 OPC UA 数据。断流中告警保持 Active，恢复时间为空，E21 保留最后一条温度样本的有效时间 14:02:00.187710（北京时间）和 Reconnecting 状态。首轮模型流传输失败，第二轮自主调用 `get_recent_measurements` 并生成待审批提案 `d4198a64-bbc2-4aec-81cd-c90e52601279`，关联工单为零。合计 4 次请求。模型区分了陈旧样本和当前设备状态，但正文未写明最后可信样本的具体时间，核查建议也未明确要求复连后验证新样本，严格语义验收仍待复验。联合轮的采集脚本在等待释放时达到总时限，保留了原始失败报告。 [调查与提案证据](../artifacts/opcua-runtime/p6_disconnected_20261114/browser-real-acceptance.json) · [断流快照](../artifacts/opcua-runtime/p6_disconnected_20261114/disconnected-ready.json)
+
+随后独立协议复验 `p6_disconnected_protocol_20261114` 在断流快照写入后释放，再次采到 114 条 OPC UA 观测，活动告警仍未恢复，采集脚本正常退出。该复验模型请求为零。 [协议复验报告](../artifacts/opcua-runtime/p6_disconnected_protocol_20261114/result.json)
+
 2026-11-14 完成两种告警状态的真实 OPC UA、真实模型与浏览器联合验收。两轮均在隔离的 `plantops_tests` schema 从 P-101 告警手动发起调查，使用 `gpt-6.1-sol` 各发送 2 次请求，生成待审批提案，关联工单为 0。
 
 - 恢复场景 `p6_joint_live_20261113`。模型自主调用 `get_recent_measurements`，引用 E1 中的历史规则和恢复时间，以及 E19 中同一时间的 60°C Good OPC UA 样本。已用保存的调查复验提案入口和弹窗均显示「恢复阶段原始观测（有界节选）」。[采集报告](../artifacts/opcua-runtime/p6_joint_live_20261113/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_joint_live_20261113/browser-real-20261114-acceptance.json)
