@@ -2773,6 +2773,7 @@ export interface components {
             reasons: string[];
             /** @default true */
             isAlarmPoint: boolean;
+            latestSegment?: null | components["schemas"]["InvestigationTrendSegment"];
         };
         InvestigationEvidence: {
             id: string;
@@ -2945,6 +2946,22 @@ export interface components {
             mode: string;
             /** Format: double */
             intervalMs: null | number | string;
+        };
+        InvestigationTrendSegment: {
+            /** Format: uuid */
+            firstReadingId: string;
+            /** Format: uuid */
+            lastReadingId: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** Format: double */
+            min: number | string;
+            /** Format: double */
+            max: number | string;
+            /** Format: int32 */
+            sampleCount: number | string;
         };
         InvestigationWindowAssessment: {
             kind: string;

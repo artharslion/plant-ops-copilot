@@ -162,6 +162,36 @@ public sealed class InvestigationDerivedTrendTests
     }
 
     [Theory]
+    [InlineData(60, false, false, true)]
+    [InlineData(64, false, false, true)]
+    [InlineData(60, true, false, false)]
+    [InlineData(60, false, true, false)]
+    public void EarlierGapRetainsOnlyTheVerifiedTailAndItsExtrema(double middle, bool invalidLast,
+        bool truncated, bool hasSegment)
+    {
+        var rows = new[] { Row(0, 90), Row(5, 60), Row(6, middle), Row(7, 60) };
+        if (invalidLast)
+        {
+            rows[^1].Quality = "Bad";
+        }
+        var result = Calculate(rows, [new() { PointId = Point.PointId, From = Start.AddSeconds(1), To = Start.AddSeconds(4) }], truncated);
+        Assert.Null(result.Change);
+        Assert.Contains("ExplicitGap", result.Reasons);
+        if (!hasSegment)
+        {
+            Assert.Null(result.LatestSegment);
+            return;
+        }
+
+        var segment = Assert.IsType<InvestigationTrendSegment>(result.LatestSegment);
+        Assert.Equal(rows[1].EffectiveAt, segment.From);
+        Assert.Equal(rows[^1].EffectiveAt, segment.To);
+        Assert.Equal(3, segment.SampleCount);
+        Assert.Equal(60, segment.Min);
+        Assert.Equal(middle, segment.Max);
+    }
+
+    [Theory]
     [InlineData("Periodic", false, true)]
     [InlineData("Changes", false, false)]
     [InlineData("Unknown", false, false)]

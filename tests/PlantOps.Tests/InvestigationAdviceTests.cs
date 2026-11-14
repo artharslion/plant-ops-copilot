@@ -326,12 +326,22 @@ public sealed class InvestigationAdviceTests
         var sample = new InvestigationEvidence("raw-excerpt", "RecoveryReadings", "Bounded excerpt",
             [$"At {recoveryAt:O}: 7 mm/s, Good. Bounded observation metadata: {new string('x', 250)}."],
             "sample", recoveryAt, Point, State: new("Partial"));
+        var trendFrom = effectiveAt.AddSeconds(-2);
+        var stableSegment = new InvestigationTrendSegment(Guid.NewGuid(), point.PointStatus!.Observation!.Id,
+            trendFrom, effectiveAt, value, value, 3);
+        var stableTrend = new InvestigationEvidence("current-trend", "CurrentDerivedTrend", "Bounded current trend", [],
+            "trend", currentAt, Point, DerivedTrend: new(InvestigationTrendPolicy.Version, Point, "VIBRATION", "mm/s",
+                alarm.ResourceId, "Current", recoveryAt, currentAt, currentAt, currentAt, [], [], [], null, [],
+                ["ExplicitGap"], LatestSegment: stableSegment));
+        var stableCase = recovered && currentAnomaly == "NotFound";
         var optional = Enumerable.Range(1, 14).Select(i => Evidence[2] with
         {
             Id = $"document-{i}",
             Facts = [new string('x', 320)]
         }).ToArray();
-        InvestigationEvidence[] toolEvidence = recovered ? [.. optional, sample] : optional;
+        InvestigationEvidence[] toolEvidence = stableCase
+            ? [.. optional, sample, stableTrend]
+            : recovered ? [.. optional, sample] : optional;
         var alias = new InvestigationModelSubjects([alarm, point, .. toolEvidence]).AliasFor(Point)!;
         var advice = Valid(alias, point.Id);
         advice = advice with
@@ -342,7 +352,7 @@ public sealed class InvestigationAdviceTests
             new(null, [new("read", "get_recent_measurements", "{}")], "fixture", new(4000, 20)),
             new(InvestigationAdviceContract.Serialize(advice), [], "fixture", new(100, 50))
         ]);
-        using var budget = new LlmBudget { EvidenceAsOf = currentAt };
+        using var budget = new LlmBudget(new(MaxInputTokens: stableCase ? 18000 : 16000)) { EvidenceAsOf = currentAt };
         var error = await Record.ExceptionAsync(() => new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync([alarm, point],
             (_, _, _) => Task.FromResult(new InvestigationToolResult(toolEvidence, [])), _ => Task.CompletedTask,
             budget, CancellationToken.None));
@@ -368,6 +378,15 @@ public sealed class InvestigationAdviceTests
         Assert.Equal("Good", observation.GetProperty("quality").GetString());
         Assert.Equal(effectiveAt, observation.GetProperty("effectiveAt").GetDateTimeOffset());
         Assert.Equal(receivedAt, observation.GetProperty("receivedAt").GetDateTimeOffset());
+        if (stableCase)
+        {
+            var segment = Entry(stableTrend.Id).GetProperty("trend").GetProperty("latestSegment");
+            Assert.Equal(trendFrom, segment.GetProperty("from").GetDateTimeOffset());
+            Assert.Equal(effectiveAt, segment.GetProperty("to").GetDateTimeOffset());
+            Assert.Equal(value, segment.GetProperty("min").GetDouble());
+            Assert.Equal(value, segment.GetProperty("max").GetDouble());
+            Assert.Equal(3, segment.GetProperty("sampleCount").GetInt32());
+        }
         if (recovered)
         {
             var excerpt = Assert.Single(recovery);

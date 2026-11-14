@@ -11,7 +11,7 @@ namespace PlantOps.AI;
 public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions> options,
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
-    public const string PromptVersion = "investigation-advice-v3.9";
+    public const string PromptVersion = "investigation-advice-v3.10";
 
     public static void ValidateTool(string name, JsonElement arguments) => InvestigationToolPolicy.Validate(name, arguments);
 
@@ -96,7 +96,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             var providerSchema = InvestigationAdviceContract.ForModel(ledger, modelSubjects);
             var trendOrder = ledger.Where(x => x.DerivedTrend != null)
                 .OrderByDescending(x => x.DerivedTrend!.IsAlarmPoint)
-                .ThenByDescending(x => x.DerivedTrend!.Change != null || x.DerivedTrend.RiseSegments.Length > 0)
+                .ThenByDescending(x => x.DerivedTrend!.Change != null || x.DerivedTrend.LatestSegment != null || x.DerivedTrend.RiseSegments.Length > 0)
                 .Select(x => x.Id).ToArray();
             var trendLimit = trendOrder.Length;
             LlmRequest request;
@@ -113,7 +113,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     // Under pressure, retain numerical changes and evidence with visible facts.
                     // A trend with neither contributes only optional window metadata.
                     var includeTrend = trend != null && retainedTrends.Contains(x.Id) && (includeTrendDetails || trend.Change != null
-                        || trend.RiseSegments.Length > 0 || x.Facts.Length > 0);
+                        || trend.LatestSegment != null || trend.RiseSegments.Length > 0 || x.Facts.Length > 0);
                     var includeRise = includeTrendDetails || trend?.Change == null;
                     var state = x.State;
                     if (compact && state != null)
@@ -127,6 +127,15 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                             state = null;
                         }
                     }
+                    var latest = trend?.LatestSegment;
+                    var latestSegment = latest == null ? null : new
+                    {
+                        latest.From,
+                        latest.To,
+                        latest.Min,
+                        latest.Max,
+                        latest.SampleCount
+                    };
                     return new
                     {
                         x.Id,
@@ -164,6 +173,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                             trend.Code,
                             trend.Unit,
                             change = ChangeSummary(trend.Change),
+                            latestSegment,
                             riseSegments = includeRise ? trend.RiseSegments.Take(1).Select(ChangeSummary) : null,
                             omittedRiseSegmentCount = Math.Max(0, trend.RiseSegments.Length - (includeRise ? 1 : 0)),
                             reasons = includeTrendDetails ? trend.Reasons : null,
