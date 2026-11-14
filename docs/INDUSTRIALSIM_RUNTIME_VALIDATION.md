@@ -51,6 +51,10 @@
 
 旧联合轮的保存结果通过中文浏览器离线重放。调查概览显示 `90 degC / Good` 的有效时间 `14:02:00.18771`，标记为当前不可验证的留存读数。E9 的历史观测段显示为 `14:01:23.690722` 至 `14:02:00.18771`。两处都采用北京时间，沿用界面去除小数末尾零的格式。重放使用保存的 API 响应，模型请求为零。[重放记录](../artifacts/build/p6_v37_20261114/browser-replay.json)
 
+获授权后的断流复验共使用 6 次请求，自动重试为零。v3.7 输出用 F3 和 R3 补齐了样本时间和复连后核对步骤，但 `NeedsMoreEvidence` 缺少根级阻塞引用。v3.8 自主读取历史测量并补齐根级阻塞引用，假设却重复使用同一证据作支持和反证。两次均由既有校验拒绝。v3.9 提示明确两个阻塞字段的适用条件、可立即开始的诊断任务，以及互斥的假设证据引用。校验器和响应结构沿用原有版本。[v3.7 失败记录](../artifacts/opcua-runtime/p6_v37_outage_20261114/browser-1-acceptance.json) · [v3.8 失败记录](../artifacts/opcua-runtime/p6_v37_outage_20261114/browser-2-acceptance.json)
+
+v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_measurements`。F1 引用历史观测段，F2 阐明 Active 且无恢复时间，并写出 E21 的 90°C Good 样本有效时间 `18:02:58.476561`（北京时间）；F3 保留当前不可验证及 Reconnecting。R1 要求复连后逐点核对新样本的有效时间、质量和连续性，再重新评估。浏览器打开待审批提案 `9cffe631-eb68-4dde-83e6-326857d00453` 的完整核对页，关联工单为零。R2 引用了已发布的振动检查节选，现场适用性仍需人工核对。协议报告保存 120 条读数并正常退出。回归中的结构拒绝不等于建议内容全部错误；只看提案成功也会漏掉判断、范围和建议适用性的偏差。[断流复验](../artifacts/opcua-runtime/p6_v39_outage_20261114/browser-1-acceptance.json) · [协议报告](../artifacts/opcua-runtime/p6_v39_outage_20261114/result.json) · [共享请求账本](../artifacts/investigation-quality/p6_v37_joint_20261114/requests.jsonl)
+
 2026-11-14 完成两种告警状态的真实 OPC UA、真实模型与浏览器联合验收。两轮均在隔离的 `plantops_tests` schema 从 P-101 告警手动发起调查，使用 `gpt-6.1-sol` 各发送 2 次请求，生成待审批提案，关联工单为 0。
 
 - 恢复场景 `p6_joint_live_20261113`。模型自主调用 `get_recent_measurements`，引用 E1 中的历史规则和恢复时间，以及 E19 中同一时间的 60°C Good OPC UA 样本。已用保存的调查复验提案入口和弹窗均显示「恢复阶段原始观测（有界节选）」。[采集报告](../artifacts/opcua-runtime/p6_joint_live_20261113/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_joint_live_20261113/browser-real-20261114-acceptance.json)
