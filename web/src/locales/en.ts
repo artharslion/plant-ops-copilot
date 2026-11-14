@@ -370,6 +370,8 @@ export default {
   纳入工单建议: 'In work order suggestion',
   调查评估: 'Assessment',
   调查时告警测点读数: 'Alarm point reading at investigation',
+  '告警测点留存读数（当前不可验证）': 'Retained alarm point reading (current state unverifiable)',
+  告警测点历史观测段: 'Historical observation segment for the alarm point',
   建议下一步: 'Recommended next step',
   完整调查摘要: 'Full investigation summary',
   告警活动中: 'Alarm active',

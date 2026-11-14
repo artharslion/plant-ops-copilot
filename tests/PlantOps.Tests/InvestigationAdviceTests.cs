@@ -292,14 +292,18 @@ public sealed class InvestigationAdviceTests
     }
 
     [Theory]
-    [InlineData(true, 4, "NotFound", "NoAnomalyFound")]
-    [InlineData(true, 13, "Present", "AnomalySupported")]
-    [InlineData(false, 4, "NotFound", "NoAnomalyFound")]
-    public async Task FinalRequestPreservesRecordedRecoverySeparatelyFromCurrentObservation(
-        bool recovered, double currentValue, string currentAnomaly, string findingStatus)
+    [InlineData(true, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound")]
+    [InlineData(true, 13, "Connected", "Trusted", "Present", "AnomalySupported")]
+    [InlineData(false, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound")]
+    [InlineData(false, 13, "Reconnecting", "Unverifiable", "Insufficient", "Inconclusive")]
+    public async Task FinalRequestPreservesAlarmHistoryAndScopedPointEvidence(
+        bool recovered, double value, string sourceState, string trust, string currentAnomaly, string findingStatus)
     {
         var recoveryAt = new DateTimeOffset(2026, 9, 1, 1, 2, 3, TimeSpan.Zero);
         var currentAt = recoveryAt.AddMinutes(15);
+        var effectiveAt = trust == "Trusted" ? currentAt.AddSeconds(-1) : currentAt.AddMinutes(-5);
+        var receivedAt = effectiveAt.AddMilliseconds(100);
+        var sourceId = Guid.NewGuid();
         var alarm = Evidence[0] with
         {
             Facts = ["Historical trigger: 12.6 mm/s.",
@@ -311,11 +315,13 @@ public sealed class InvestigationAdviceTests
             Facts = [],
             PointStatus = Evidence[1].PointStatus! with
             {
+                CurrentTrust = trust,
                 CurrentAnomaly = currentAnomaly,
-                Observation = new(Guid.NewGuid(), currentAt, currentAt, currentValue, "Good", false,
-                    Guid.NewGuid(), Guid.NewGuid(), 1, "OpcUa", "Source", currentAt, null, null, null)
+                Observation = new(Guid.NewGuid(), effectiveAt, receivedAt, value, "Good", false,
+                    sourceId, Guid.NewGuid(), 1, "OpcUa", "Source", effectiveAt, null, null, null),
+                Health = new(sourceId, 1, sourceState, currentAt, null, receivedAt, 0, null)
             },
-            State = new("Available", "Trusted", currentAnomaly)
+            State = new("Available", trust, currentAnomaly)
         };
         var sample = new InvestigationEvidence("raw-excerpt", "RecoveryReadings", "Bounded excerpt",
             [$"At {recoveryAt:O}: 7 mm/s, Good. Bounded observation metadata: {new string('x', 250)}."],
@@ -352,9 +358,16 @@ public sealed class InvestigationAdviceTests
         string[] expected = recovered ? [.. alarm.Facts, .. sample.Facts] : alarm.Facts;
         Assert.Equal(expected, Facts(Entry(alarm.Id)).Concat(recovery.SelectMany(Facts)));
         var snapshot = Entry(point.Id).GetProperty("point");
+        Assert.Equal(trust, snapshot.GetProperty("currentTrust").GetString());
         Assert.Equal(currentAnomaly, snapshot.GetProperty("currentAnomaly").GetString());
-        Assert.Equal(currentValue, snapshot.GetProperty("observation").GetProperty("value").GetDouble());
-        Assert.Equal(currentAt, snapshot.GetProperty("observation").GetProperty("effectiveAt").GetDateTimeOffset());
+        var health = snapshot.GetProperty("health");
+        Assert.Equal(sourceState, health.GetProperty("state").GetString());
+        Assert.True(health.GetProperty("isCurrent").GetBoolean());
+        var observation = snapshot.GetProperty("observation");
+        Assert.Equal(value, observation.GetProperty("value").GetDouble());
+        Assert.Equal("Good", observation.GetProperty("quality").GetString());
+        Assert.Equal(effectiveAt, observation.GetProperty("effectiveAt").GetDateTimeOffset());
+        Assert.Equal(receivedAt, observation.GetProperty("receivedAt").GetDateTimeOffset());
         if (recovered)
         {
             var excerpt = Assert.Single(recovery);

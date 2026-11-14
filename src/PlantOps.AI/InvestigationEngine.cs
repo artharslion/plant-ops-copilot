@@ -11,7 +11,7 @@ namespace PlantOps.AI;
 public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions> options,
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
-    public const string PromptVersion = "investigation-advice-v3.6";
+    public const string PromptVersion = "investigation-advice-v3.7";
 
     public static void ValidateTool(string name, JsonElement arguments) => InvestigationToolPolicy.Validate(name, arguments);
 
@@ -146,6 +146,11 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                                 source.PointStatus.Observation.Quality,
                                 source.PointStatus.Observation.EffectiveAt,
                                 source.PointStatus.Observation.ReceivedAt
+                            },
+                            health = source.PointStatus.Health == null ? null : new
+                            {
+                                source.PointStatus.Health.State,
+                                source.PointStatus.Health.IsCurrent
                             },
                             source.PointStatus.CurrentTrust,
                             source.PointStatus.CurrentAnomaly,

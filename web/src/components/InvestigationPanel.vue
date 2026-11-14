@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { locale, messageRef, t } from '../i18n'
-import { formatDateTime as at } from '../time'
+import { formatDateTime as at, formatEvidenceText } from '../time'
 import {
   formatEvidenceFact,
   formatEvidenceTitle,
@@ -32,6 +32,7 @@ type Evidence = {
   retrievedAt: string
   derivedTrend?: {
     algorithmVersion: string
+    change?: { from: string; to: string } | null
     samples: {
       id: string
       effectiveAt: string
@@ -160,14 +161,19 @@ const advice = computed(() => {
     ? (result as InvestigationAdvice)
     : null
 })
-const trustedAlarmPoint = computed(() =>
+const observedAlarmPoint = computed(() =>
   selected.value?.assessment?.points.find(
-    (point) =>
-      point.code === props.pointCode &&
-      point.currentTrust === 'Trusted' &&
-      point.observation?.value != null,
+    (point) => point.code === props.pointCode && point.observation?.value != null,
   ),
 )
+const alarmEventTrend = computed(() => {
+  const pointId = observedAlarmPoint.value?.pointId
+  if (!pointId) return undefined
+  return selected.value?.evidence.find(
+    (item) =>
+      item.kind === 'EventDerivedTrend' && item.resourceId === pointId && item.derivedTrend?.change,
+  )
+})
 const nextRecommendation = computed(() => {
   const result = advice.value
   if (!result) return undefined
@@ -555,10 +561,23 @@ onUnmounted(() => {
             {{ t('数据：{0}', [trustLabels[selected.assessment.dataTrust] ?? t('不可验证')]) }}
           </el-tag>
         </div>
-        <p v-if="trustedAlarmPoint?.observation" class="snapshot-fact">
-          <strong>{{ t('调查时告警测点读数') }}</strong>
-          {{ trustedAlarmPoint.code }} · {{ trustedAlarmPoint.observation.value }}
-          {{ trustedAlarmPoint.unit }}
+        <p v-if="observedAlarmPoint?.observation" class="snapshot-fact">
+          <strong>{{
+            observedAlarmPoint.currentTrust === 'Trusted'
+              ? t('调查时告警测点读数')
+              : t('告警测点留存读数（当前不可验证）')
+          }}</strong>
+          {{ observedAlarmPoint.code }} · {{ observedAlarmPoint.observation.value }}
+          {{ observedAlarmPoint.unit }} · {{ observedAlarmPoint.observation.quality }} ·
+          {{ t('有效时间') }} {{ at(observedAlarmPoint.observation.effectiveAt) }}
+        </p>
+        <p v-if="advice && alarmEventTrend?.derivedTrend?.change" class="snapshot-fact">
+          <strong>{{ t('告警测点历史观测段') }}</strong>
+          {{ at(alarmEventTrend.derivedTrend.change.from) }} —
+          {{ at(alarmEventTrend.derivedTrend.change.to) }}
+          <el-button link type="primary" @click="expand(alarmEventTrend.id)">
+            {{ t('查看证据 {0}', [alarmEventTrend.id]) }}
+          </el-button>
         </p>
         <p v-if="selected.assessment" class="path-note">
           {{ t('这是取证快照，不代表此刻状态，也不确认根因或设备安全。') }}
@@ -583,8 +602,8 @@ onUnmounted(() => {
           </p>
           <details>
             <summary>{{ t('完整调查摘要') }}</summary>
-            <p>{{ advice.summary }}</p>
-            <p class="path-note">{{ advice.statusReason }}</p>
+            <p>{{ formatEvidenceText(advice.summary) }}</p>
+            <p class="path-note">{{ formatEvidenceText(advice.statusReason) }}</p>
             <p v-if="advice.blockingGapIds.length" class="path-note">
               {{ t('关键缺项：') }}{{ advice.blockingGapIds.join('、') }}
             </p>
