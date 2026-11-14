@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9_-]{1,60}$')][string]$Run,
-    [ValidateSet('AutonomousRead', 'DirectFinish')][string]$Mode = 'AutonomousRead',
+    [ValidateSet('AutonomousRead', 'DirectFinish', 'RecordedRecovery', 'BriefLow')][string]$Mode = 'AutonomousRead',
     [ValidateRange(1, 4)][int]$MaxRequests = 4,
     [switch]$AuthorizePaidModelCalls,
     [string]$LedgerPath = $env:PLANTOPS_LLM_REQUEST_LEDGER,
@@ -29,7 +29,7 @@ try {
     $env:AI__MaxRetries = '0'
     $env:AI__MaxInputTokens = '32000'
     $env:AI__MaxOutputTokens = '6000'
-    $env:AI__MaxModelRounds = if ($Mode -eq 'AutonomousRead') { '4' } else { '1' }
+    $env:AI__MaxModelRounds = if ($Mode -eq 'DirectFinish') { '1' } else { '4' }
     $env:AI__MaxToolCalls = '8'
     $env:AI__StreamResponses = 'true'
     $env:AI__RequestTimeoutSeconds = '120'
@@ -40,7 +40,12 @@ try {
     $env:PLANTOPS_LLM_REQUEST_LEDGER = $ledger
     $env:PLANTOPS_LLM_CAPTURE_REQUESTS = '1'
     $env:PLANTOPS_LIVE_REPORT_ROOT = $reportRoot
-    $method = if ($Mode -eq 'AutonomousRead') { 'RealAgentReadsScopedEvidenceAndProducesAReviewableProposal' } else { 'RealInitialSnapshotProducesAReviewableProposalWithoutExtraReads' }
+    $method = switch ($Mode) {
+        AutonomousRead { 'RealAgentReadsScopedEvidenceAndProducesAReviewableProposal' }
+        DirectFinish { 'RealInitialSnapshotProducesAReviewableProposalWithoutExtraReads' }
+        RecordedRecovery { 'RealAgentInvestigatesRecordedRecovery' }
+        BriefLow { 'RealAgentInvestigatesBriefLowWithoutRecovery' }
+    }
     # Select exactly one test, so a failed autonomous attempt never triggers a fallback paid test.
     & dotnet test "$PSScriptRoot/../tests/PlantOps.Tests/PlantOps.Tests.csproj" --no-restore --filter "FullyQualifiedName=PlantOps.Tests.InvestigationAdviceAgentLiveTests.$method" --logger "trx;LogFileName=$reportRoot/results.trx" *> "$reportRoot/test.log"
     $testExit = $LASTEXITCODE

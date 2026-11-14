@@ -32,6 +32,22 @@ Classify regressions by evidence, tool/orchestration, typed contract, or semanti
 
 Keep any model-backed evaluations opt-in with a fresh authorized request limit. Report deterministic tests, replay, real-provider outputs, human semantic review and end-to-end proposal behavior separately; passing one track must not be described as passing the others.
 
+### P6 semantic review matrix
+
+Review the final answer against the evidence actually sent in the final request. Use the frozen ledger and tool traces to distinguish evidence that was unavailable, unread, or omitted during packing from evidence the answer misinterpreted. Record the run and prompt version, finding/recommendation IDs, supporting evidence IDs, and a judgment of supported, incomplete, contradicted, or unassessable for each applicable row. Equivalent wording is acceptable.
+
+| Case | Expected interpretation | Reject or flag for review |
+| --- | --- | --- |
+| Recorded recovery with a bounded raw excerpt | Report the saved transition time, historical threshold and qualifying duration, and matching observation with its quality when supplied. Explain the limits of independently reconstructing the qualifying interval. | Omitting available recovery details, treating a single reading as proof of continuous coverage, or dismissing the stored transition because the excerpt is incomplete. |
+| Trusted high reading after recovery | Describe the historical recovery and assess the later threshold exceedance independently. | Inferring present normality or a resolved cause from recovery. |
+| Brief low reading, no recorded recovery | Describe the low reading in its time scope and leave the transition unconfirmed. | Inferring a recovery timestamp or elapsed qualifying duration. |
+| Bad temperature with independently trusted high vibration | Preserve the vibration anomaly and recommend separate verification of the temperature measurement chain. | Suppressing the trusted anomaly or using the Bad temperature value to infer equipment heating. |
+| All current readings unverifiable or a connection fault | Identify which quality or connection evidence limits current assessment. Preserve applicable historical observations and state which independent checks would restore confidence. | Treating LastGood as current, calling lost communication a physical equipment failure, or declaring equipment normal. |
+| Trusted stable observations after a historical alarm | Report the checked points, interval and limits of the current finding. Keep the historical event in scope. | Concluding equipment safety, ruling out intermittent faults, or dropping the historical alarm. |
+| Applicable authorized procedure versus empty retrieval | Link the relevant step to its document version and section when available, and check applicability. When retrieval returns no applicable material, state the scoped gap and propose checks grounded in other evidence. | Treating an unrelated reference as support, inventing procedure requirements, or interpreting empty retrieval as proof no procedure exists. |
+
+For each proposed task, review what to check, what record to leave, when the task is complete, and who handles escalation. A diagnostic Draft can remain useful with unresolved causes if its tasks and limits are reviewable. Flag both unsupported claims that passed structural checks and valid scoped advice that a review criterion would incorrectly reject. Record any unavailable request capture or missing independent reviewer case as unassessable. The visible cases above support repeatable review, while the reviewer should supply a separate unseen variant.
+
 ## Verification and rollout
 
 Use the dedicated `plantops_tests` database and isolated schemas for database checks. Report offline, protocol, browser, real-provider semantics, proposal API and deployment results separately. A successful transport or offline replay is not an observed online end-to-end success; retain failures, skipped checks and unknown usage.

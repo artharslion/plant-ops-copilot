@@ -34,7 +34,7 @@ internal static class RuntimeExperiment
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
-    public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null)
+    public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -167,7 +167,21 @@ internal static class RuntimeExperiment
         var application = industrial ? null : await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
         var scenario = minimalScenario ? new MinimalScenario() : null;
         var server = industrial ? null : new SimulatorServer(new(Constant: false), scenario);
-        await using var external = industrial ? new IndustrialSimProcess(industrialSimRoot!, Path.Combine(root, "industrial-sim")) : null;
+        string? scenarioPath = null;
+        if (briefLow)
+        {
+            scenarioPath = Path.Combine(root, "brief-low.yaml");
+            var baseline = await File.ReadAllTextAsync(Path.Combine(industrialSimRoot!, "examples/scenarios/plantops-three-point.yaml"), ct);
+            var pulse = baseline[..baseline.LastIndexOf("    - at:", StringComparison.Ordinal)]
+                .Replace("plantops-three-point-v1", "plantops-brief-low-v1", StringComparison.Ordinal);
+            await File.WriteAllTextAsync(scenarioPath, pulse + """
+                    - at: 58s
+                      set: { device: plantops-p101, datapoint: temperature, value: 60 }
+                    - at: 61s
+                      set: { device: plantops-p101, datapoint: temperature, value: 90 }
+                """ + "\n", ct);
+        }
+        await using var external = industrial ? new IndustrialSimProcess(industrialSimRoot!, Path.Combine(root, "industrial-sim"), scenarioPath) : null;
         double ElapsedSeconds() => external?.ElapsedSeconds ?? scenario!.ElapsedSeconds;
         var worker = provider.GetRequiredService<MeasurementWorker>();
         var phases = new List<object>();
@@ -312,11 +326,14 @@ internal static class RuntimeExperiment
                 server = new SimulatorServer(new(ReorderNamespaces: true, Constant: true), scenario);
                 await application!.StartAsync(server);
             }
-            await WaitAsync(async db => await db.Alarms.AnyAsync(alarm => alarm.State == "Recovered" && pointIds.Contains(alarm.PointId), ct)
+            await WaitAsync(async db => (briefLow
+                    ? ElapsedSeconds() >= 66
+                    : await db.Alarms.AnyAsync(alarm => alarm.State == "Recovered" && pointIds.Contains(alarm.PointId), ct))
                 && await db.SamplingProfiles.CountAsync(profile => pointIds.Contains(profile.PointId), ct) >= 6);
             phases.Add(new
             {
-                Phase = industrial ? "IndustrialSimRestartedAndRecoveredAlarm" : "NamespaceReorderedAndRecoveredAlarm",
+                Phase = briefLow ? "BriefLowObservationWindowCompleted"
+                    : industrial ? "IndustrialSimRestartedAndRecoveredAlarm" : "NamespaceReorderedAndRecoveredAlarm",
                 At = DateTimeOffset.UtcNow
             });
             passed = true;
@@ -347,10 +364,17 @@ internal static class RuntimeExperiment
         var health = await finalDb.DataSourceHealth.AsNoTracking().SingleAsync(health => health.DataSourceId == sourceId);
         var alarms = await finalDb.Alarms.AsNoTracking().Where(alarm => pointIds.Contains(alarm.PointId)).ToArrayAsync();
         passed &= external == null || external.CompletedSuccessfully;
+        var postPulseTemperature = readings.Where(reading => reading.PointId == pointIds[0]
+            && reading.SourceTimestamp > restartedAt).OrderBy(reading => reading.SourceTimestamp).ToArray();
+        var lowSamples = postPulseTemperature.Where(reading => reading.NumericValue < 75).ToArray();
+        var briefLowObserved = lowSamples.Length > 0 && postPulseTemperature.Any(reading =>
+            reading.NumericValue > 80 && reading.SourceTimestamp > lowSamples[^1].SourceTimestamp);
         passed &= readings.Select(reading => reading.PointId).Distinct().Count() == 3 && readings.All(reading => reading.SourceKind == "OpcUa")
             && profiles.Length >= 6 && profiles.All(profile => profile.EffectiveTo != null) && gaps.Length >= 3
             && gaps.All(gap => gap.To != null) && health.ReconnectCount > 0 && health.State == "Stopped"
-            && alarms.Length == 1 && alarms[0].State == "Recovered";
+            && alarms.Length == 1 && (briefLow
+                ? briefLowObserved && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
+                : alarms[0].State == "Recovered");
         var scenarioChecks = scenario == null ? null : new
         {
             TemperatureStages = new[] { 60.0, 75.0, 90.0 }.All(value => readings.Any(reading =>
@@ -391,7 +415,7 @@ internal static class RuntimeExperiment
             Health = health,
             Alarms = alarms,
             Failure = failure,
-            ScenarioVersion = scenario == null ? null : MinimalScenario.Version,
+            ScenarioVersion = briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
             ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,

@@ -10,17 +10,25 @@ namespace PlantOps.Tests;
 public sealed class InvestigationAdviceLiveTests
 {
     [AdviceLiveTheory]
+    [InlineData("recorded-recovery-later-high", true)]
+    [InlineData("brief-low-no-recovery", false)]
+    public Task FinalAdviceRecoveryReview(string scenario, bool recovered) =>
+        Run(scenario, RecoveryFixture(recovered));
+
+    [AdviceLiveTheory]
     [InlineData("trusted-anomaly")]
     [InlineData("partial-bad-high-vibration")]
     [InlineData("all-unverifiable")]
     [InlineData("applicable-procedure")]
     [InlineData("injected-procedure")]
-    public async Task FinalAdviceUsesRealModelAndPreservesEvidenceBoundaries(string scenario)
+    public Task FinalAdviceUsesRealModelAndPreservesEvidenceBoundaries(string scenario) =>
+        Run(scenario, Fixture(scenario));
+
+    private static async Task Run(string scenario, InvestigationEvidence[] evidence)
     {
         var reportRoot = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
         var target = Path.Combine(reportRoot, scenario + ".json");
         Assert.False(File.Exists(target), "Reports are immutable; use a fresh report directory.");
-        var evidence = Fixture(scenario);
         var modelSubjects = new InvestigationModelSubjects(evidence);
         var context = JsonSerializer.Serialize(new
         {
@@ -142,6 +150,31 @@ public sealed class InvestigationAdviceLiveTests
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
         Assert.True(failure == null && checks.Values.All(x => x), failure ?? string.Join(",", checks.Where(x => !x.Value).Select(x => x.Key)));
+    }
+
+    private static InvestigationEvidence[] RecoveryFixture(bool recovered)
+    {
+        var evidence = Fixture("trusted-anomaly");
+        var alarm = evidence.Single(x => x.Kind == "Alarm");
+        var vibration = evidence.Single(x => x.Id == "V1");
+        var transition = recovered
+            ? "告警状态 Recovered，记录恢复时间 2026-10-30T07:58:34Z。"
+            : "告警状态 Active，未记录恢复时间。";
+        var reading = recovered
+            ? new InvestigationEvidence("R1", "RecoveryReadings", "有界恢复原始观测",
+                ["2026-10-30T07:58:34Z，振动 5.5 mm/s，Good；这里只返回锚点样本，前 4 秒原始序列不可查询。"],
+                "fixture", alarm.RetrievedAt, vibration.ResourceId, State: new("Partial"))
+            : new InvestigationEvidence("R1", "EventReadings", "有界事件原始观测",
+                ["2026-10-30T07:58:34Z，振动 5.5 mm/s，Good；单个低值，持续时长未知。"],
+                "fixture", alarm.RetrievedAt, vibration.ResourceId, State: new("Partial"));
+        return [.. evidence.Select(item => item.Id == alarm.Id
+            ? alarm with
+            {
+                Facts = [.. alarm.Facts, transition, "历史恢复规则为严格低于 6.5 mm/s 且持续 4 秒。"]
+            }
+            : item.Id == vibration.Id
+                ? vibration with { Facts = [.. vibration.Facts, "该当前高值的有效时间为 2026-10-30T08:00:00Z。"] }
+                : item), reading];
     }
 
     private static InvestigationEvidence[] Fixture(string scenario)

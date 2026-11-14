@@ -9,9 +9,12 @@
 ```powershell
 ./deploy/Run-IndustrialSimRuntime.ps1 -Run my_unique_run
 # 可显式指定框架位置：-SimulatorRoot D:/Repos/industrial-device-simulation-framework
+# 可使用独立本地 PostgreSQL：设置 PLANTOPS_TEST_CONNECTION 后传 -UseTestConnection
 ```
 
 脚本构建两侧、创建全新 `plantops_tests.opcua_runtime_<run>` schema 与证据目录，启动自己的框架进程，等待原子 ready 文件，再启动普通 Worker；测试结束优先通过 stdin 请求示例退出，超时仅终止自己创建的进程树，不停止已有服务。端口占用/目录复用会拒绝。Worker 运行预算沿用150秒/500条及磁盘停止条件；框架示例限80秒、85秒取消保护。没有真实LLM调用，没有业务库迁移或部署更新。
+
+要从这次采集继续验收浏览器调查，启动指向同一隔离 schema 的本地 API 并通过浏览器发起一次手动调查。API 在发起时将所选提供方保存到调查记录，因此 API 创建调查时选用的提供方需要与 Worker 一致。随后在设置了 `PLANTOPS_TEST_CONNECTION` 的终端运行 `./deploy/Invoke-IndustrialSimBrowserInvestigation.ps1 -Run <run>`，仅处理一条已排队调查，默认用 Fake。通过本轮授权后，才可传入 `-RealAi -LedgerPath <current-ledger> -MaxRequests <limit>`；请求预算由账本执行，重试为零。该入口检查成功采集报告、工况预期的告警状态及专用测试库。浏览器仍负责取证展开和人工确认。采集结束后调查的当前快照可能不可验证，应将其与历史事件及恢复证据分开复核。
 
 | 协议配置 | 固定批准值 |
 |---|---|
@@ -35,6 +38,17 @@
 框架没有暴露逐个投影生成事件及其完整源时间序列，因此 `MatchesActualGeneration=null`、`Generated=null`，不伪造与旧spike相同的逐条生成匹配结论。取而代之保留实际场景/状态快照和客户端真实读数作不同层面的证据。既有Periodic覆盖算法尚未修订，不用其覆盖数值验收本轮；P5.1/P5.2另行处理。
 
 ## 本轮真实执行
+
+2026-11-14 完成两种告警状态的真实 OPC UA、真实模型与浏览器联合验收。两轮均在隔离的 `plantops_tests` schema 从 P-101 告警手动发起调查，使用 `gpt-6.1-sol` 各发送 2 次请求，生成待审批提案，关联工单为 0。
+
+- 恢复场景 `p6_joint_live_20261113`。模型自主调用 `get_recent_measurements`，引用 E1 中的历史规则和恢复时间，以及 E19 中同一时间的 60°C Good OPC UA 样本。已用保存的调查复验提案入口和弹窗均显示「恢复阶段原始观测（有界节选）」。[采集报告](../artifacts/opcua-runtime/p6_joint_live_20261113/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_joint_live_20261113/browser-real-20261114-acceptance.json)
+- 短暂低值场景 `p6_brief_low_20261114`。用 `Run-IndustrialSimRuntime.ps1 -UseTestConnection -BriefLow` 在协议重连后注入 3 秒低值，三点共入库 170 条 OPC UA 观测。温度从 90°C 短暂降至 60°C 后回到 90°C，告警仍为 Active，恢复时间为空。模型自主读取测量，引用 E17 中触发后的 60°C Good 样本及 E1 中低于 75°C 持续 5 秒、最大样本间隔 2.5 秒的规则。浏览器展开两条引用并停在待审批提案。[采集报告](../artifacts/opcua-runtime/p6_brief_low_20261114/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_brief_low_20261114/browser-real-acceptance.json)
+
+2026-11-13 复验 `p6_protocol_20261113`。独立本机 PostgreSQL 与 IndustrialSim `3d5e7c0` 联合运行约 73 秒，三点各入库 48 条 Good OPC UA 观测，温度实收 60/75/90°C、参考温度恒定 62°C 且源时间更新、振动实收 4/7/12.6 mm/s。温度告警在协议停止及重连期间保持活动，协议恢复后转为 Recovered，三点均有新读数。模型调用为零。[运行证据](../artifacts/opcua-runtime/p6_protocol_20261113/result.json)
+
+同日使用 `-UseTestConnection` 准备浏览器验收。首次运行收到 57 条观测，未触发告警，达到时限后退出并保留报告。独立 schema 中的第二次运行约 61 秒，收到 148 条观测，P-101 温度告警 `6cf0664b-2e18-4921-956a-717ffda9d0ce` 触发并恢复。浏览器从该告警发起 Fake 调查、打开 E4 授权引用、核对提案并显式确认，打开了状态为 Draft 的关联工单 `WO-37dcd6b8407d49bf8c790b42732f6359`。该浏览器验证发生在有限采集结束后，当前测点显示不可验证。真实模型请求为零，业务库和部署均未参与。[首次运行](../artifacts/opcua-runtime/p6_browser_20261113/result.json) · [成功运行](../artifacts/opcua-runtime/p6_browser_retry_20261113/result.json) · [浏览器截图](../artifacts/opcua-runtime/p6_browser_retry_20261113/browser-draft.jpg)
+
+联合验证准备轮 `p6_joint_20261113` 使用新的隔离 schema，约 62 秒收到 145 条 OPC UA 观测，P-101 温度告警 `ca854f1c-f1f5-4b13-97ae-bae17af8f025` 已恢复。有限 Worker 在队列为空时退出；真实模型联合验收需另行运行。[采集报告](../artifacts/opcua-runtime/p6_joint_20261113/result.json)
 
 2026-11-06 复验 `roadmap_p5_20261106`，Plant Ops 基线 `dfb530a`，IndustrialSim `3d5e7c0`。在隔离 `plantops_tests.opcua_runtime_roadmap_p5_20261106` schema 运行约 68 秒，三点各入库 50 条。温度实际收到 60、75、90°C，参考温度保持 62°C 且源时间更新，振动实际收到 4、7、12.6 mm/s。停服期间进入重连并保持活动告警，恢复后三点均收到新观测，唯一温度告警最终恢复。退出后 6 段采样区间均关闭，3 条断线缺口均记录恢复时间，另有 3 条具有结束边界的可能采样间隔缺口。付费模型调用为 0。
 
