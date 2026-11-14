@@ -277,6 +277,25 @@ public sealed class InvestigationAdviceTests
     }
 
     [Fact]
+    public async Task ModelRequestIncludesThePublishedDocumentCitationWithItsExcerpt()
+    {
+        var document = Evidence[2] with
+        {
+            Title = "Inspection guide · 版本 2 · Load check · 行 4–7"
+        };
+        var evidence = new[] { Evidence[0], Evidence[1], document };
+        var alias = new InvestigationModelSubjects(evidence).AliasFor(Point)!;
+        var gateway = new RecordingScript([new(InvestigationAdviceContract.Serialize(Valid(alias)), [], "fixture", new(100, 50))]);
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000));
+        await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(evidence,
+            (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None);
+        using var input = JsonDocument.Parse(gateway.Requests.Single().Messages.Single(x => x.Role == LlmRole.User).Content!);
+        var item = Assert.Single(input.RootElement.GetProperty("evidence").EnumerateArray(), x => x.GetProperty("id").GetString() == document.Id);
+        Assert.Equal(document.Title, item.GetProperty("citation").GetString());
+        Assert.Equal(document.Facts[0], item.GetProperty("facts")[0].GetString());
+    }
+
+    [Fact]
     public async Task V3RejectsReadWhenFinalRoundIsReserved()
     {
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000, MaxModelRounds: 1));

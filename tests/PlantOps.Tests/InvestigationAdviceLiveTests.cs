@@ -66,13 +66,13 @@ public sealed class InvestigationAdviceLiveTests
             RunTimeoutSeconds = 180
         };
         using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-        using var budget = new LlmBudget(new(MaxModelRounds: 1));
+        using var budget = new LlmBudget(new(MaxModelRounds: 1, MaxOutputTokens: 6000));
         var gateway = new OpenAiCompatibleGateway(client, Options.Create(settings));
         var request = new LlmRequest([
             new(LlmRole.System, InvestigationAdviceContract.Instructions + " 请用中文回答，保持简洁，优先给出最相关的建议。"),
             new(LlmRole.User, context)
         ], OutputSchema: InvestigationAdviceContract.ForModel(evidence),
-            MaxOutputTokens: 2000, DisableToolCalls: true);
+            MaxOutputTokens: 6000, DisableToolCalls: true);
         LlmCompletion? completion = null;
         InvestigationAdvice? advice = null;
         string? failure = null;

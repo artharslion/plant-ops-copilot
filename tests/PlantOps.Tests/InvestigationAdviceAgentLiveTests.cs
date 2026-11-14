@@ -29,7 +29,13 @@ public sealed class InvestigationAdviceAgentLiveTests
     [AdviceAgentLiveFact]
     public Task RealAgentInvestigatesBriefLowWithoutRecovery() => Run(4, "brief-low-agent.json", false);
 
-    private static async Task Run(int rounds, string reportName, bool? recoveryCase = null)
+    [AdviceAgentLiveFact]
+    public Task RealAgentUsesPublishedProcedure() => Run(4, "procedure-agent.json", procedureCase: true);
+
+    [AdviceAgentLiveFact]
+    public Task RealAgentReportsEmptyProcedureSearch() => Run(4, "empty-procedure-agent.json", procedureCase: false);
+
+    private static async Task Run(int rounds, string reportName, bool? recoveryCase = null, bool? procedureCase = null)
     {
         var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
         var path = Path.Combine(root, reportName);
@@ -74,9 +80,12 @@ public sealed class InvestigationAdviceAgentLiveTests
         {
             fixture = await AlarmTests.Configure(session);
             alarm = await AlarmTests.Raise(session, fixture, clock);
-            var uploaded = await DocumentTests.Upload(session, new(fixture.Asset.PlantId, fixture.Asset.Id, "原创振动检查规程 vibration"),
-            content: Encoding.UTF8.GetBytes("# 原创振动检查规程 vibration\n\n振动告警后，由维护工程师核对独立振动观测、运行负载及轴承巡检记录；记录差异和无法核实的范围。没有结果的维护摘要不能证明维修已完成。本规程只用于诊断核查，未授权设备控制。"));
-            await DocumentTests.Publish(session, (await uploaded.Content.ReadFromJsonAsync<DocumentDto>())!, 1);
+            if (procedureCase != false)
+            {
+                var uploaded = await DocumentTests.Upload(session, new(fixture.Asset.PlantId, fixture.Asset.Id, "原创振动检查规程 vibration"),
+                    content: Encoding.UTF8.GetBytes("# 原创振动检查规程 vibration\n\n振动告警后，由维护工程师核对独立振动观测、运行负载及轴承巡检记录；记录差异和无法核实的范围。没有结果的维护摘要不能证明维修已完成。本规程只用于诊断核查，未授权设备控制。"));
+                await DocumentTests.Publish(session, (await uploaded.Content.ReadFromJsonAsync<DocumentDto>())!, 1);
+            }
         }
         var response = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations", null);
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
@@ -131,6 +140,22 @@ public sealed class InvestigationAdviceAgentLiveTests
                 acceptanceFailures = [.. acceptanceFailures, "RecoveryScenarioExcerptNotCited"];
             }
         }
+        if (procedureCase is { } published)
+        {
+            var documents = run.Evidence.Where(x => x.Kind == "Document" && x.VersionId.HasValue && x.ChunkId.HasValue).ToArray();
+            if (!choices.Any(x => x.Name == "search_documents"))
+            {
+                acceptanceFailures = [.. acceptanceFailures, "ProcedureSearchNotDemonstrated"];
+            }
+            else if (published != (documents.Length > 0))
+            {
+                acceptanceFailures = [.. acceptanceFailures, "ProcedureEvidenceMismatch"];
+            }
+            else if (published && advice?.Recommendations.Any(x => documents.Any(d => x.EvidenceRefs.Contains(d.Id))) != true)
+            {
+                acceptanceFailures = [.. acceptanceFailures, "PublishedProcedureNotCited"];
+            }
+        }
         var passed = run.Status == "Succeeded" && !run.Simulated && proposal?.Draft != null
             && proposal.Status == "Pending" && proposal.ResultEntityId == null && proposal.ExecutedAt == null
             && proposal.ApprovalCorrelationId == null && before == 0 && after == 0 && acceptanceFailures.Length == 0
@@ -140,6 +165,7 @@ public sealed class InvestigationAdviceAgentLiveTests
             fixtureOnly = true,
             realProvider = true,
             recoveryCase,
+            procedureCase,
             selectedAlarm = alarm,
             acceptanceMode = rounds > 1 ? "AutonomousRead" : "DirectFinish",
             autonomousToolSelectionDemonstrated = rounds > 1 && acceptanceFailures.Length == 0,
