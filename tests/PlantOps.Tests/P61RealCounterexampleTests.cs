@@ -18,6 +18,15 @@ namespace PlantOps.Tests;
 [Collection("Database")]
 public sealed class P61RealCounterexampleTests
 {
+    [DatabaseScenarioTheory]
+    [InlineData("partial-bad-high-vibration")]
+    [InlineData("all-unverifiable")]
+    [InlineData("trusted-stable")]
+    [InlineData("published-manual")]
+    [InlineData("withdrawn-manual")]
+    [InlineData("disconnected")]
+    public Task OfflineCounterexample(string scenario) => RunCounterexample(scenario, realProvider: false);
+
     [P61RealTheory]
     [InlineData("partial-bad-high-vibration")]
     [InlineData("all-unverifiable")]
@@ -27,7 +36,9 @@ public sealed class P61RealCounterexampleTests
     [InlineData("withdrawn-manual")]
     [InlineData("disconnected")]
     [InlineData("multiple-anomalies")]
-    public async Task RealCounterexample(string scenario)
+    public Task RealCounterexample(string scenario) => RunCounterexample(scenario, realProvider: true);
+
+    private static async Task RunCounterexample(string scenario, bool realProvider)
     {
         const string language = "zh-CN";
         var clock = new AlarmTests.Clock();
@@ -38,7 +49,7 @@ public sealed class P61RealCounterexampleTests
             services.AddSingleton<ILogger<PlantOps.AI.OpenAiCompatibleGateway>>(diagnostics);
             services.PostConfigure<PlantOps.AI.AiOptions>(o =>
             {
-                o.Provider = "OpenAiCompatible";
+                o.Provider = realProvider ? "OpenAiCompatible" : "Fake";
                 o.MaxRetries = 0;
                 o.ServerRenderedFacts = true;
                 o.StreamResponses = true;
@@ -46,8 +57,9 @@ public sealed class P61RealCounterexampleTests
                 o.RunTimeoutSeconds = 180;
                 o.MaxModelRounds = 4;
                 o.MaxToolCalls = 8;
-                o.MaxInputTokens = 16000;
-                o.MaxOutputTokens = 2000;
+                // Match the v3 workbench envelope so the counterexamples test evidence use.
+                o.MaxInputTokens = 32000;
+                o.MaxOutputTokens = 6000;
             });
         });
         await session.Initialize();
@@ -58,7 +70,10 @@ public sealed class P61RealCounterexampleTests
         Assert.Equal(HttpStatusCode.Created, pointResponse.StatusCode);
         var point = (await pointResponse.Content.ReadFromJsonAsync<PointOverview>())!;
         var settings = session.Factory.Services.GetRequiredService<IConfiguration>();
-        settings["AI:Provider"] = "OpenAiCompatible";
+        settings["AI:Provider"] = realProvider ? "OpenAiCompatible" : "Fake";
+        settings["AI:MaxInputTokens"] = "32000";
+        settings["AI:MaxOutputTokens"] = "6000";
+        settings["AI:RunTimeoutSeconds"] = "180";
         settings["OpcUa:LocalRuntimeEnabled"] = "true";
         const string prefix = "OpcUa:ApprovedEndpoints:local-runtime:";
         settings[prefix + "Url"] = OpcUaRuntimeTests.Endpoint.Url;
@@ -145,21 +160,44 @@ public sealed class P61RealCounterexampleTests
         var run = (await created.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
         run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
-        var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
-        var path = Path.Combine(root, scenario + ".json");
-        Assert.False(File.Exists(path));
-        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+        if (realProvider)
         {
-            Scenario = scenario,
-            FixtureOnly = true,
-            ProtocolObservation = false,
-            Diagnostics = diagnostics.Entries,
-            Run = run
-        }, new JsonSerializerOptions { WriteIndented = true }));
+            var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
+            var path = Path.Combine(root, scenario + ".json");
+            await using var report = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+            await JsonSerializer.SerializeAsync(report, new
+            {
+                Scenario = scenario,
+                FixtureOnly = true,
+                ProtocolObservation = false,
+                Diagnostics = diagnostics.Entries,
+                Run = run
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+
         Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
+        Assert.Equal(!realProvider, run.Simulated);
         Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Unverifiable" : scenario == "partial-bad-high-vibration" ? "Partial" : "Trusted", run.Assessment!.DataTrust);
         Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Insufficient" : scenario == "trusted-stable" ? "NotFound" : "Present", run.Assessment.AnomalyEvidence);
         Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders.CountAsync(x => x.AssetId == asset.Id));
+        if (scenario == "disconnected")
+        {
+            Assert.All(run.Assessment.Points, snapshot =>
+            {
+                Assert.Equal("Reconnecting", snapshot.Health?.State);
+                Assert.Equal("Unverifiable", snapshot.CurrentTrust);
+                Assert.Equal("Good", snapshot.Observation?.Quality);
+            });
+            var after = (await session.Client.GetFromJsonAsync<AlarmDto>($"/api/v1/alarms/{alarm.Id}"))!;
+            Assert.Equal("Active", after.State);
+            Assert.Null(after.RecoveredAt);
+        }
+
+        if (scenario == "trusted-stable")
+        {
+            Assert.All(run.Assessment.Points, snapshot => Assert.Equal("Trusted", snapshot.CurrentTrust));
+            Assert.Contains(run.Evidence, x => x.Kind == "TriggerReading" && x.ResourceId == alarm.TriggerReadingId);
+        }
         if (scenario == "published-manual")
         {
             Assert.Contains(run.Evidence, x => x.Kind == "Document");

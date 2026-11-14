@@ -48,6 +48,8 @@ Review the final answer against the evidence actually sent in the final request.
 
 For each proposed task, review what to check, what record to leave, when the task is complete, and who handles escalation. A diagnostic Draft can remain useful with unresolved causes if its tasks and limits are reviewable. Flag both unsupported claims that passed structural checks and valid scoped advice that a review criterion would incorrectly reject. Record any unavailable request capture or missing independent reviewer case as unassessable. The visible cases above support repeatable review, while the reviewer should supply a separate unseen variant.
 
+On 2026-11-14, the mixed-quality case passed the offline database checks and the v3.6 real-model single-request review with preloaded fictional evidence. The model retained the trusted 12.6 mm/s vibration above 10 mm/s, treated Bad temperature as a measurement-chain issue, and produced reviewable draft content with separate checks. Autonomous runs selected a measurement read, then stopped at the test input ceiling and the test host deadline, respectively. The test settings now match the workbench limits. A successful autonomous run and a Pending proposal for this case remain unverified. The four authorized sends and all reports are retained locally under `artifacts/investigation-quality/p6-v36-mixed-20261114_113544/`.
+
 ## Verification and rollout
 
 Use the dedicated `plantops_tests` database and isolated schemas for database checks. Report offline, protocol, browser, real-provider semantics, proposal API and deployment results separately. A successful transport or offline replay is not an observed online end-to-end success; retain failures, skipped checks and unknown usage.
