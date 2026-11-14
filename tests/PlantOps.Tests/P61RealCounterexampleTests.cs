@@ -160,6 +160,34 @@ public sealed class P61RealCounterexampleTests
         var run = (await created.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
         run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
+        ActionProposalDto? proposal = null;
+        string? proposalFailure = null;
+        var choices = realProvider && run.RunRecord is { } record
+            ? AgentEvidenceAcceptance.CapturedChoices(Environment.GetEnvironmentVariable("PLANTOPS_LLM_REQUEST_LEDGER")!, record)
+            : [];
+        if (scenario == "partial-bad-high-vibration" && run.Status == "Succeeded" && run.Result is { } result)
+        {
+            var advice = PlantOps.AI.InvestigationAdviceContract.ParseAndValidate(result.GetRawText(), run.Evidence);
+            if (advice.WorkOrder.Status == "DraftReady")
+            {
+                using var proposed = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
+                if (proposed.IsSuccessStatusCode)
+                {
+                    proposal = await proposed.Content.ReadFromJsonAsync<ActionProposalDto>();
+                }
+                else
+                {
+                    proposalFailure = proposed.StatusCode.ToString();
+                }
+            }
+            else
+            {
+                proposalFailure = advice.WorkOrder.Status;
+            }
+        }
+
+        var workOrders = await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders
+            .CountAsync(x => x.AssetId == asset.Id);
         if (realProvider)
         {
             var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
@@ -171,7 +199,11 @@ public sealed class P61RealCounterexampleTests
                 FixtureOnly = true,
                 ProtocolObservation = false,
                 Diagnostics = diagnostics.Entries,
-                Run = run
+                Run = run,
+                Choices = choices,
+                Proposal = proposal,
+                ProposalFailure = proposalFailure,
+                WorkOrders = workOrders
             }, new JsonSerializerOptions { WriteIndented = true });
         }
 
@@ -179,7 +211,23 @@ public sealed class P61RealCounterexampleTests
         Assert.Equal(!realProvider, run.Simulated);
         Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Unverifiable" : scenario == "partial-bad-high-vibration" ? "Partial" : "Trusted", run.Assessment!.DataTrust);
         Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Insufficient" : scenario == "trusted-stable" ? "NotFound" : "Present", run.Assessment.AnomalyEvidence);
-        Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders.CountAsync(x => x.AssetId == asset.Id));
+        Assert.Equal(0, workOrders);
+        if (scenario == "partial-bad-high-vibration")
+        {
+            Assert.True(proposal?.Draft != null, "Reviewable proposal was unavailable: " + proposalFailure);
+            Assert.Equal("Pending", proposal.Status);
+            Assert.Equal(run.Id, proposal.AiRunId);
+            Assert.Null(proposal.ResultEntityId);
+            Assert.Null(proposal.ExecutedAt);
+            if (realProvider)
+            {
+                var optionalTraces = run.RunRecord!.Value.GetProperty("toolTrace").EnumerateArray().Skip(1).ToArray();
+                var advice = PlantOps.AI.InvestigationAdviceContract.ParseAndValidate(run.Result!.Value.GetRawText(), run.Evidence);
+                Assert.Contains(choices, x => x.Name == "get_recent_measurements");
+                Assert.Empty(AgentEvidenceAcceptance.Check(choices, optionalTraces, run.Evidence, advice));
+            }
+        }
+
         if (scenario == "disconnected")
         {
             Assert.All(run.Assessment.Points, snapshot =>
