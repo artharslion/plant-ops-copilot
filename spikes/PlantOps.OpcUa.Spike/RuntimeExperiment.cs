@@ -35,7 +35,7 @@ internal static class RuntimeExperiment
     }
 
     public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false,
-        bool disconnected = false)
+        bool disconnected = false, bool stable = false)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -192,6 +192,7 @@ internal static class RuntimeExperiment
         DateTimeOffset? stoppedAt = null;
         DateTimeOffset? restartedAt = null;
         var disconnectedSnapshotPath = Path.Combine(root, "disconnected-ready.json");
+        var stableSnapshotPath = Path.Combine(root, "stable-ready.json");
         async Task WaitAsync(Func<PlantOpsDbContext, Task<bool>> predicate)
         {
             while (true)
@@ -377,6 +378,49 @@ internal static class RuntimeExperiment
                         : industrial ? "IndustrialSimRestartedAndRecoveredAlarm" : "NamespaceReorderedAndRecoveredAlarm",
                     At = DateTimeOffset.UtcNow
                 });
+                if (stable)
+                {
+                    await WaitAsync(async db =>
+                    {
+                        var now = DateTimeOffset.UtcNow;
+                        var alarm = await db.Alarms.AsNoTracking().SingleAsync(x => x.PointId == pointIds[0], ct);
+                        var health = await db.DataSourceHealth.AsNoTracking().SingleAsync(x => x.DataSourceId == sourceId, ct);
+                        if (alarm.RecoveredAt is not { } recoveredAt || health.State != "Connected")
+                        {
+                            return false;
+                        }
+                        var observations = await db.MeasurementReadings.AsNoTracking().Where(x => pointIds.Contains(x.PointId)
+                            && x.EffectiveAt > recoveredAt && x.EffectiveAt <= now && x.ReceivedAt <= now)
+                            .OrderBy(x => x.EffectiveAt).ThenBy(x => x.ReceivedAt).ToArrayAsync(ct);
+                        var expected = new[] { 60.0, 62.0, 4.0 };
+                        for (var i = 0; i < pointIds.Length; i++)
+                        {
+                            var samples = observations.Where(x => x.PointId == pointIds[i]).TakeLast(4).ToArray();
+                            if (samples.Length < 4 || samples.Any(x => x.NumericValue != expected[i] || x.Quality != "Good" || x.TimeAnomaly)
+                                || samples.Select(x => x.EffectiveAt).Distinct().Count() < 4
+                                || now - samples[^1].EffectiveAt > TimeSpan.FromSeconds(5))
+                            {
+                                return false;
+                            }
+                        }
+                        await File.WriteAllTextAsync(stableSnapshotPath + ".tmp", JsonSerializer.Serialize(new
+                        {
+                            Passed = true,
+                            RealOpcUa = true,
+                            Schema = parsed.SearchPath,
+                            ScenarioVersion = "plantops-stable-v1",
+                            CapturedAt = now,
+                            Health = health,
+                            Alarms = new[] { alarm },
+                            Observations = observations
+                        }, new JsonSerializerOptions { WriteIndented = true }), ct);
+                        File.Move(stableSnapshotPath + ".tmp", stableSnapshotPath);
+                        return true;
+                    });
+                    var releaseDeadline = DateTimeOffset.UtcNow.AddSeconds(12);
+                    await WaitAsync(_ => Task.FromResult(File.Exists(Path.Combine(root, "release"))
+                        || DateTimeOffset.UtcNow >= releaseDeadline));
+                }
             }
             passed = true;
         }
@@ -459,7 +503,7 @@ internal static class RuntimeExperiment
             Health = health,
             Alarms = alarms,
             Failure = failure,
-            ScenarioVersion = disconnected ? "plantops-disconnected-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
+            ScenarioVersion = disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
             ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,

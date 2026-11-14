@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param([string]$Run = ('run_' + (Get-Date -Format 'yyyyMMdd_HHmmss')), [switch]$MinimalScenario,
-    [string]$IndustrialSimRoot, [switch]$UseTestConnection, [switch]$BriefLow, [switch]$Disconnected)
+    [string]$IndustrialSimRoot, [switch]$UseTestConnection, [switch]$BriefLow, [switch]$Disconnected, [switch]$Stable)
 
 $ErrorActionPreference = 'Stop'
 if ($BriefLow -and -not $IndustrialSimRoot) { throw 'BriefLow requires IndustrialSim.' }
 if ($Disconnected -and (-not $IndustrialSimRoot -or $BriefLow)) { throw 'Disconnected requires IndustrialSim without BriefLow.' }
+if ($Stable -and (-not $IndustrialSimRoot -or $Disconnected -or $BriefLow)) { throw 'Stable requires IndustrialSim without another variant.' }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if ($Run -cnotmatch '^[a-z0-9_]{1,40}$') { throw 'Use a new lowercase run name.' }
 $resultRoot = Join-Path $repoRoot "artifacts/opcua-runtime/$Run"
@@ -41,7 +42,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
     & dotnet build spikes/PlantOps.OpcUa.Spike --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-    $mode = if ($Disconnected) { 'industrial-disconnected' } elseif ($BriefLow) { 'industrial-brief-low' } elseif ($IndustrialSimRoot) { 'industrial-scenario' } elseif ($MinimalScenario) { 'scenario' } else { 'runtime' }
+    $mode = if ($Disconnected) { 'industrial-disconnected' } elseif ($Stable) { 'industrial-stable' } elseif ($BriefLow) { 'industrial-brief-low' } elseif ($IndustrialSimRoot) { 'industrial-scenario' } elseif ($MinimalScenario) { 'scenario' } else { 'runtime' }
     $runtimeArgs = @($mode, $resultRoot)
     if ($IndustrialSimRoot) { $runtimeArgs += $IndustrialSimRoot }
     & dotnet spikes/PlantOps.OpcUa.Spike/bin/Debug/net10.0/PlantOps.OpcUa.Spike.dll @runtimeArgs

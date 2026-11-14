@@ -55,6 +55,12 @@
 
 v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_measurements`。F1 引用历史观测段，F2 阐明 Active 且无恢复时间，并写出 E21 的 90°C Good 样本有效时间 `18:02:58.476561`（北京时间）；F3 保留当前不可验证及 Reconnecting。R1 要求复连后逐点核对新样本的有效时间、质量和连续性，再重新评估。浏览器打开待审批提案 `9cffe631-eb68-4dde-83e6-326857d00453` 的完整核对页，关联工单为零。R2 引用了已发布的振动检查节选，现场适用性仍需人工核对。协议报告保存 120 条读数并正常退出。回归中的结构拒绝不等于建议内容全部错误；只看提案成功也会漏掉判断、范围和建议适用性的偏差。[断流复验](../artifacts/opcua-runtime/p6_v39_outage_20261114/browser-1-acceptance.json) · [协议报告](../artifacts/opcua-runtime/p6_v39_outage_20261114/result.json) · [共享请求账本](../artifacts/investigation-quality/p6_v37_joint_20261114/requests.jsonl)
 
+稳定对照使用 `Run-IndustrialSimRuntime.ps1 -UseTestConnection -Stable`。在已记录恢复且来源仍连接时，每点收到至少四条时间递增的 Good 观测后写入 `stable-ready.json`。该文件证明已接收的协议投影稳定。浏览器应提前登录并在 ready 后立即发起调查，使用 `Invoke-IndustrialSimBrowserInvestigation.ps1 -Stable` 处理队列。采集在收到 `release` 或 ready 后 12 秒退出，以便在有限模拟器仍在线时正常收尾。独立复核冻结测点的当前可信度，以及模型实际看到的事件、恢复与稳定区间证据。
+
+首轮稳定对照的 F1–F5 保留了历史告警及恢复，分别报告 60°C、62°C、4 mm/s 三点可信读数，并把「未发现当前异常」限于温度点的单次阈值比较。由于测量工具超时，模型只拿到单次快照，稳定区间仍待验收。模拟器到时自行退出，协议报告记为失败。浏览器提案 `f2422ba9-0306-46ea-b942-2a37f519f742` 停在 Pending，关联工单为零。[首轮调查](../artifacts/opcua-runtime/p6_v39_stable_20261114/browser-1-acceptance.json) · [首轮协议报告](../artifacts/opcua-runtime/p6_v39_stable_20261114/result.json)
+
+稳定对照复验正常收尾，共采到 190 条 OPC UA 观测。模型自主读取测量，F1–F3 分别说明历史触发、历史观测段和已记录恢复。F4 报告三点的可信快照，限温度点作阈值比较，F5 保留窗口缺口。浏览器打开待审批提案 `067027a5-fcec-47a4-809e-62a45cec34d8` 的核对页，关联工单为零。冻结 E10、E12、E14 分别保留恢复后 13、14、14 条恒定投影读数，但当前窗口跨过更早的断线，整窗 `change` 为 null。最终请求没有三点复连后各自的恒定观测段，所以模型未能给出稳定区间。稳定对照的历史事件、恢复、当前快照和提案路径已核实，稳定区间语义仍待复验。共享账本 10 次请求已全部使用，10 份请求和完成响应均保留。[复验调查](../artifacts/opcua-runtime/p6_v39_stable_retry_20261114/browser-1-acceptance.json) · [复验协议报告](../artifacts/opcua-runtime/p6_v39_stable_retry_20261114/result.json)
+
 2026-11-14 完成两种告警状态的真实 OPC UA、真实模型与浏览器联合验收。两轮均在隔离的 `plantops_tests` schema 从 P-101 告警手动发起调查，使用 `gpt-6.1-sol` 各发送 2 次请求，生成待审批提案，关联工单为 0。
 
 - 恢复场景 `p6_joint_live_20261113`。模型自主调用 `get_recent_measurements`，引用 E1 中的历史规则和恢复时间，以及 E19 中同一时间的 60°C Good OPC UA 样本。已用保存的调查复验提案入口和弹窗均显示「恢复阶段原始观测（有界节选）」。[采集报告](../artifacts/opcua-runtime/p6_joint_live_20261113/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_joint_live_20261113/browser-real-20261114-acceptance.json)

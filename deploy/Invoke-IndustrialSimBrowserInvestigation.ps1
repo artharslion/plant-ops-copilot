@@ -3,13 +3,15 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9_]{1,40}$')][string]$Run,
     [switch]$RealAi,
     [string]$LedgerPath,
-    [ValidateRange(1, 4)][int]$MaxRequests = 4,
-    [switch]$Disconnected
+    [ValidateRange(1, 100)][int]$MaxRequests = 4,
+    [switch]$Disconnected,
+    [switch]$Stable
 )
 $ErrorActionPreference = 'Stop'
+if ($Disconnected -and $Stable) { throw 'Choose one live protocol variant.' }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $root = Join-Path $repoRoot "artifacts/opcua-runtime/$Run"
-$reportName = if ($Disconnected) { 'disconnected-ready.json' } else { 'result.json' }
+$reportName = if ($Disconnected) { 'disconnected-ready.json' } elseif ($Stable) { 'stable-ready.json' } else { 'result.json' }
 $result = Get-Content -LiteralPath (Join-Path $root $reportName) -Raw | ConvertFrom-Json
 $schema = "opcua_runtime_$Run"
 $expectedState = if ($Disconnected -or $result.ScenarioVersion -ceq 'plantops-brief-low-v1') { 'Active' } else { 'Recovered' }
@@ -20,6 +22,10 @@ if (-not $result.Passed -or -not $result.RealOpcUa -or $result.Schema -cne $sche
 if ($Disconnected -and ($result.ScenarioVersion -cne 'plantops-disconnected-v1' -or
     $result.Health.State -cne 'Reconnecting' -or (Test-Path -LiteralPath (Join-Path $root 'result.json')))) {
     throw 'The disconnected protocol run must still be held for investigation.'
+}
+if ($Stable -and ($result.ScenarioVersion -cne 'plantops-stable-v1' -or $result.Health.State -cne 'Connected' -or
+    -not $result.Alarms[0].RecoveredAt -or (Test-Path -LiteralPath (Join-Path $root 'result.json')))) {
+    throw 'The stable protocol run must still provide fresh observations for investigation.'
 }
 $connection = [System.Data.Common.DbConnectionStringBuilder]::new()
 try { $connection.set_ConnectionString($env:PLANTOPS_TEST_CONNECTION) } catch { throw 'Invalid dedicated test connection.' }
