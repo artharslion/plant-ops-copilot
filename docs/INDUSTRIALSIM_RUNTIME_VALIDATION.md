@@ -99,6 +99,8 @@ v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_
 
 浏览器从该告警手动触发 v3.13 实际模型调查。冻结状态为部分可信、存在当前异常证据。F2 引用 E21 保留可信振动超限，F5/F6 引用 E23 单独说明温度不可验证，R1/R2 分别核查振动与温度测量链。R3 将寻找未取得的适用规程归类为 `CollectEvidence`。浏览器打开 Pending 提案的完整内容，关联工单为 0。[协议准备快照](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/mixed-ready.json) · [采集报告](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/result.json) · [调查与提案](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/browser-1-acceptance.json)
 
+**稳定工况的协议验证通过，当前版本联合验收未通过。** v3.12 完整路径曾打开 Pending 提案，F2 正确识别温度观测段跨越记录恢复时间，另外两点仅报告单次快照。v3.13 的实时重跑中，首轮模型连接中断，后两轮均因同一假设重复引用支持及反证而被已有校验拒绝。最后一轮实际采集 177 条 OPC UA 观测。其模型响应的 F5 引用 E10/E12/E14，分别写出三点稳定范围 60°C / 62°C / 4 mm/s 及各自区间，给出共同区间并保留物理连续性的限制。F3 记录 11:51:56.372081（北京时间）恢复，位于上述共同区间内；回答没有明确把三点的末段与该边界关联起来。校验拒绝后没有提案或工单。[v3.12 浏览器记录](../artifacts/opcua-runtime/p6_v312_stable_c_20261114/browser-1-acceptance.json) · [最新采集报告](../artifacts/opcua-runtime/p6_v313_stable_c_20261116/result.json) · [最新调查记录](../artifacts/opcua-runtime/p6_v313_stable_c_20261116/browser-1-acceptance.json)
+
 ## 本次回归与限制
 
 - 框架新增真实YAML状态测试1通过，原Scenarios项目19通过；示例构建0警告/错误。
