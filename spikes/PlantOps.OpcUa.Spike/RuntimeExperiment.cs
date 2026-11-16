@@ -35,7 +35,7 @@ internal static class RuntimeExperiment
     }
 
     public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false,
-        bool disconnected = false, bool stable = false)
+        bool disconnected = false, bool stable = false, bool mixedQuality = false)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -123,10 +123,11 @@ internal static class RuntimeExperiment
                 {
                     Id = Guid.NewGuid(),
                     PlantId = point.PlantId,
-                    PointId = points[0].Id,
-                    Name = "Fictional temperature demo, not maintenance guidance",
-                    RaiseAbove = 80,
-                    ClearBelow = 75,
+                    PointId = points[mixedQuality ? 2 : 0].Id,
+                    Name = mixedQuality ? "Fictional vibration demo, not maintenance guidance"
+                        : "Fictional temperature demo, not maintenance guidance",
+                    RaiseAbove = mixedQuality ? 10 : 80,
+                    ClearBelow = mixedQuality ? 8 : 75,
                     RaiseForMs = 3000,
                     ClearForMs = 5000
                 });
@@ -166,7 +167,7 @@ internal static class RuntimeExperiment
         }
         var telemetry = new SpikeTelemetry();
         var application = industrial ? null : await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
-        var scenario = minimalScenario ? new MinimalScenario() : null;
+        var scenario = minimalScenario ? new MinimalScenario(mixedQuality) : null;
         var server = industrial ? null : new SimulatorServer(new(Constant: false), scenario);
         string? scenarioPath = null;
         if (briefLow)
@@ -193,6 +194,7 @@ internal static class RuntimeExperiment
         DateTimeOffset? restartedAt = null;
         var disconnectedSnapshotPath = Path.Combine(root, "disconnected-ready.json");
         var stableSnapshotPath = Path.Combine(root, "stable-ready.json");
+        var mixedSnapshotPath = Path.Combine(root, "mixed-ready.json");
         async Task WaitAsync(Func<PlantOpsDbContext, Task<bool>> predicate)
         {
             while (true)
@@ -216,17 +218,45 @@ internal static class RuntimeExperiment
                 await Task.Delay(250, ct);
             }
         }
-        try
+        async Task CaptureMixedQualityAsync()
         {
-            if (external != null)
+            await WaitAsync(async db =>
             {
-                await external.StartAsync(ct);
-            }
-            else
-            {
-                await application!.StartAsync(server);
-            }
-            await worker.StartAsync(ct);
+                var alarm = await db.Alarms.AsNoTracking().SingleOrDefaultAsync(x => x.PointId == pointIds[2] && x.State == "Active", ct);
+                var health = await db.DataSourceHealth.AsNoTracking().SingleOrDefaultAsync(x => x.DataSourceId == sourceId, ct);
+                if (alarm == null || health?.State != "Connected")
+                {
+                    return false;
+                }
+                var now = DateTimeOffset.UtcNow;
+                var recent = await db.MeasurementReadings.AsNoTracking().Where(x => pointIds.Contains(x.PointId)
+                    && x.SourceKind == "OpcUa" && x.EffectiveAt > now.AddSeconds(-5) && x.EffectiveAt <= now)
+                    .OrderByDescending(x => x.EffectiveAt).ThenByDescending(x => x.ReceivedAt).ToArrayAsync(ct);
+                var latest = pointIds.Select(id => recent.FirstOrDefault(x => x.PointId == id)).ToArray();
+                if (latest[0] is not { Quality: "Bad", StatusSymbol: "BadSensorFailure", TimeAnomaly: false }
+                    || latest[1] is not { Quality: "Good", NumericValue: 62, TimeAnomaly: false }
+                    || latest[2] is not { Quality: "Good", NumericValue: 12.6, TimeAnomaly: false })
+                {
+                    return false;
+                }
+                await File.WriteAllTextAsync(mixedSnapshotPath + ".tmp", JsonSerializer.Serialize(new
+                {
+                    Passed = true,
+                    RealOpcUa = true,
+                    Schema = parsed.SearchPath,
+                    ScenarioVersion = "p6-mixed-quality-v1",
+                    CapturedAt = now,
+                    Health = health,
+                    Alarms = new[] { alarm },
+                    Observations = latest
+                }, new JsonSerializerOptions { WriteIndented = true }), ct);
+                File.Move(mixedSnapshotPath + ".tmp", mixedSnapshotPath);
+                return true;
+            });
+            await WaitAsync(_ => Task.FromResult(File.Exists(Path.Combine(root, "release"))));
+        }
+        async Task CaptureReconnectAsync()
+        {
             if (liveHeating)
             {
                 await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= 150));
@@ -422,6 +452,30 @@ internal static class RuntimeExperiment
                         || DateTimeOffset.UtcNow >= releaseDeadline));
                 }
             }
+        }
+        try
+        {
+            if (external != null)
+            {
+                await external.StartAsync(ct);
+            }
+            else
+            {
+                await application!.StartAsync(server);
+            }
+            await worker.StartAsync(ct);
+            if (mixedQuality)
+            {
+                await CaptureMixedQualityAsync();
+            }
+            else
+            {
+                await CaptureReconnectAsync();
+                if (liveHeating)
+                {
+                    return;
+                }
+            }
             passed = true;
         }
         catch (Exception exception)
@@ -447,7 +501,7 @@ internal static class RuntimeExperiment
         var readings = await finalDb.MeasurementReadings.AsNoTracking().Where(reading => pointIds.Contains(reading.PointId)).ToArrayAsync();
         var profiles = await finalDb.SamplingProfiles.AsNoTracking().Where(profile => pointIds.Contains(profile.PointId)).ToArrayAsync();
         var gaps = await finalDb.IngestionGaps.AsNoTracking().Where(gap => pointIds.Contains(gap.PointId)).ToArrayAsync();
-        var health = await finalDb.DataSourceHealth.AsNoTracking().SingleAsync(health => health.DataSourceId == sourceId);
+        var health = await finalDb.DataSourceHealth.AsNoTracking().SingleOrDefaultAsync(health => health.DataSourceId == sourceId);
         var alarms = await finalDb.Alarms.AsNoTracking().Where(alarm => pointIds.Contains(alarm.PointId)).ToArrayAsync();
         passed &= external == null || external.CompletedSuccessfully;
         var postPulseTemperature = readings.Where(reading => reading.PointId == pointIds[0]
@@ -456,13 +510,15 @@ internal static class RuntimeExperiment
         var briefLowObserved = lowSamples.Length > 0 && postPulseTemperature.Any(reading =>
             reading.NumericValue > 80 && reading.SourceTimestamp > lowSamples[^1].SourceTimestamp);
         passed &= readings.Select(reading => reading.PointId).Distinct().Count() == 3 && readings.All(reading => reading.SourceKind == "OpcUa")
-            && profiles.All(profile => profile.EffectiveTo != null) && health.ReconnectCount > 0 && health.State == "Stopped"
-            && alarms.Length == 1 && (disconnected
+            && profiles.All(profile => profile.EffectiveTo != null) && health?.State == "Stopped"
+            && alarms.Length == 1 && (mixedQuality
+                ? File.Exists(mixedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
+                : health.ReconnectCount > 0 && (disconnected
                 ? File.Exists(disconnectedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
                 : profiles.Length >= 6 && gaps.Length >= 3 && gaps.All(gap => gap.To != null)
                     && (briefLow ? briefLowObserved && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
-                        : alarms[0].State == "Recovered"));
-        var scenarioChecks = scenario == null ? null : new
+                        : alarms[0].State == "Recovered")));
+        var scenarioChecks = scenario == null || mixedQuality ? null : new
         {
             TemperatureStages = new[] { 60.0, 75.0, 90.0 }.All(value => readings.Any(reading =>
                 reading.PointId == pointIds[0] && reading.NumericValue == value && reading.ReceivedAt < stoppedAt)),
@@ -503,7 +559,7 @@ internal static class RuntimeExperiment
             Health = health,
             Alarms = alarms,
             Failure = failure,
-            ScenarioVersion = disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
+            ScenarioVersion = mixedQuality ? "p6-mixed-quality-v1" : disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
             ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,
@@ -528,6 +584,6 @@ internal static class RuntimeExperiment
         {
             throw new InvalidOperationException("Runtime acceptance failed; inspect retained result.json.");
         }
-        Console.WriteLine($"Three-point Worker reconnect accepted: {readings.Length} samples; evidence {root}");
+        Console.WriteLine($"Three-point Worker protocol experiment accepted: {readings.Length} samples; evidence {root}");
     }
 }

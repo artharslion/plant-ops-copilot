@@ -93,6 +93,12 @@ v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_
 
 首次失败轮 `framework_trial1_20261021`：Windows Console控制输入阻塞了示例场景驱动，协议可连接但值一直恒定，未触发场景告警；预算结束时带同一取消令牌的日志读取又中断了最终报告写出。改为独立输入任务及不随运行期限取消的日志排空后，新目录重跑通过。失败目录、框架报告、`failure.json`及测试schema保留，本轮测试来源/映射已单独停用，不算验收成功。修复前一次构建也因仍运行的示例锁住DLL失败，进程退出后最终脚本构建0警告/错误。
 
+## P6 补充联合验收（2026-11-16）
+
+**混合质量通过。** `deploy/Run-LocalOpcUaRuntime.ps1 -UseTestConnection -MixedQuality -Run <fresh-name>` 使用内置只读 OPC UA 模拟器，在独立 `plantops_tests` schema 发送逐点协议质量。温度节点返回 `BadSensorFailure` 而无有效值，参考温度为 62°C Good，振动为 12.6 mm/s Good。真实采集器入库 66 条观测，连接保持 Connected，由虚构的 10 mm/s 阈值规则触发振动告警。准备文件只在三点的最新读数通过质量与时效核对后写入；调查冻结后创建 `release` 文件结束采集。
+
+浏览器从该告警手动触发 v3.13 实际模型调查。冻结状态为部分可信、存在当前异常证据。F2 引用 E21 保留可信振动超限，F5/F6 引用 E23 单独说明温度不可验证，R1/R2 分别核查振动与温度测量链。R3 将寻找未取得的适用规程归类为 `CollectEvidence`。浏览器打开 Pending 提案的完整内容，关联工单为 0。[协议准备快照](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/mixed-ready.json) · [采集报告](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/result.json) · [调查与提案](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/browser-1-acceptance.json)
+
 ## 本次回归与限制
 
 - 框架新增真实YAML状态测试1通过，原Scenarios项目19通过；示例构建0警告/错误。

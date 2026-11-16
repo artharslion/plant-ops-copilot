@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace PlantOps.OpcUa.Spike;
 
 // Versioned, original simulated observations. No random input (seed 0).
-internal sealed class MinimalScenario
+internal sealed class MinimalScenario(bool mixedQuality = false)
 {
     public const string Version = "p5.3-minimal-v1";
     public const int StopAtSecond = 40;
@@ -46,8 +46,10 @@ internal sealed class MinimalScenario
     public ScenarioObservation Generate(int point)
     {
         var second = (int)ElapsedSeconds;
+        var value = mixedQuality && point == 2 && second >= 8 ? 12.6
+            : ValueAt(point, LiveHeating ? Math.Min(39, second / 5) : second);
         var observation = new ScenarioObservation(Points[point].Identifier, second,
-            ValueAt(point, LiveHeating ? Math.Min(39, second / 5) : second), StartedAt.AddSeconds(second));
+            value, StartedAt.AddSeconds(second), mixedQuality && point == 0);
         generated.Enqueue(observation);
         return observation;
     }
@@ -55,4 +57,4 @@ internal sealed class MinimalScenario
 
 internal sealed record ScenarioPoint(string Identifier, string Code, string Quantity, string Unit, int UnitId);
 
-internal sealed record ScenarioObservation(string Identifier, int Second, double Value, DateTimeOffset SourceTimestamp);
+internal sealed record ScenarioObservation(string Identifier, int Second, double Value, DateTimeOffset SourceTimestamp, bool IsBad);

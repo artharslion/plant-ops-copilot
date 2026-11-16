@@ -81,7 +81,7 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
                         UserAccessLevel = AccessLevels.CurrentRead,
                         MinimumSamplingInterval = 1000,
                         Value = observation.Value,
-                        StatusCode = StatusCodes.Good,
+                        StatusCode = observation.IsBad ? StatusCodes.BadSensorFailure : StatusCodes.Good,
                         Timestamp = observation.SourceTimestamp.UtcDateTime
                     };
                     AddUnits(variable, point.UnitId);
@@ -189,6 +189,7 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
                 var observation = scenario!.Generate(index);
                 var variable = scenarioVariables[index];
                 variable.Value = observation.Value;
+                variable.StatusCode = observation.IsBad ? StatusCodes.BadSensorFailure : StatusCodes.Good;
                 variable.Timestamp = observation.SourceTimestamp.UtcDateTime;
                 variable.ClearChangeMasks(SystemContext, false);
             }
