@@ -311,12 +311,15 @@ public sealed class InvestigationAdviceTests
     }
 
     [Theory]
-    [InlineData(true, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound")]
+    [InlineData(true, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound", -1, true)]
+    [InlineData(true, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound", 0, false)]
+    [InlineData(true, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound", 1, false)]
     [InlineData(true, 13, "Connected", "Trusted", "Present", "AnomalySupported")]
     [InlineData(false, 4, "Connected", "Trusted", "NotFound", "NoAnomalyFound")]
     [InlineData(false, 13, "Reconnecting", "Unverifiable", "Insufficient", "Inconclusive")]
     public async Task FinalRequestPreservesAlarmHistoryAndScopedPointEvidence(
-        bool recovered, double value, string sourceState, string trust, string currentAnomaly, string findingStatus)
+        bool recovered, double value, string sourceState, string trust, string currentAnomaly, string findingStatus,
+        int tailStartOffsetSeconds = 0, bool spansRecovery = false)
     {
         var recoveryAt = new DateTimeOffset(2026, 9, 1, 1, 2, 3, TimeSpan.Zero);
         var currentAt = recoveryAt.AddMinutes(15);
@@ -327,7 +330,8 @@ public sealed class InvestigationAdviceTests
         {
             Facts = ["Historical trigger: 12.6 mm/s.",
                 recovered ? $"Recovered at {recoveryAt:O}." : "Active; no recovery time recorded.",
-                "Saved rule: below 8 mm/s for 5 seconds."]
+                "Saved rule: below 8 mm/s for 5 seconds."],
+            RecordedRecoveryAt = recovered ? recoveryAt : null
         };
         var point = Evidence[1] with
         {
@@ -345,12 +349,12 @@ public sealed class InvestigationAdviceTests
         var sample = new InvestigationEvidence("raw-excerpt", "RecoveryReadings", "Bounded excerpt",
             [$"At {recoveryAt:O}: 7 mm/s, Good. Bounded observation metadata: {new string('x', 250)}."],
             "sample", recoveryAt, Point, State: new("Partial"));
-        var trendFrom = effectiveAt.AddSeconds(-2);
+        var trendFrom = recoveryAt.AddSeconds(tailStartOffsetSeconds);
         var stableSegment = new InvestigationTrendSegment(Guid.NewGuid(), point.PointStatus!.Observation!.Id,
             trendFrom, effectiveAt, value, value, 3);
         var stableTrend = new InvestigationEvidence("current-trend", "CurrentDerivedTrend", "Bounded current trend", [],
             "trend", currentAt, Point, DerivedTrend: new(InvestigationTrendPolicy.Version, Point, "VIBRATION", "mm/s",
-                alarm.ResourceId, "Current", recoveryAt, currentAt, currentAt, currentAt, [], [], [], null, [],
+                alarm.ResourceId, "Current", recoveryAt.AddSeconds(-10), currentAt, currentAt, currentAt, [], [], [], null, [],
                 ["ExplicitGap"], LatestSegment: stableSegment));
         var stableCase = recovered && currentAnomaly == "NotFound";
         var optional = Enumerable.Range(1, 14).Select(i => Evidence[2] with
@@ -386,6 +390,11 @@ public sealed class InvestigationAdviceTests
         var recovery = entries.Where(x => x.GetProperty("kind").GetString() == sample.Kind).ToArray();
         string[] expected = recovered ? [.. alarm.Facts, .. sample.Facts] : alarm.Facts;
         Assert.Equal(expected, Facts(Entry(alarm.Id)).Concat(recovery.SelectMany(Facts)));
+        Assert.Equal(recovered, Entry(alarm.Id).TryGetProperty("recordedRecoveryAt", out var savedRecovery));
+        if (recovered)
+        {
+            Assert.Equal(recoveryAt, savedRecovery.GetDateTimeOffset());
+        }
         var snapshot = Entry(point.Id).GetProperty("point");
         Assert.Equal(trust, snapshot.GetProperty("currentTrust").GetString());
         Assert.Equal(currentAnomaly, snapshot.GetProperty("currentAnomaly").GetString());
@@ -405,6 +414,11 @@ public sealed class InvestigationAdviceTests
             Assert.Equal(value, segment.GetProperty("min").GetDouble());
             Assert.Equal(value, segment.GetProperty("max").GetDouble());
             Assert.Equal(3, segment.GetProperty("sampleCount").GetInt32());
+            Assert.Equal(spansRecovery, segment.TryGetProperty("spansRecoveryRef", out var recoveryRef));
+            if (spansRecovery)
+            {
+                Assert.Equal(alarm.Id, recoveryRef.GetString());
+            }
         }
         if (recovered)
         {

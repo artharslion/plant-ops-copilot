@@ -208,7 +208,14 @@ public sealed class InvestigationAdviceServiceTests
             {
                 using var input = JsonDocument.Parse(request.Messages.First(x => x.Role == LlmRole.User).Content!);
                 var advice = FakeLlmGateway.SimulateAdvice(input.RootElement);
-                var id = input.RootElement.GetProperty("toolOutcomes")[0].GetProperty("evidenceIds")[0].GetString()!;
+                var outcomes = input.RootElement.GetProperty("toolOutcomes");
+                Assert.Equal("Returned", outcomes[0].GetProperty("outcome").GetString());
+                if (includeEmpty)
+                {
+                    Assert.Equal("Empty", outcomes[1].GetProperty("outcome").GetString());
+                    Assert.NotEmpty(outcomes[1].GetProperty("evidenceIds").EnumerateArray());
+                }
+                var id = outcomes[0].GetProperty("evidenceIds")[0].GetString()!;
                 advice = advice with
                 {
                     Recommendations = [advice.Recommendations[0] with { EvidenceRefs = [.. advice.Recommendations[0].EvidenceRefs, id] }, .. advice.Recommendations.Skip(1)]
