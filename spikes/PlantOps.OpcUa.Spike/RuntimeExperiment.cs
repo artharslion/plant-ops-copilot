@@ -1,6 +1,7 @@
 extern alias worker;
 
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -35,7 +36,7 @@ internal static class RuntimeExperiment
     }
 
     public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false,
-        bool disconnected = false, bool stable = false, bool mixedQuality = false)
+        bool disconnected = false, bool stable = false, bool mixedQuality = false, bool reliability = false)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -51,8 +52,8 @@ internal static class RuntimeExperiment
         {
             throw new InvalidOperationException("Runtime experiment requires 2 GiB free before setup.");
         }
-        var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating;
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(liveHeating ? 900 : disconnected ? 480 : 150));
+        var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating && !reliability;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(reliability ? 1950 : liveHeating ? 900 : disconnected ? 480 : 150));
         var ct = deadline.Token;
         var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -167,7 +168,7 @@ internal static class RuntimeExperiment
         }
         var telemetry = new SpikeTelemetry();
         var application = industrial ? null : await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
-        var scenario = minimalScenario ? new MinimalScenario(mixedQuality) : null;
+        var scenario = minimalScenario ? new MinimalScenario(mixedQuality, reliability) : null;
         var server = industrial ? null : new SimulatorServer(new(Constant: false), scenario);
         string? scenarioPath = null;
         if (briefLow)
@@ -195,19 +196,58 @@ internal static class RuntimeExperiment
         var disconnectedSnapshotPath = Path.Combine(root, "disconnected-ready.json");
         var stableSnapshotPath = Path.Combine(root, "stable-ready.json");
         var mixedSnapshotPath = Path.Combine(root, "mixed-ready.json");
-        async Task WaitAsync(Func<PlantOpsDbContext, Task<bool>> predicate)
+        var maxReadings = reliability ? 6000 : liveHeating ? 3000 : 500;
+        const long maxAddedBytes = 256L * 1024 * 1024;
+        var storageClock = Stopwatch.StartNew();
+        long reliabilityStoragePeak = 0;
+        double? reliabilityCollectionSeconds = null;
+        async Task CheckReliabilityStorageAsync(PlantOpsDbContext db)
         {
+            // Only count output and database storage belonging to this run. Other local builds
+            // and profiles can change the free-space watermark without growing this experiment.
+            var schemaBytes = await db.Database.SqlQueryRaw<long>("""
+                SELECT COALESCE(SUM(pg_total_relation_size(c.oid)), 0)::bigint AS "Value"
+                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'm', 'p')
+                """).SingleAsync(ct);
+            var artifactBytes = Directory.EnumerateFiles(root, "*", new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            }).Sum(file =>
+            {
+                var info = new FileInfo(file);
+                return info.Exists ? info.Length : 0;
+            });
+            reliabilityStoragePeak = Math.Max(reliabilityStoragePeak, schemaBytes + artifactBytes);
+            if (reliabilityStoragePeak > maxAddedBytes)
+            {
+                throw new InvalidOperationException("Reliability experiment exceeded the artifact and schema storage budget.");
+            }
+            storageClock.Restart();
+        }
+        async Task WaitAsync(Func<PlantOpsDbContext, Task<bool>> predicate, TimeSpan? limit = null, string? phase = null)
+        {
+            var wait = Stopwatch.StartNew();
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
+                if (wait.Elapsed >= limit)
+                {
+                    throw new TimeoutException(phase);
+                }
                 external?.EnsureRunning();
-                if (disk.AvailableFreeSpace < 2L * 1024 * 1024 * 1024 || initialFree - disk.AvailableFreeSpace > 256L * 1024 * 1024)
+                if (disk.AvailableFreeSpace < 2L * 1024 * 1024 * 1024 || !reliability && initialFree - disk.AvailableFreeSpace > maxAddedBytes)
                 {
                     throw new InvalidOperationException("Runtime experiment disk budget exceeded.");
                 }
                 await using var scope = provider.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
-                if (await db.MeasurementReadings.CountAsync(ct) > (liveHeating ? 3000 : 500))
+                if (reliability && storageClock.Elapsed >= TimeSpan.FromSeconds(30))
+                {
+                    await CheckReliabilityStorageAsync(db);
+                }
+                if (await db.MeasurementReadings.CountAsync(ct) > maxReadings)
                 {
                     throw new InvalidOperationException("Runtime experiment sample budget exceeded.");
                 }
@@ -217,6 +257,119 @@ internal static class RuntimeExperiment
                 }
                 await Task.Delay(250, ct);
             }
+        }
+        async Task CaptureReliabilityAsync()
+        {
+            var collection = Stopwatch.StartNew();
+            var namespaceIndex = server!.CurrentInstance.NamespaceUris.GetIndex(Program.NamespaceUri);
+            var cycle = 0;
+            foreach (var stopSecond in MinimalScenario.ReliabilityStopSeconds)
+            {
+                await WaitAsync(_ => Task.FromResult(ElapsedSeconds() >= stopSecond));
+                await using var scope = provider.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+                var alarm = await db.Alarms.AsNoTracking().SingleAsync(x => x.PointId == pointIds[0] && x.State == "Active", ct);
+                var stopAt = DateTimeOffset.UtcNow;
+                await server.StopAsync();
+                server.Dispose();
+                server = null;
+                DateTimeOffset? unhealthyAt = null;
+                await WaitAsync(async check =>
+                {
+                    var health = await check.DataSourceHealth.AsNoTracking().SingleAsync(x => x.DataSourceId == sourceId, ct);
+                    if (health.State != "Reconnecting")
+                    {
+                        return false;
+                    }
+                    unhealthyAt = DateTimeOffset.UtcNow;
+                    return true;
+                }, TimeSpan.FromSeconds(20) - (DateTimeOffset.UtcNow - stopAt), "Reconnecting");
+                var staleAfter = await db.MeasurementPoints.Where(x => pointIds.Contains(x.Id)).MaxAsync(x => x.StaleAfterMs, ct);
+                await WaitAsync(async check =>
+                {
+                    var last = await check.PointLatestStates.AsNoTracking().Where(x => pointIds.Contains(x.PointId)).ToArrayAsync(ct);
+                    return last.Length == 3 && last.All(x => x.LastTrustedEffectiveAt < DateTimeOffset.UtcNow.AddMilliseconds(-staleAfter));
+                }, TimeSpan.FromSeconds(20), "Stale observations during outage");
+                var offline = await db.Alarms.AsNoTracking().SingleAsync(x => x.Id == alarm.Id, ct);
+                if (offline.State != "Active" || offline.RecoveredAt.HasValue)
+                {
+                    throw new InvalidOperationException("An outage recovered an active alarm.");
+                }
+                var reorder = cycle % 2 == 0;
+                var restartAt = DateTimeOffset.UtcNow;
+                server = new SimulatorServer(new(ReorderNamespaces: reorder), scenario);
+                await application!.StartAsync(server);
+                var nextIndex = server.CurrentInstance.NamespaceUris.GetIndex(Program.NamespaceUri);
+                if (nextIndex == namespaceIndex)
+                {
+                    throw new InvalidOperationException("The simulator did not reorder the namespace.");
+                }
+                await WaitAsync(async check => await check.MeasurementReadings
+                    .Where(x => pointIds.Contains(x.PointId) && x.EffectiveAt >= restartAt && x.Quality == "Good" && !x.TimeAnomaly)
+                    .Select(x => x.PointId).Distinct().CountAsync(ct) == 3
+                    && await check.DataSourceHealth.AnyAsync(x => x.DataSourceId == sourceId && x.State == "Connected", ct),
+                    TimeSpan.FromSeconds(60) - (DateTimeOffset.UtcNow - restartAt), "Fresh observations after restart");
+                var freshAt = DateTimeOffset.UtcNow;
+                await WaitAsync(check => check.Alarms.AnyAsync(x => x.Id == alarm.Id && x.State == "Recovered" && x.RecoveredAt > restartAt, ct),
+                    TimeSpan.FromSeconds(35), "Recovery after fresh observations");
+                var recovered = await db.Alarms.AsNoTracking().SingleAsync(x => x.Id == alarm.Id, ct);
+                phases.Add(new
+                {
+                    Phase = "OutageAndRecovery",
+                    Cycle = ++cycle,
+                    StopAt = stopAt,
+                    UnhealthyAt = unhealthyAt,
+                    RestartAt = restartAt,
+                    FreshAt = freshAt,
+                    PreviousNamespaceIndex = namespaceIndex,
+                    NamespaceIndex = nextIndex,
+                    recovered.RecoveredAt,
+                    AlarmId = alarm.Id
+                });
+                namespaceIndex = nextIndex;
+                Console.WriteLine($"Reliability outage {cycle}: active while down, fresh three-point readings and recorded recovery after restart.");
+                if (cycle == 1)
+                {
+                    await WaitAsync(async check =>
+                    {
+                        var latest = await check.PointLatestStates.AsNoTracking().SingleAsync(x => x.PointId == pointIds[0], ct);
+                        if (latest.LatestObservedQuality != "Bad")
+                        {
+                            return false;
+                        }
+                        if (latest.LastGoodReadingId == null || latest.LastGoodReadingId == latest.LatestObservedReadingId
+                            || latest.LastGoodValue != 60 || latest.LastTrustedEffectiveAt >= latest.LatestObservedEffectiveAt)
+                        {
+                            throw new InvalidOperationException("The Bad observation replaced LastGood.");
+                        }
+                        phases.Add(new
+                        {
+                            Phase = "BadPreservedLastGood",
+                            Projection = latest
+                        });
+                        return true;
+                    }, TimeSpan.FromSeconds(40), "Bad observation");
+                }
+                if (cycle == MinimalScenario.ReliabilityStopSeconds.Length)
+                {
+                    var maintenance = scope.ServiceProvider.GetRequiredService<IMeasurementMaintenance>();
+                    await maintenance.AggregateAsync(ct);
+                }
+                var checkpoint = Path.Combine(root, $"reliability-cycle-{cycle}.json");
+                await File.WriteAllTextAsync(checkpoint + ".tmp", JsonSerializer.Serialize(new
+                {
+                    Schema = parsed.SearchPath,
+                    SourceId = sourceId,
+                    PointIds = pointIds,
+                    alarm.AssetId,
+                    alarm.PlantId,
+                    AlarmId = alarm.Id,
+                    Phases = phases
+                }), ct);
+                File.Move(checkpoint + ".tmp", checkpoint);
+            }
+            await WaitAsync(_ => Task.FromResult(collection.Elapsed.TotalSeconds >= MinimalScenario.ReliabilityDurationSeconds));
+            reliabilityCollectionSeconds = collection.Elapsed.TotalSeconds;
         }
         async Task CaptureMixedQualityAsync()
         {
@@ -464,7 +617,11 @@ internal static class RuntimeExperiment
                 await application!.StartAsync(server);
             }
             await worker.StartAsync(ct);
-            if (mixedQuality)
+            if (reliability)
+            {
+                await CaptureReliabilityAsync();
+            }
+            else if (mixedQuality)
             {
                 await CaptureMixedQualityAsync();
             }
@@ -480,7 +637,7 @@ internal static class RuntimeExperiment
         }
         catch (Exception exception)
         {
-            failure = exception.GetType().Name;
+            failure = exception.GetType().Name + (reliability ? ": " + exception.Message : "");
         }
         finally
         {
@@ -511,14 +668,52 @@ internal static class RuntimeExperiment
             reading.NumericValue > 80 && reading.SourceTimestamp > lowSamples[^1].SourceTimestamp);
         passed &= readings.Select(reading => reading.PointId).Distinct().Count() == 3 && readings.All(reading => reading.SourceKind == "OpcUa")
             && profiles.All(profile => profile.EffectiveTo != null) && health?.State == "Stopped"
-            && alarms.Length == 1 && (mixedQuality
+            && (reliability || alarms.Length == 1 && (mixedQuality
                 ? File.Exists(mixedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
                 : health.ReconnectCount > 0 && (disconnected
                 ? File.Exists(disconnectedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
                 : profiles.Length >= 6 && gaps.Length >= 3 && gaps.All(gap => gap.To != null)
                     && (briefLow ? briefLowObserved && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
-                        : alarms[0].State == "Recovered")));
-        var scenarioChecks = scenario == null || mixedQuality ? null : new
+                        : alarms[0].State == "Recovered"))));
+        if (reliability)
+        {
+            var pointById = pointIds.Select((id, index) => (id, Definition: MinimalScenario.Points[index]))
+                .ToDictionary(x => x.id, x => x.Definition);
+            var generated = scenario!.Generated.Where(x => !x.IsBad)
+                .Select(x => (x.Identifier, x.SourceTimestamp, x.Value)).ToHashSet();
+            var badFrom = scenario.StartedAt.AddSeconds(MinimalScenario.ReliabilityBadFromSecond);
+            var badTo = scenario.StartedAt.AddSeconds(MinimalScenario.ReliabilityBadToSecond + 4);
+            var checks = new
+            {
+                RecoveredAlarms = alarms.Length == MinimalScenario.ReliabilityStopSeconds.Length && alarms.All(x => x.State == "Recovered"),
+                ReopenedProfiles = pointIds.All(id => profiles.Count(x => x.PointId == id) >= 4 && gaps.Count(x => x.PointId == id && x.To != null) >= 3),
+                SamplingAndPublishing = profiles.All(x => x is
+                {
+                    RevisedSamplingIntervalMs: >= 1000 and <= 2000,
+                    RevisedPublishingIntervalMs: >= 1000 and <= 2000,
+                    Mode: "Periodic"
+                }),
+                NoOverlappingProfiles = profiles.GroupBy(x => x.PointId).All(group =>
+                {
+                    var ordered = group.OrderBy(x => x.EffectiveFrom).ToArray();
+                    return ordered.Zip(ordered.Skip(1)).All(pair => pair.First.EffectiveTo <= pair.Second.EffectiveFrom);
+                }),
+                // The SDK can supply its own timestamp on Bad data. Correlate the injected status and receive window.
+                ObservationsFromSimulator = readings.All(x => x.TimestampOrigin == "Source" && !x.TimeAnomaly
+                    && x.CanonicalUnit == pointById[x.PointId].Unit
+                    && (x.Quality == "Good" && x.SourceTimestamp is { } timestamp && x.NumericValue is { } value
+                        && generated.Contains((pointById[x.PointId].Identifier, timestamp, value))
+                        || x.PointId == pointIds[0] && x.Quality == "Bad" && x.StatusSymbol == "BadSensorFailure" && x.NumericValue == null
+                            && x.ReceivedAt >= badFrom && x.ReceivedAt < badTo)),
+                UniqueObservations = readings.DistinctBy(x => (x.PointId, x.SourceTimestamp)).Count() == readings.Length,
+                ZeroInvestigations = !await finalDb.AiRuns.AnyAsync(),
+                UnknownProcessTailLoss = true
+            };
+            phases.Add(checks);
+            passed &= checks.RecoveredAlarms && checks.ReopenedProfiles && checks.SamplingAndPublishing && checks.NoOverlappingProfiles
+                && checks.ObservationsFromSimulator && checks.UniqueObservations && checks.ZeroInvestigations;
+        }
+        var scenarioChecks = scenario == null || mixedQuality || reliability ? null : new
         {
             TemperatureStages = new[] { 60.0, 75.0, 90.0 }.All(value => readings.Any(reading =>
                 reading.PointId == pointIds[0] && reading.NumericValue == value && reading.ReceivedAt < stoppedAt)),
@@ -551,6 +746,8 @@ internal static class RuntimeExperiment
             ObservationSimulated = true,
             RealOpcUa = true,
             PaidModelCalls = 0,
+            ReliabilityCollectionSeconds = reliabilityCollectionSeconds,
+            ReliabilityStoragePeakBytes = reliability ? (long?)reliabilityStoragePeak : null,
             Worker = "MeasurementWorker",
             Phases = phases,
             Readings = readings,
@@ -559,7 +756,7 @@ internal static class RuntimeExperiment
             Health = health,
             Alarms = alarms,
             Failure = failure,
-            ScenarioVersion = mixedQuality ? "p6-mixed-quality-v1" : disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
+            ScenarioVersion = reliability ? "p5-reliability-v1" : mixedQuality ? "p6-mixed-quality-v1" : disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
             ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,

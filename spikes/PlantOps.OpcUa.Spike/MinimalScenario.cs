@@ -4,11 +4,15 @@ using System.Diagnostics;
 namespace PlantOps.OpcUa.Spike;
 
 // Versioned, original simulated observations. No random input (seed 0).
-internal sealed class MinimalScenario(bool mixedQuality = false)
+internal sealed class MinimalScenario(bool mixedQuality = false, bool reliability = false)
 {
     public const string Version = "p5.3-minimal-v1";
     public const int StopAtSecond = 40;
     public const int RestartAtSecond = 48;
+    public const int ReliabilityDurationSeconds = 1800;
+    public const int ReliabilityBadFromSecond = 70;
+    public const int ReliabilityBadToSecond = 84;
+    public static readonly int[] ReliabilityStopSeconds = [40, 100, 190];
 
     internal static bool LiveHeating => Environment.GetEnvironmentVariable("PLANTOPS_P61_LIVE_HEATING") == "1";
 
@@ -46,10 +50,13 @@ internal sealed class MinimalScenario(bool mixedQuality = false)
     public ScenarioObservation Generate(int point)
     {
         var second = (int)ElapsedSeconds;
-        var value = mixedQuality && point == 2 && second >= 8 ? 12.6
-            : ValueAt(point, LiveHeating ? Math.Min(39, second / 5) : second);
+        var value = reliability && point == 0
+            ? ReliabilityStopSeconds.Any(stop => second >= stop - 16 && second < stop + 7) ? 90 : 60
+            : mixedQuality && point == 2 && second >= 8 ? 12.6
+                : ValueAt(point, LiveHeating ? Math.Min(39, second / 5) : second);
+        var bad = point == 0 && (mixedQuality || reliability && second is >= ReliabilityBadFromSecond and < ReliabilityBadToSecond);
         var observation = new ScenarioObservation(Points[point].Identifier, second,
-            value, StartedAt.AddSeconds(second), mixedQuality && point == 0);
+            value, StartedAt.AddSeconds(second), bad);
         generated.Enqueue(observation);
         return observation;
     }

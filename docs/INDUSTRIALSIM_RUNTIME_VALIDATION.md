@@ -105,12 +105,21 @@ v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_
 
 - **Worker 强停与重启。** Worker 连接到真实回环 OPC UA 并取得三点可信观测后，实验强停该进程。约 9.6 秒后，API 显示 Worker 心跳过期且三点当前观测均不可信。既有活动告警未恢复。重启后收到三个新鲜点位观测，三个 `PossibleCrashTail` 缺口闭合，均为可能缺口，`DroppedCount` 保持空。该隔离库没有发起调查。[Worker 强停与重启证据](../artifacts/opcua-runtime/p54_worker_crash_c_20261118/worker-crash.json)
 - **订阅停止发布、Session 保持。** 仅在本机仿真服务器关闭该订阅的发布模式约 10.3 秒。Session 保活继续推进，同一 Session 和订阅随后恢复发布，Worker 无重连。停发期间活动告警保留，Fake 调查冻结的三点状态均为不可验证，汇总异常证据不足，且没有生成工单。该实验覆盖服务器停止发布与正常 Session 并存的情况。 [订阅暂停、调查与恢复证据](../artifacts/opcua-runtime/p54_subscription_pause_20261118/subscription-pause.json)
+- **Worker 心跳过期的调查取证。** 另一隔离轮在强停之后、采集进程重启之前，使用 Fake 处理一次手动调查。三点快照均为不可验证，来源健康过期，汇总异常证据不足，工单为零。[调查证据](../artifacts/opcua-runtime/p63_worker_stale_20261118/worker-crash.json)
 
-这两轮使用独立 `plantops_tests` schema 和零真实模型请求。数据库暂停、其他 P5 故障矩阵以及真实模型语义覆盖仍按路线图分别验收。
+这些实验使用独立 `plantops_tests` schema 和零真实模型请求。数据库暂停、其他 P5 故障矩阵以及真实模型语义覆盖仍按路线图分别验收。
 
-## 本次回归与限制
+## P5.4 三点长时联合运行（2026-11-18）
+
+`deploy/Run-LocalOpcUaRuntime.ps1 -UseTestConnection -Reliability -Run <fresh-name>` 使用本机只读仿真服务器、正常 MeasurementWorker 和专用测试库。2026-11-18 14:55–15:25（北京时间）保持 Worker 运行 1,800.19 秒。三个点请求 1 秒采样和发布，12 个实际修订区间均为 1 秒且互不重叠。仿真生成 5,379 次观测，入库 5,346 条且无重复。Good 观测按点位、源时间和值与实际生成记录逐条核对，14 条 Bad 温度观测按状态与接收区间核对，LastGood 保持 60°C。差异保留在证据中，物理采样覆盖及具体尾部损失仍未知。[采集报告](../artifacts/opcua-runtime/p54_reliability_c_20261118/result.json)
+
+三次停服均在 5.67–6.86 秒内进入重连状态，掉线期间告警持续活动。重启后在 3.62–4.12 秒内三点重新取得新鲜观测，随后记录恢复。Namespace 索引在 2 和 3 之间重排，基于 URI 的映射恢复成功。九条断线缺口闭合。浏览器同轮核查三点最新值、原始观测、完整 UTC 分钟、来源健康和三次告警恢复。逐条核对了 593 条原始观测及 12 个有数据的分钟统计。授权读取返回 200，未登录为 401，跨工厂为 404。新增调查与真实模型请求均为零。[联合核对](../artifacts/opcua-runtime/p54_reliability_c_20261118/joint-verification.json) · [浏览器记录](../artifacts/opcua-runtime/p54_reliability_c_20261118/browser-reliability.json)
+
+前两轮因整盘余量变化触发停止，分别保留 1,410 和 2,190 条观测。最终运行按本轮文件与独立 schema 核算新增体积，峰值约 27.2 MiB，使用 256 MiB 上限并保留磁盘余量检查。数据库卷使用量在监测区间增加约 6 MiB。另有 38 项采集、缺口、统计及访问控制回归通过。完整 P5 的数据库暂停及其他故障矩阵仍开放。[第一轮](../artifacts/opcua-runtime/p54_reliability_20261118/result.json) · [第二轮](../artifacts/opcua-runtime/p54_reliability_b_20261118/result.json) · [监测](../artifacts/opcua-runtime/p54_reliability_c_20261118/monitor.jsonl) · [回归](../artifacts/investigation-quality/p6_closure_20261114/p54-fault-regression.trx)
+
+## 早期框架兼容复验
 
 - 框架新增真实YAML状态测试1通过，原Scenarios项目19通过；示例构建0警告/错误。
 - Plant Ops带专用测试连接定向92通过、0失败/跳过，`artifacts/p53/checks/industrial-focused.trx`，覆盖OpcUa、Worker、入库、规则、采样策略和最小场景。
 - 旧 `Run-LocalOpcUaRuntime.ps1 -Run framework_compat_20261021` 实际复验通过，76条/三点、停服/Namespace重排后告警恢复，证据 `artifacts/opcua-runtime/framework_compat_20261021/result.json`。旧spike入口仍用于协议回归。
-- 本轮没有重跑完整后端/前端、30分钟、复杂崩溃矩阵、外部工业服务器或真实LLM；不能声称完整P5验收。Docker工作台仍使用原Simulation来源，本轮并未切换其业务数据源。
+- 该兼容轮覆盖本机协议及相关回归。完整后端与前端、30 分钟、复杂崩溃矩阵、外部工业服务器及真实模型当时留待后续验证。Docker 工作台使用原 Simulation 来源。
