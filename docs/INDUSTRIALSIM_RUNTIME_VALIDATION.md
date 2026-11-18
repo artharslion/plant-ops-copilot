@@ -101,6 +101,13 @@ v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_
 
 **稳定工况的协议验证通过，当前版本联合验收未通过。** v3.12 完整路径曾打开 Pending 提案，F2 正确识别温度观测段跨越记录恢复时间，另外两点仅报告单次快照。v3.13 的实时重跑中，首轮模型连接中断，后两轮均因同一假设重复引用支持及反证而被已有校验拒绝。最后一轮实际采集 177 条 OPC UA 观测。其模型响应的 F5 引用 E10/E12/E14，分别写出三点稳定范围 60°C / 62°C / 4 mm/s 及各自区间，给出共同区间并保留物理连续性的限制。F3 记录 11:51:56.372081（北京时间）恢复，位于上述共同区间内；回答没有明确把三点的末段与该边界关联起来。校验拒绝后没有提案或工单。[v3.12 浏览器记录](../artifacts/opcua-runtime/p6_v312_stable_c_20261114/browser-1-acceptance.json) · [最新采集报告](../artifacts/opcua-runtime/p6_v313_stable_c_20261116/result.json) · [最新调查记录](../artifacts/opcua-runtime/p6_v313_stable_c_20261116/browser-1-acceptance.json)
 
+## 独立采集故障反例（2026-11-18）
+
+- **Worker 强停与重启。** Worker 连接到真实回环 OPC UA 并取得三点可信观测后，实验强停该进程。约 9.6 秒后，API 显示 Worker 心跳过期且三点当前观测均不可信。既有活动告警未恢复。重启后收到三个新鲜点位观测，三个 `PossibleCrashTail` 缺口闭合，均为可能缺口，`DroppedCount` 保持空。该隔离库没有发起调查。[Worker 强停与重启证据](../artifacts/opcua-runtime/p54_worker_crash_c_20261118/worker-crash.json)
+- **订阅停止发布、Session 保持。** 仅在本机仿真服务器关闭该订阅的发布模式约 10.3 秒。Session 保活继续推进，同一 Session 和订阅随后恢复发布，Worker 无重连。停发期间活动告警保留，Fake 调查冻结的三点状态均为不可验证，汇总异常证据不足，且没有生成工单。该实验覆盖服务器停止发布与正常 Session 并存的情况。 [订阅暂停、调查与恢复证据](../artifacts/opcua-runtime/p54_subscription_pause_20261118/subscription-pause.json)
+
+这两轮使用独立 `plantops_tests` schema 和零真实模型请求。数据库暂停、其他 P5 故障矩阵以及真实模型语义覆盖仍按路线图分别验收。
+
 ## 本次回归与限制
 
 - 框架新增真实YAML状态测试1通过，原Scenarios项目19通过；示例构建0警告/错误。
