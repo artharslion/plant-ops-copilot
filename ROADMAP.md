@@ -1,6 +1,6 @@
 # Plant Ops Copilot 开发计划
 
-整理日期：2026-11-02；最近核对：2026-11-14（Prompt v3.12）。本文只保留当前源码状态、剩余任务和验收边界；部署状态须另行核对，不根据源码或历史报告推定。按任务读取相关章节和链接，不需要通读全部设计及验收报告。
+整理日期：2026-11-02。最近核对为 2026-11-19，源码 Prompt 为 v3.14。本文记录当前源码状态、剩余任务和验收边界。部署状态另行核对。
 
 ## 1. 定位、边界与阶段顺序
 
@@ -20,7 +20,7 @@
 | P1–P4 | 业务权限、资产、测量、规则告警、资料、实时通知、手动调查及人工工单创建/备注 | [架构](ARCHITECTURE.md)、[本地开发](docs/DEVELOPMENT.md) |
 | P5 最小链路 | 受控多点 OPC UA、普通 Worker 入库、三点场景及有限停服恢复 | [集成边界](docs/OPCUA_INTEGRATION.md)、[三点协议验证](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md) |
 | P6 证据 | 逐点可信度、当前/事件/恢复窗口、原始升温派生事实、按需只读工具、冻结证据和引用核查 | [逐点可信度](docs/P6_POINT_TRUST_VALIDATION.md)、[升温分析](docs/P6_HEATING_VALIDATION.md)、[按需取证](docs/P6_2_ON_DEMAND_VALIDATION.md) |
-| P6 当前输出 | 新调查使用 v3 建议、类型化判断、建议任务复用到工单、页面展示及旧结果兼容；生产注册为 `InvestigationEngine`，源码 Prompt 为 `investigation-advice-v3.12` | [v3 契约](docs/INVESTIGATION_RESPONSE_V3.md)、[当前引擎](src/PlantOps.AI/InvestigationEngine.cs) |
+| P6 当前输出 | 新调查使用 v3 建议、类型化判断、建议任务复用到工单、页面展示及旧结果兼容；生产注册为 `InvestigationEngine`，源码 Prompt 为 `investigation-advice-v3.14` | [v3 契约](docs/INVESTIGATION_RESPONSE_V3.md)、[当前引擎](src/PlantOps.AI/InvestigationEngine.cs) |
 | P8 已有增量 | 运行版本/hash、用量来源、外部请求额度账本及关联诊断 | [运行记录](docs/P8_1_RUN_RECORD_VALIDATION.md)、[诊断](docs/INVESTIGATION_DIAGNOSTICS.md) |
 
 v1/v2 只保留历史结果展示与回放兼容，`LegacyInvestigationEngine` 不注册为生产调查服务。旧固定摘要、逐字摘录、预取五工具及旧 Prompt 版本不代表新调查契约。
@@ -47,7 +47,7 @@ v1/v2 只保留历史结果展示与回放兼容，`LegacyInvestigationEngine` �
 | P6.3 可核查联合分析 | 逐点信任、两类证据区分、可核查建议及规程来源已提供。P5.4 长时运行已通过。订阅停止发布但 Session 保活、Worker 心跳过期均已验证取证降级。当前版本真实语义复验及独立盲测仍开放。[故障反例](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md#独立采集故障反例2026-11-18) |
 | P6.4 页面与工单 | 有限主路径已通过：v3.5 真实模型从本机工作台调查，用户核证并创建关联 Draft；Fake 独立复验了展开、确认及 Draft；后续真实联合轮留在 Pending、关联工单为零。[人工确认记录](docs/INVESTIGATION_RESPONSE_V3.md#2026-11-09-local-workbench-acceptance) |
 
-原 50 次真实模型额度已用完。后续真实复验需新的明确授权。当前可审查首轮只选测量、后续撤下工具时的取证预算和输入尺寸。独立盲测用例尚未提供。稳定及混合质量实测见 [协议与浏览器记录](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md#p6-补充联合验收2026-11-16)。
+原 50 次真实模型额度已用完。后续真实复验需新的明确授权。已核实上次规程用例首轮提供了文档检索，测量返回后的完整请求超过再次取证的预留阈值。新运行逐轮记录工具供应决策与输入预留。独立盲测用例尚未提供。[预算核对](docs/AI_INVESTIGATION_QUALITY.md#p6-tool-budget-review-2026-11-19) · [协议与浏览器记录](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md#p6-补充联合验收2026-11-16)
 
 ## 5. P7：设备知识与 RAG 增强
 

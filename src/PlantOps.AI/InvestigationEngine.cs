@@ -89,8 +89,10 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             }
 
             await authorize(deadline.Token);
-            IReadOnlyList<LlmTool> available = budget.RemainingInputTokens < 8000
-                || budget.ModelRounds + 1 >= budget.Limits.MaxModelRounds ? [] : Tools;
+            var toolAvailability = budget.ModelRounds + 1 >= budget.Limits.MaxModelRounds ? "FinalRound"
+                : budget.RemainingInputTokens < 8000 ? "LowInputBudget" : "Offered";
+            IReadOnlyList<LlmTool> available = toolAvailability == "Offered" ? Tools : [];
+            int? toolRequestReservation = null;
             var inputLimit = Math.Min(8000, budget.RemainingInputTokens);
             var modelSubjects = new InvestigationModelSubjects(ledger);
             var providerSchema = InvestigationAdviceContract.ForModel(ledger, modelSubjects);
@@ -101,6 +103,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 .Select(x => x.Id).ToArray();
             var trendLimit = trendOrder.Length;
             LlmRequest request;
+            byte[] requestBody;
+            int inputReservation;
             while (true)
             {
                 var packed = InvestigationEvidenceProjection.Pack(ledger, inputLimit);
@@ -204,11 +208,14 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     new(LlmRole.User, context)
                 ], available, providerSchema,
                     MaxOutputTokens: budget.RemainingOutputTokens, AllowParallelToolCalls: true);
-                var inputReservation = ChatCompletionsProtocol.Serialize(request, model, reasoning, stream).Length + 256;
+                requestBody = ChatCompletionsProtocol.Serialize(request, model, reasoning, stream);
+                inputReservation = requestBody.Length + 256;
                 if (budget.ModelRounds > 0 && available.Count > 0
                     && inputReservation > budget.RemainingInputTokens / 2)
                 {
                     // Further reads require another complete final-answer frame as well.
+                    toolAvailability = "FinalAnswerReserve";
+                    toolRequestReservation = inputReservation;
                     available = [];
                     continue;
                 }
@@ -232,6 +239,8 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                     if (reads.Count > 0 && available.Count > 0)
                     {
                         // Reserve one final answer instead of advertising reads whose context no longer fits.
+                        toolAvailability = "ToolFrameTooLarge";
+                        toolRequestReservation = inputReservation;
                         available = [];
                         inputLimit = 2048;
                         continue;
@@ -261,6 +270,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 inputLimit = Math.Max(256, inputLimit - excess - 128);
             }
             string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+            var requestHash = Convert.ToHexStringLower(SHA256.HashData(requestBody));
             await budget.RecordRequestAsync(PromptVersion, JsonSerializer.SerializeToElement(new
             {
                 promptVersion = PromptVersion,
@@ -270,7 +280,15 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 schemaSha256 = Hash(request.OutputSchema.Schema.GetRawText()),
                 toolsSha256 = Hash(JsonSerializer.Serialize(available, Json)),
                 evidenceSha256 = Hash(JsonSerializer.Serialize(ledger, new JsonSerializerOptions(JsonSerializerDefaults.Web))),
-                requestSha256 = Convert.ToHexStringLower(SHA256.HashData(ChatCompletionsProtocol.Serialize(request, model, reasoning, stream))),
+                requestSha256 = requestHash,
+                toolBudget = new
+                {
+                    decision = toolAvailability,
+                    offeredToolCount = available.Count,
+                    remainingInputTokens = budget.RemainingInputTokens,
+                    inputReservation,
+                    toolRequestReservation
+                },
                 provider,
                 model,
                 reasoningEffort = reasoning,
@@ -285,8 +303,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             var completion = await gateway.CompleteAsync(request, budget, deadline.Token);
             // The HTTP gateway captures before usage reconciliation; this fallback
             // also covers deterministic/custom gateways. The budget deduplicates it.
-            await budget.RecordResponseAsync(completion,
-                Convert.ToHexStringLower(SHA256.HashData(ChatCompletionsProtocol.Serialize(request, model, reasoning, stream))), deadline.Token);
+            await budget.RecordResponseAsync(completion, requestHash, deadline.Token);
             await authorize(deadline.Token);
             if (completion.ToolCalls.Count == 0)
             {

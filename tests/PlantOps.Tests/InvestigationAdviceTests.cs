@@ -276,6 +276,45 @@ public sealed class InvestigationAdviceTests
         Assert.Equal("3", JsonDocument.Parse(result.ResultJson).RootElement.GetProperty("schemaVersion").GetString());
     }
 
+    [Theory]
+    [InlineData(7000, true)]
+    [InlineData(18000, false)]
+    public async Task V3RecordsWhyFollowUpToolsAreAvailableOrReservedForFinalAnswer(int firstRoundInput, bool toolsOffered)
+    {
+        const int maxInputTokens = 32000;
+        using var budget = new LlmBudget(new(MaxInputTokens: maxInputTokens, MaxOutputTokens: 6000));
+        var alias = new InvestigationModelSubjects(Evidence).AliasFor(Point)!;
+        var gateway = new RecordingScript([
+            new(null, [new("read", "get_recent_measurements", "{}")], "fixture", new(firstRoundInput, 20)),
+            new(InvestigationAdviceContract.Serialize(Valid(alias)), [], "fixture", new(100, 50))
+        ]);
+        await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,
+            (_, _, _) => Task.FromResult(new InvestigationToolResult([], [])), _ => Task.CompletedTask,
+            budget, CancellationToken.None);
+
+        var frames = budget.Requests.Select(x => x.GetProperty("toolBudget")).ToArray();
+        Assert.Equal(2, frames.Length);
+        Assert.Equal("Offered", frames[0].GetProperty("decision").GetString());
+        var followUp = frames[1];
+        var remaining = maxInputTokens - firstRoundInput;
+        Assert.Equal(remaining, followUp.GetProperty("remainingInputTokens").GetInt32());
+        Assert.Equal(toolsOffered ? "Offered" : "FinalAnswerReserve", followUp.GetProperty("decision").GetString());
+        var actualTools = gateway.Requests[1].Tools!;
+        Assert.Equal(toolsOffered, actualTools.Any(x => x.Name == "search_documents"));
+        Assert.Equal(actualTools.Count, followUp.GetProperty("offeredToolCount").GetInt32());
+        var finalReservation = followUp.GetProperty("inputReservation").GetInt32();
+        Assert.InRange(finalReservation, 1, remaining);
+        if (toolsOffered)
+        {
+            Assert.InRange(finalReservation, 1, remaining / 2);
+            Assert.False(followUp.TryGetProperty("toolRequestReservation", out _));
+        }
+        else
+        {
+            Assert.True(followUp.GetProperty("toolRequestReservation").GetInt32() > remaining / 2);
+        }
+    }
+
     [Fact]
     public async Task ModelRequestIncludesThePublishedDocumentCitationWithItsExcerpt()
     {
