@@ -24,6 +24,8 @@ namespace PlantOps.OpcUa.Spike;
 
 internal static class RuntimeExperiment
 {
+    private sealed record DatabasePauseWindow(DateTimeOffset PausedAt, DateTimeOffset ResumedAt);
+
     private sealed class RuntimeEnvironment(string root) : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = "Development";
@@ -36,7 +38,7 @@ internal static class RuntimeExperiment
     }
 
     public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false,
-        bool disconnected = false, bool stable = false, bool mixedQuality = false, bool reliability = false)
+        bool disconnected = false, bool stable = false, bool mixedQuality = false, bool reliability = false, bool databasePause = false)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -52,7 +54,7 @@ internal static class RuntimeExperiment
         {
             throw new InvalidOperationException("Runtime experiment requires 2 GiB free before setup.");
         }
-        var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating && !reliability;
+        var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating && !reliability && !databasePause;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(reliability ? 1950 : liveHeating ? 900 : disconnected ? 480 : 150));
         var ct = deadline.Token;
         var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -408,6 +410,91 @@ internal static class RuntimeExperiment
             });
             await WaitAsync(_ => Task.FromResult(File.Exists(Path.Combine(root, "release"))));
         }
+        async Task CaptureDatabasePauseAsync()
+        {
+            var committedIds = Array.Empty<Guid>();
+            var alarmId = Guid.Empty;
+            await WaitAsync(async db =>
+            {
+                var active = await db.Alarms.AsNoTracking().SingleOrDefaultAsync(alarm => alarm.PointId == pointIds[0] && alarm.State == "Active", ct);
+                if (active == null)
+                {
+                    return false;
+                }
+                alarmId = active.Id;
+                committedIds = await db.MeasurementReadings.Where(reading => pointIds.Contains(reading.PointId))
+                    .Select(reading => reading.Id).ToArrayAsync(ct);
+                return true;
+            }, TimeSpan.FromSeconds(55), "Wait for committed active alarm before database pause");
+
+            var readyAt = DateTimeOffset.UtcNow;
+            var readyPath = Path.Combine(root, "database-pause-ready.json");
+            var windowPath = Path.Combine(root, "database-pause-window.json");
+            await File.WriteAllTextAsync(readyPath + ".tmp", JsonSerializer.Serialize(new
+            {
+                ReadyAt = readyAt,
+                AlarmId = alarmId,
+                CommittedReadings = committedIds.Length,
+                Schema = parsed.SearchPath
+            }), ct);
+            File.Move(readyPath + ".tmp", readyPath);
+            // The operator pauses only the dedicated PostgreSQL server. Poll the file rather
+            // than querying that server while the worker is exercising its failure path.
+            while (!File.Exists(windowPath))
+            {
+                if (DateTimeOffset.UtcNow - readyAt > TimeSpan.FromSeconds(35))
+                {
+                    throw new TimeoutException("Wait for database pause and resume window");
+                }
+                await Task.Delay(200, ct);
+            }
+            var window = JsonSerializer.Deserialize<DatabasePauseWindow>(await File.ReadAllTextAsync(windowPath, ct));
+            if (window == null || window.PausedAt < readyAt || window.ResumedAt > DateTimeOffset.UtcNow
+                || (window.ResumedAt - window.PausedAt).TotalSeconds is < 8 or > 20)
+            {
+                throw new InvalidOperationException("Provide the observed 8–20 second database pause window.");
+            }
+            phases.Add(new
+            {
+                Phase = "DatabasePausedAndResumed",
+                Window = window
+            });
+
+            await WaitAsync(async db =>
+            {
+                var freshPoints = await db.MeasurementReadings.AsNoTracking().Where(reading => pointIds.Contains(reading.PointId)
+                    && reading.ReceivedAt > window.ResumedAt && reading.Quality == "Good" && !reading.TimeAnomaly)
+                    .Select(reading => reading.PointId).Distinct().CountAsync(ct);
+                var alarm = await db.Alarms.AsNoTracking().SingleAsync(x => x.Id == alarmId, ct);
+                if (freshPoints != pointIds.Length || alarm.RecoveredAt == null)
+                {
+                    return false;
+                }
+                var gapState = await db.IngestionGaps.AsNoTracking().Where(gap => pointIds.Contains(gap.PointId)
+                    && gap.Reason == "DatabaseUnavailable").ToArrayAsync(ct);
+                var checks = new
+                {
+                    PreservedReadings = await db.MeasurementReadings.CountAsync(reading => committedIds.Contains(reading.Id), ct),
+                    FreshPoints = freshPoints,
+                    alarm.RecoveredAt,
+                    PossibleDatabaseGaps = gapState.Length,
+                    UnknownDatabaseLoss = gapState.Length > 0 && gapState.All(gap => gap.IsPossible && gap.DroppedCount == null),
+                    ZeroInvestigations = !await db.AiRuns.AnyAsync(ct)
+                };
+                phases.Add(new
+                {
+                    Phase = "DatabaseRecoveryChecked",
+                    Checks = checks
+                });
+                if (checks.PreservedReadings != committedIds.Length || alarm.RecoveredAt <= window.ResumedAt
+                    || !checks.UnknownDatabaseLoss || !checks.ZeroInvestigations)
+                {
+                    throw new InvalidOperationException("Database pause did not preserve committed state or bounded loss evidence.");
+                }
+                return true;
+            }, TimeSpan.FromSeconds(45), "Wait for fresh observations and the same alarm to recover after PostgreSQL resumes");
+        }
+
         async Task CaptureReconnectAsync()
         {
             if (liveHeating)
@@ -621,6 +708,10 @@ internal static class RuntimeExperiment
             {
                 await CaptureReliabilityAsync();
             }
+            else if (databasePause)
+            {
+                await CaptureDatabasePauseAsync();
+            }
             else if (mixedQuality)
             {
                 await CaptureMixedQualityAsync();
@@ -637,7 +728,7 @@ internal static class RuntimeExperiment
         }
         catch (Exception exception)
         {
-            failure = exception.GetType().Name + (reliability ? ": " + exception.Message : "");
+            failure = exception.GetType().Name + (reliability || databasePause ? ": " + exception.Message : "");
         }
         finally
         {
@@ -668,7 +759,7 @@ internal static class RuntimeExperiment
             reading.NumericValue > 80 && reading.SourceTimestamp > lowSamples[^1].SourceTimestamp);
         passed &= readings.Select(reading => reading.PointId).Distinct().Count() == 3 && readings.All(reading => reading.SourceKind == "OpcUa")
             && profiles.All(profile => profile.EffectiveTo != null) && health?.State == "Stopped"
-            && (reliability || alarms.Length == 1 && (mixedQuality
+            && (reliability || databasePause || alarms.Length == 1 && (mixedQuality
                 ? File.Exists(mixedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
                 : health.ReconnectCount > 0 && (disconnected
                 ? File.Exists(disconnectedSnapshotPath) && alarms[0].State == "Active" && alarms[0].RecoveredAt == null
@@ -713,7 +804,7 @@ internal static class RuntimeExperiment
             passed &= checks.RecoveredAlarms && checks.ReopenedProfiles && checks.SamplingAndPublishing && checks.NoOverlappingProfiles
                 && checks.ObservationsFromSimulator && checks.UniqueObservations && checks.ZeroInvestigations;
         }
-        var scenarioChecks = scenario == null || mixedQuality || reliability ? null : new
+        var scenarioChecks = scenario == null || mixedQuality || reliability || databasePause ? null : new
         {
             TemperatureStages = new[] { 60.0, 75.0, 90.0 }.All(value => readings.Any(reading =>
                 reading.PointId == pointIds[0] && reading.NumericValue == value && reading.ReceivedAt < stoppedAt)),
@@ -756,7 +847,7 @@ internal static class RuntimeExperiment
             Health = health,
             Alarms = alarms,
             Failure = failure,
-            ScenarioVersion = reliability ? "p5-reliability-v1" : mixedQuality ? "p6-mixed-quality-v1" : disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
+            ScenarioVersion = databasePause ? "p5-database-pause-v1" : reliability ? "p5-reliability-v1" : mixedQuality ? "p6-mixed-quality-v1" : disconnected ? "plantops-disconnected-v1" : stable ? "plantops-stable-v1" : briefLow ? "plantops-brief-low-v1" : scenario == null ? null : MinimalScenario.Version,
             Seed = scenario == null ? (int?)null : 0,
             ScenarioStartedAt = external?.StartedAt ?? scenario?.StartedAt,
             StoppedAt = stoppedAt,

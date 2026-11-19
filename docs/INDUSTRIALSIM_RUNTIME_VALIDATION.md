@@ -107,7 +107,15 @@ v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_
 - **订阅停止发布、Session 保持。** 仅在本机仿真服务器关闭该订阅的发布模式约 10.3 秒。Session 保活继续推进，同一 Session 和订阅随后恢复发布，Worker 无重连。停发期间活动告警保留，Fake 调查冻结的三点状态均为不可验证，汇总异常证据不足，且没有生成工单。该实验覆盖服务器停止发布与正常 Session 并存的情况。 [订阅暂停、调查与恢复证据](../artifacts/opcua-runtime/p54_subscription_pause_20261118/subscription-pause.json)
 - **Worker 心跳过期的调查取证。** 另一隔离轮在强停之后、采集进程重启之前，使用 Fake 处理一次手动调查。三点快照均为不可验证，来源健康过期，汇总异常证据不足，工单为零。[调查证据](../artifacts/opcua-runtime/p63_worker_stale_20261118/worker-crash.json)
 
-这些实验使用独立 `plantops_tests` schema 和零真实模型请求。数据库暂停、其他 P5 故障矩阵以及真实模型语义覆盖仍按路线图分别验收。
+这些实验使用独立 `plantops_tests` schema 和零真实模型请求。
+
+### PostgreSQL 暂停与恢复（2026-11-19）
+
+本机用真实回环 OPC UA、正常 `MeasurementWorker`、三个虚构测点及独立 PostgreSQL 17 容器。12:22:54 至 12:23:06（北京时间）暂停测试库 12.2 秒，OPC UA 仿真服务器保持运行。暂停前的 84 条已提交观测全部保留。恢复后，三个点位均重新取得 Good 观测。同一温度告警在数据库恢复后约 11.3 秒记录恢复。最终 120 条观测中没有重复事件键，三个 `DatabaseUnavailable` 条目均为可能缺口，丢失数为空。另有采集故障、连接重新建立及可能采样空窗的记录。新增调查和真实模型请求均为零。[验收报告](../artifacts/opcua-runtime/p52_db_pause_b_20261119/result.json) · [暂停与恢复时间](../artifacts/opcua-runtime/p52_db_pause_b_20261119/database-pause-window.json)
+
+复验入口为 `./deploy/Run-LocalOpcUaRuntime.ps1 -UseTestConnection -DatabasePause -Run <fresh-name>`。连接指向本轮专用 `plantops_tests` 容器。运行器等待温度告警写入，在输出目录生成 `database-pause-ready.json`。外部控制在收到该信号后暂停专用数据库 8–20 秒，恢复后原子写入 `database-pause-window.json`，包含 UTC `PausedAt` 和 `ResumedAt`。本轮启动前检查了 C、D 盘各至少 2 GiB 余量，并用每盘新增 256 MiB 作为停止条件。该模式验证短时数据库暂停后的恢复；缓冲上限和精确队列淘汰数由独立离线用例验证。[32 项离线回归](../artifacts/investigation-quality/p5_reliability_20261119/p52-offline.trx)
+
+另外 49 项隔离库回归通过，覆盖采集状态、缺口、告警相关入库路径、调查运行记录及提案。[隔离库回归](../artifacts/investigation-quality/p5_reliability_20261119/isolated-regression.trx)
 
 ## P5.4 三点长时联合运行（2026-11-18）
 
@@ -115,7 +123,7 @@ v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_
 
 三次停服均在 5.67–6.86 秒内进入重连状态，掉线期间告警持续活动。重启后在 3.62–4.12 秒内三点重新取得新鲜观测，随后记录恢复。Namespace 索引在 2 和 3 之间重排，基于 URI 的映射恢复成功。九条断线缺口闭合。浏览器同轮核查三点最新值、原始观测、完整 UTC 分钟、来源健康和三次告警恢复。逐条核对了 593 条原始观测及 12 个有数据的分钟统计。授权读取返回 200，未登录为 401，跨工厂为 404。新增调查与真实模型请求均为零。[联合核对](../artifacts/opcua-runtime/p54_reliability_c_20261118/joint-verification.json) · [浏览器记录](../artifacts/opcua-runtime/p54_reliability_c_20261118/browser-reliability.json)
 
-前两轮因整盘余量变化触发停止，分别保留 1,410 和 2,190 条观测。最终运行按本轮文件与独立 schema 核算新增体积，峰值约 27.2 MiB，使用 256 MiB 上限并保留磁盘余量检查。数据库卷使用量在监测区间增加约 6 MiB。另有 38 项采集、缺口、统计及访问控制回归通过。完整 P5 的数据库暂停及其他故障矩阵仍开放。[第一轮](../artifacts/opcua-runtime/p54_reliability_20261118/result.json) · [第二轮](../artifacts/opcua-runtime/p54_reliability_b_20261118/result.json) · [监测](../artifacts/opcua-runtime/p54_reliability_c_20261118/monitor.jsonl) · [回归](../artifacts/investigation-quality/p6_closure_20261114/p54-fault-regression.trx)
+前两轮因整盘余量变化触发停止，分别保留 1,410 和 2,190 条观测。最终运行按本轮文件与独立 schema 核算新增体积，峰值约 27.2 MiB，使用 256 MiB 上限并保留磁盘余量检查。数据库卷使用量在监测区间增加约 6 MiB。另有 38 项采集、缺口、统计及访问控制回归通过。剩余故障矩阵见路线图。[第一轮](../artifacts/opcua-runtime/p54_reliability_20261118/result.json) · [第二轮](../artifacts/opcua-runtime/p54_reliability_b_20261118/result.json) · [监测](../artifacts/opcua-runtime/p54_reliability_c_20261118/monitor.jsonl) · [回归](../artifacts/investigation-quality/p6_closure_20261114/p54-fault-regression.trx)
 
 ## 早期框架兼容复验
 
