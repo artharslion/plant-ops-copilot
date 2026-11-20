@@ -34,6 +34,8 @@ Classify regressions by evidence, tool orchestration, typed contract or semantic
 
 For a comparison with unaided engineering judgment, use the [paired review record](PORTFOLIO_PAIRED_REVIEW.md) to freeze the first answer, collect the assisted answer and score both against an independently prepared case.
 
+The [visible fixture exports](INVESTIGATION_VISIBLE_FIXTURES.md) retain submitted input timelines, fixture authorization, frozen evidence and deterministic expectations for the five engineering scenario groups. They are known Fake cases with semantic assessment explicitly not performed, and cannot substitute for independent reviewer cases.
+
 ### P6 semantic review matrix
 
 Review the final answer against the evidence sent in the final request when a capture is available. Use the frozen ledger and traces to examine availability, tool reads and projection omissions. Record the run and prompt version, finding and recommendation IDs, applicable evidence IDs, and a judgment of supported, incomplete, contradicted or unassessable. Equivalent wording is acceptable.

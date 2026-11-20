@@ -42,6 +42,8 @@ public sealed class P61RealCounterexampleTests
     {
         const string language = "zh-CN";
         var clock = new AlarmTests.Clock();
+        var capture = new InvestigationFixtureCapture(scenario,
+            realProvider ? null : Environment.GetEnvironmentVariable("PLANTOPS_OFFLINE_CASE_ROOT"));
         var diagnostics = new ValidationLogger();
         await using var session = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection(), configureServices: services =>
         {
@@ -116,17 +118,21 @@ public sealed class P61RealCounterexampleTests
         for (var i = 0; i < values.Length; i++)
         {
             clock.Now = start.AddSeconds(i);
-            await ingestor.IngestAsync(configs.Select(x => SamplePolicy.Normalize(x,
+            var samples = configs.Select(x => SamplePolicy.Normalize(x,
                 x.PointId == point.Id ? values[i] : x.CanonicalUnit == "degC" ? 62 : 4,
-                "Good", clock.Now, null, clock.Now, "heat-" + x.PointId + "-" + i)).ToArray());
+                "Good", clock.Now, null, clock.Now, "heat-" + x.PointId + "-" + i)).ToArray();
+            capture.Record(samples);
+            await ingestor.IngestAsync(samples);
         }
         for (var i = 0; i < 8; i++)
         {
             clock.Now = clock.Now.AddSeconds(1);
-            await ingestor.IngestAsync(configs.Select(x => SamplePolicy.Normalize(x,
+            var samples = configs.Select(x => SamplePolicy.Normalize(x,
                 x.PointId == point.Id ? scenario == "trusted-stable" ? 60 : 90 : x.CanonicalUnit == "degC" ? 62 : scenario is "partial-bad-high-vibration" or "multiple-anomalies" ? 12.6 : 4,
                 scenario == "all-unverifiable" || scenario == "partial-bad-high-vibration" && x.PointId == point.Id ? "Bad" : "Good",
-                clock.Now, null, clock.Now, "counter-" + x.PointId + "-" + i)).ToArray());
+                clock.Now, null, clock.Now, "counter-" + x.PointId + "-" + i)).ToArray();
+            capture.Record(samples);
+            await ingestor.IngestAsync(samples);
         }
         clock.Now = clock.Now.AddSeconds(1);
         await runtime.ReportAsync(new(source.Id, config.SourceVersion, "Connected", clock.Now, clock.Now, clock.Now, 0, null), default);
@@ -155,6 +161,7 @@ public sealed class P61RealCounterexampleTests
                 await DocumentTests.Publish(session, document, 1, withdraw: true);
             }
         }
+        await capture.CaptureAuthorizationAsync(scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>(), session.UserId, asset.Id);
         var created = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations?language={language}", null);
         Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
         var run = (await created.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
@@ -207,10 +214,13 @@ public sealed class P61RealCounterexampleTests
             }, new JsonSerializerOptions { WriteIndented = true });
         }
 
+        var expectedTrust = scenario is "all-unverifiable" or "disconnected" ? "Unverifiable" : scenario == "partial-bad-high-vibration" ? "Partial" : "Trusted";
+        var expectedAnomaly = scenario is "all-unverifiable" or "disconnected" ? "Insufficient" : scenario == "trusted-stable" ? "NotFound" : "Present";
+        await capture.SaveAsync(run, expectedTrust, expectedAnomaly);
         Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
         Assert.Equal(!realProvider, run.Simulated);
-        Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Unverifiable" : scenario == "partial-bad-high-vibration" ? "Partial" : "Trusted", run.Assessment!.DataTrust);
-        Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Insufficient" : scenario == "trusted-stable" ? "NotFound" : "Present", run.Assessment.AnomalyEvidence);
+        Assert.Equal(expectedTrust, run.Assessment!.DataTrust);
+        Assert.Equal(expectedAnomaly, run.Assessment.AnomalyEvidence);
         Assert.Equal(0, workOrders);
         if (scenario == "partial-bad-high-vibration")
         {
