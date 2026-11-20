@@ -10,10 +10,11 @@ An authorized run can include `runRecord`. A null record indicates that a histor
 
 | `toolBudget` field | Meaning |
 | --- | --- |
-| `decision` | `Offered` means the final frame offered read tools. `FinalRound`, `LowInputBudget`, `FinalAnswerReserve` and `ToolFrameTooLarge` record why the engine withheld them. |
+| `decision` | `Offered` means the full advice frame offered read tools. `CompactReadDecision` offers the tools with a smaller decision schema. `AfterReadDecision` sends full advice without tools. `FinalRound`, `LowInputBudget`, `FinalAnswerReserve` and `ToolFrameTooLarge` record why the engine withheld them. |
 | `offeredToolCount` | Number of tools listed in the final request frame. For the selected calls, check `toolTrace`. |
 | `remainingInputTokens` | Remaining input allowance when the frame was prepared. |
 | `inputReservation` | Conservative estimate for the serialized request plus framing. |
+| `finalAnswerReservation` | Size reserved for the current full answer when the compact decision is selected. Additional evidence is priced again in the final round. |
 | `toolRequestReservation` | Estimate of the rejected frame with tools, when available. |
 
 A prepared frame or `reservedAttempts` records a local step. Use dispatch and response diagnostics when checking which attempts reached the transport. A digest verifies a matching capture when available. It cannot reproduce request contents.

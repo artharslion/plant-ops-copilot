@@ -278,7 +278,7 @@ public sealed class InvestigationAdviceTests
 
     [Theory]
     [InlineData(7000, true)]
-    [InlineData(18000, false)]
+    [InlineData(20500, false)]
     public async Task V3RecordsWhyFollowUpToolsAreAvailableOrReservedForFinalAnswer(int firstRoundInput, bool toolsOffered)
     {
         const int maxInputTokens = 32000;
@@ -313,6 +313,38 @@ public sealed class InvestigationAdviceTests
         {
             Assert.True(followUp.GetProperty("toolRequestReservation").GetInt32() > remaining / 2);
         }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CompactDecisionCanSelectAnotherReadOrFinish(bool readAgain)
+    {
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var alias = new InvestigationModelSubjects(Evidence).AliasFor(Point)!;
+        var gateway = new RecordingScript([
+            new(null, [new("first", "get_recent_measurements", "{}")], "fixture", new(18000, 20)),
+            readAgain ? new(null, [new("next", "get_maintenance_history", "{}")], "fixture", new(500, 20))
+                : new("""{"finish":true}""", [], "fixture", new(500, 10)),
+            new(InvestigationAdviceContract.Serialize(Valid(alias)), [], "fixture", new(100, 50))
+        ]);
+        var calls = new List<string>();
+        await new InvestigationEngine(gateway, Options.Create(new AiOptions())).ExecuteAsync(Evidence,
+            (name, _, _) =>
+            {
+                calls.Add(name);
+                return Task.FromResult(new InvestigationToolResult([], []));
+            }, _ => Task.CompletedTask, budget, CancellationToken.None);
+
+        Assert.Equal(readAgain ? new[] { "get_recent_measurements", "get_maintenance_history" }
+            : new[] { "get_recent_measurements" }, calls);
+        var decision = budget.Requests[1].GetProperty("toolBudget");
+        Assert.Equal("CompactReadDecision", decision.GetProperty("decision").GetString());
+        Assert.True(decision.GetProperty("inputReservation").GetInt32() + decision.GetProperty("finalAnswerReservation").GetInt32()
+            <= decision.GetProperty("remainingInputTokens").GetInt32());
+        Assert.Equal("investigation_read_decision", gateway.Requests[1].OutputSchema!.Name);
+        Assert.Empty(gateway.Requests[2].Tools!);
+        Assert.Equal("investigation_v3", gateway.Requests[2].OutputSchema!.Name);
     }
 
     [Fact]

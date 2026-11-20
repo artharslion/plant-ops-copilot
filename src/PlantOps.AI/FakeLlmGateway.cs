@@ -12,6 +12,11 @@ public sealed class FakeLlmGateway : ILlmGateway
     public Task<LlmCompletion> CompleteAsync(LlmRequest request, LlmBudget budget, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (request.OutputSchema?.Name == "investigation_read_decision")
+        {
+            return new ScriptedLlmGateway([new("""{"finish":true}""", [], "fake", new(100, 10))])
+                .CompleteAsync(request, budget, cancellationToken);
+        }
         if (request.OutputSchema?.Name == "investigation_v3")
         {
             using var context = JsonDocument.Parse(request.Messages.First(x => x.Role == LlmRole.User).Content!);
