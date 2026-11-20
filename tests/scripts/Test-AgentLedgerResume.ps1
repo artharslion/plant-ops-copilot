@@ -33,6 +33,11 @@ try {
         Assert-Rejected { & $budgetReader -LedgerPath $path }
         if ([IO.File]::ReadAllText($path) -cne $bad) { throw 'Rejected ledger was modified.' }
     }
+    [IO.File]::WriteAllText($path, "{`"kind`":`"authorization`",`"limit`":100}`n{`"sequence`":1}`n")
+    foreach ($mode in 'PublishedProcedure', 'EmptyProcedure') {
+        $budget = & $target -Mode $mode -Run 'resume_guard_procedure' -LedgerPath $path -MaxRequests 100 -AuthorizePaidModelCalls -ValidateOnly
+        if ($budget.Remaining -ne 99) { throw 'Procedure comparisons must reuse the shared ledger.' }
+    }
     [IO.File]::Delete($path)
     Assert-Rejected { & $budgetReader -LedgerPath $path }
     if (Test-Path -LiteralPath $path) { throw 'Missing ledger was recreated.' }

@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9_-]{1,60}$')][string]$Run,
-    [ValidateSet('AutonomousRead', 'DirectFinish', 'RecordedRecovery', 'BriefLow')][string]$Mode = 'AutonomousRead',
-    [ValidateRange(1, 4)][int]$MaxRequests = 4,
+    [ValidateSet('AutonomousRead', 'DirectFinish', 'RecordedRecovery', 'BriefLow', 'PublishedProcedure', 'EmptyProcedure')][string]$Mode = 'AutonomousRead',
+    # Total allowance of the existing shared ledger. Each investigation still has at most four model rounds.
+    [ValidateRange(1, 100)][int]$MaxRequests = 4,
     [switch]$AuthorizePaidModelCalls,
     [string]$LedgerPath = $env:PLANTOPS_LLM_REQUEST_LEDGER,
     [switch]$ValidateOnly
@@ -41,6 +42,8 @@ try {
     $env:PLANTOPS_LLM_CAPTURE_REQUESTS = '1'
     $env:PLANTOPS_LIVE_REPORT_ROOT = $reportRoot
     $method = switch ($Mode) {
+        PublishedProcedure { 'RealAgentUsesPublishedProcedure' }
+        EmptyProcedure { 'RealAgentReportsEmptyProcedureSearch' }
         AutonomousRead { 'RealAgentReadsScopedEvidenceAndProducesAReviewableProposal' }
         DirectFinish { 'RealInitialSnapshotProducesAReviewableProposalWithoutExtraReads' }
         RecordedRecovery { 'RealAgentInvestigatesRecordedRecovery' }
