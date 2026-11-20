@@ -131,16 +131,19 @@ public sealed class AgentEvidenceAcceptanceTests
             var completion = new LlmCompletion(null, [new("read", "get_recent_alarms", "{}")], "script", new(100, 20));
             File.WriteAllText(Path.Combine(root, "requests.jsonl.completion-current.json"), JsonSerializer.Serialize(new
             {
+                leaseId = "current",
                 requestSha256 = "ABC",
                 completion
             }));
             File.WriteAllText(Path.Combine(root, "requests.jsonl.completion-other.json"), JsonSerializer.Serialize(new
             {
-                requestSha256 = "DEF",
+                leaseId = "other",
+                requestSha256 = "ABC",
                 completion
             }));
             var record = JsonSerializer.SerializeToElement(new
             {
+                leaseId = "current",
                 requests = new[] { new { requestSha256 = "abc" } }
             });
             Assert.Single(AgentEvidenceAcceptance.CapturedChoices(Path.Combine(root, "requests.jsonl"), record));
