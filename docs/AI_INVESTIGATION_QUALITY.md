@@ -32,6 +32,8 @@ Recommendations specify the task, record, completion criteria and escalation res
 
 Classify regressions by evidence, tool orchestration, typed contract or semantic reasoning. Review both accepted inappropriate advice and rejected appropriate advice. Include paraphrases, contradictions, mixed-quality evidence and reviewer-controlled unseen cases alongside the visible fixtures. [AI Engineering Guardrails](AI_ENGINEERING_GUARDRAILS.md)
 
+For a comparison with unaided engineering judgment, use the [paired review record](PORTFOLIO_PAIRED_REVIEW.md) to freeze the first answer, collect the assisted answer and score both against an independently prepared case.
+
 ### P6 semantic review matrix
 
 Review the final answer against the evidence sent in the final request when a capture is available. Use the frozen ledger and traces to examine availability, tool reads and projection omissions. Record the run and prompt version, finding and recommendation IDs, applicable evidence IDs, and a judgment of supported, incomplete, contradicted or unassessable. Equivalent wording is acceptable.
