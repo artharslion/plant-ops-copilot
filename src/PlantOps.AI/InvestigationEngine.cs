@@ -357,6 +357,7 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
                 {
                     decision = toolAvailability,
                     offeredToolCount = available.Count,
+                    offeredToolNames = available.Select(tool => tool.Name).ToArray(),
                     remainingInputTokens = budget.RemainingInputTokens,
                     inputReservation,
                     toolRequestReservation,
@@ -377,6 +378,11 @@ public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions>
             // The HTTP gateway captures before usage reconciliation; this fallback
             // also covers deterministic/custom gateways. The budget deduplicates it.
             await budget.RecordResponseAsync(completion, requestHash, deadline.Token);
+            budget.RecordDiagnostic("tool-decision", completion.ToolCalls.Count == 0 ? "NoToolCalls" : "Selected", new
+            {
+                requestSha256 = requestHash,
+                tools = completion.ToolCalls.Select(call => Tools.Any(tool => tool.Name == call.Name) ? call.Name : "unrecognized").ToArray()
+            });
             await authorize(deadline.Token);
             if (completion.ToolCalls.Count == 0)
             {

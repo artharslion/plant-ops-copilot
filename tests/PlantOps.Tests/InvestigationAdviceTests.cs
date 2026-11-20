@@ -274,6 +274,14 @@ public sealed class InvestigationAdviceTests
         Assert.Equal(2, budget.ModelRounds);
         Assert.Equal(1, budget.ToolCalls);
         Assert.Equal("3", JsonDocument.Parse(result.ResultJson).RootElement.GetProperty("schemaVersion").GetString());
+        var decisions = budget.Diagnostics.Where(item => item.GetProperty("stage").GetString() == "tool-decision").ToArray();
+        Assert.Equal(2, decisions.Length);
+        Assert.Equal("Selected", decisions[0].GetProperty("outcome").GetString());
+        Assert.Equal("get_recent_alarms", decisions[0].GetProperty("details").GetProperty("tools")[0].GetString());
+        Assert.Equal(1, decisions[0].GetProperty("round").GetInt32());
+        Assert.Equal("NoToolCalls", decisions[1].GetProperty("outcome").GetString());
+        Assert.Empty(decisions[1].GetProperty("details").GetProperty("tools").EnumerateArray());
+        Assert.Equal(2, decisions[1].GetProperty("round").GetInt32());
     }
 
     [Theory]
@@ -302,6 +310,8 @@ public sealed class InvestigationAdviceTests
         var actualTools = gateway.Requests[1].Tools!;
         Assert.Equal(toolsOffered, actualTools.Any(x => x.Name == "search_documents"));
         Assert.Equal(actualTools.Count, followUp.GetProperty("offeredToolCount").GetInt32());
+        Assert.Equal(actualTools.Select(tool => tool.Name),
+            followUp.GetProperty("offeredToolNames").EnumerateArray().Select(name => name.GetString()));
         var finalReservation = followUp.GetProperty("inputReservation").GetInt32();
         Assert.InRange(finalReservation, 1, remaining);
         if (toolsOffered)
@@ -352,6 +362,9 @@ public sealed class InvestigationAdviceTests
             <= decision.GetProperty("remainingInputTokens").GetInt32());
         Assert.DoesNotContain(gateway.Requests[1].Tools!, tool => tool.Name == "get_asset_details");
         Assert.Contains(gateway.Requests[1].Tools!, tool => tool.Name == "search_documents");
+        Assert.Equal(gateway.Requests[1].Tools!.Select(tool => tool.Name),
+            decision.GetProperty("offeredToolNames").EnumerateArray().Select(name => name.GetString()));
+        Assert.Empty(budget.Requests[2].GetProperty("toolBudget").GetProperty("offeredToolNames").EnumerateArray());
         Assert.Equal("investigation_read_decision", gateway.Requests[1].OutputSchema!.Name);
         Assert.Empty(gateway.Requests[2].Tools!);
         Assert.Equal("investigation_v3", gateway.Requests[2].OutputSchema!.Name);

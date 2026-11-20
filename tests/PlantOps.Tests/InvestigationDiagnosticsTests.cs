@@ -14,6 +14,29 @@ namespace PlantOps.Tests;
 public sealed class InvestigationDiagnosticsTests
 {
     [Theory]
+    [InlineData("search_documents", "search_documents")]
+    [InlineData("PRIVATE_TOOL_NAME", "unrecognized")]
+    public async Task ToolSelectionIsRecordedBeforeArgumentRejectionWithoutUntrustedText(string name, string recordedName)
+    {
+        using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        var gateway = new ScriptedLlmGateway([
+            new(null, [new("PRIVATE_CALL_ID", name, """{"query":"PRIVATE_QUERY","limit":0}""")], "fixture", new(100, 20))
+        ]);
+        InvestigationEvidence[] evidence = [new("E1", "Alarm", "Alarm", ["Alarm snapshot."], "hash", DateTimeOffset.UtcNow, Guid.NewGuid())];
+        var exception = await Assert.ThrowsAsync<LlmException>(() => new InvestigationEngine(gateway, Options.Create(new AiOptions()))
+            .ExecuteAsync(evidence, (_, _, _) => throw new InvalidOperationException(), _ => Task.CompletedTask, budget, CancellationToken.None));
+        Assert.Equal(LlmFailure.InvalidRequest, exception.Failure);
+        var selected = Assert.Single(budget.Diagnostics, item => item.GetProperty("outcome").GetString() == "Selected");
+        Assert.Equal(recordedName, selected.GetProperty("details").GetProperty("tools")[0].GetString());
+        Assert.Equal(budget.Requests[0].GetProperty("requestSha256").GetString(),
+            selected.GetProperty("details").GetProperty("requestSha256").GetString());
+        Assert.Contains(budget.Diagnostics, item => item.GetProperty("stage").GetString() == "tool-decision"
+            && item.GetProperty("outcome").GetString() == "Rejected");
+        Assert.DoesNotContain(budget.ToolTrace, item => item.GetProperty("outcome").GetString() == "Succeeded");
+        Assert.DoesNotContain("PRIVATE_", JsonSerializer.Serialize(budget.Diagnostics));
+    }
+
+    [Theory]
     [InlineData(false, "no-observational-support")]
     [InlineData(true, "overlapping-support-opposition")]
     public async Task RejectedHypothesisRetainsExactPrivateAnswerAndSafeRuleDetails(bool overlap, string branch)
