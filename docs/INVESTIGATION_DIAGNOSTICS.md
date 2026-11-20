@@ -17,6 +17,8 @@ An authorized run can include `runRecord`. A null record indicates that a histor
 | `finalAnswerReservation` | Size reserved for the current full answer when the compact decision is selected. Additional evidence is priced again in the final round. |
 | `toolRequestReservation` | Estimate of the rejected frame with tools, when available. |
 
+A completed document lookup from the built-in search service records a `document-search` diagnostic. Its `rankingVersion` identifies keyword matching across chunk text, section and title. Its `eligibleParserVersion` identifies the parser version eligible for the search, including searches with no matches. The existing read-tool trace holds the outcome, arguments and evidence IDs. A cached read reuses an earlier lookup. Older runs and search implementations that supply no policy have no such entry.
+
 A prepared frame or `reservedAttempts` records a local step. Use dispatch and response diagnostics when checking which attempts reached the transport. A digest verifies a matching capture when available. It cannot reproduce request contents.
 
 `usage.scope` is `lease-attempt`. Provider-reported counts and unknown reservations are tracked separately. `actualInputTokens` and `actualOutputTokens` are null until every reserved attempt in that lease has reported use. Consult `previousAttempt` and `previousAttemptUnknown` before aggregating an entire run. Simulated usage has its own source. A reported token count does not establish billing.

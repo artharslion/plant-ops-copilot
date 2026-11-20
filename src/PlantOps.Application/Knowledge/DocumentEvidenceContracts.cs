@@ -6,7 +6,17 @@ public sealed record DocumentEvidence(Guid DocumentId, Guid VersionId, int Versi
     int Ordinal, string Title, string Section, int StartLine, int EndLine, string Text, string Sha256,
     string ParserVersion, int Score, string CitationPath);
 
-public sealed record DocumentSearchResult(IReadOnlyList<DocumentEvidence> Items, IReadOnlyList<string> Warnings);
+public sealed record DocumentSearchPolicy(string RankingVersion, string EligibleParserVersion);
+
+public sealed record DocumentSearchResult(IReadOnlyList<DocumentEvidence> Items, IReadOnlyList<string> Warnings)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DocumentSearchPolicy? Policy
+    {
+        get;
+        init;
+    }
+}
 
 public interface IDocumentEvidenceService
 {

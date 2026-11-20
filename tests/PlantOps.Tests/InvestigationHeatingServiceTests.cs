@@ -90,6 +90,10 @@ public sealed class InvestigationHeatingServiceTests
         Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode + ":" + run.RunRecord?.GetRawText());
         Assert.Equal(3, run.Assessment!.Points.Length);
         Assert.Equal(5, run.ToolCalls);
+        var search = Assert.Single(run.RunRecord!.Value.GetProperty("diagnostics").EnumerateArray(),
+            entry => entry.GetProperty("stage").GetString() == "document-search").GetProperty("details");
+        Assert.Equal("keyword-title-section-text-v1", search.GetProperty("rankingVersion").GetString());
+        Assert.Equal(PlantOps.Application.Knowledge.TextDocumentParser.Version, search.GetProperty("eligibleParserVersion").GetString());
         Assert.InRange(run.InputTokens, 1, 16000);
         var evidence = Assert.Single(run.Evidence, x => x.Kind == "EventDerivedTrend" && x.ResourceId == point.Id);
         var trend = evidence.DerivedTrend!;

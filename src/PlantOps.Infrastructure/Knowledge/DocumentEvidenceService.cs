@@ -168,7 +168,10 @@ public sealed partial class DocumentService
             throw new DirectoryException(404, "Authorization changed. Search again.");
         }
         await tx.CommitAsync(cancellationToken);
-        return new(matches.OrderByDescending(x => x.Score).ThenBy(x => x.DocumentId).ThenBy(x => x.Ordinal).Take(limit).ToArray(), warnings.Order().ToArray());
+        return new(matches.OrderByDescending(x => x.Score).ThenBy(x => x.DocumentId).ThenBy(x => x.Ordinal).Take(limit).ToArray(), warnings.Order().ToArray())
+        {
+            Policy = new("keyword-title-section-text-v1", TextDocumentParser.Version)
+        };
     }
 
     public async Task<DocumentEvidence> ExpandAsync(Actor actor, Guid assetId, Guid documentId, Guid versionId, Guid chunkId, CancellationToken cancellationToken = default)

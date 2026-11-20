@@ -527,6 +527,10 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         break;
                     case "search_documents":
                         var docs = await documents.SearchAsync(actor, run.AssetId, arguments.GetProperty("query").GetString()!, arguments.GetProperty("limit").GetInt32(), token);
+                        if (docs.Policy != null)
+                        {
+                            budget.RecordDiagnostic("document-search", "Completed", docs.Policy);
+                        }
                         foreach (var doc in docs.Items)
                         {
                             if (!await db.DocumentVersions.AsNoTracking().AnyAsync(x => x.Id == doc.VersionId && x.PublishedAt <= capturedAt, token))
