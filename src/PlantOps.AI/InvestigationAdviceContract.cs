@@ -130,6 +130,56 @@ public static class InvestigationAdviceContract
         return new(OutputSchema.Name, JsonSerializer.SerializeToElement(root));
     }
 
+    // Preserve the response contract when the serialized schema competes with evidence for input space.
+    internal static LlmOutputSchema CompactFrameSchema(LlmOutputSchema schema)
+    {
+        var root = JsonNode.Parse(schema.Schema.GetRawText())!.AsObject();
+        var defs = root["$defs"]!.AsObject();
+        var aliases = defs.Select((item, index) => (item.Key, Alias: "d" + index.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .ToDictionary(item => item.Key, item => item.Alias, StringComparer.Ordinal);
+        foreach (var (name, alias) in aliases)
+        {
+            var definition = defs[name];
+            defs.Remove(name);
+            defs.Add(alias, definition);
+        }
+        var nonemptyText = new JsonObject { ["type"] = "string", ["minLength"] = 1 };
+        void Compact(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (JsonNode.DeepEquals(obj, nonemptyText))
+                {
+                    obj.Clear();
+                    obj["$ref"] = "#/$defs/t";
+                    return;
+                }
+                if (obj["description"] is JsonValue)
+                {
+                    obj.Remove("description");
+                }
+                if (obj["$ref"]?.GetValue<string>() is { } reference && reference.StartsWith("#/$defs/", StringComparison.Ordinal))
+                {
+                    obj["$ref"] = "#/$defs/" + aliases[reference[8..]];
+                }
+                foreach (var property in obj)
+                {
+                    Compact(property.Value);
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (var child in array)
+                {
+                    Compact(child);
+                }
+            }
+        }
+        Compact(root);
+        defs.Add("t", nonemptyText);
+        return new(schema.Name, JsonSerializer.SerializeToElement(root));
+    }
+
     private static void ScopeSubjects(JsonNode root, JsonNode requiredRefs, IReadOnlyList<InvestigationEvidence> evidence,
         InvestigationModelSubjects modelSubjects)
     {

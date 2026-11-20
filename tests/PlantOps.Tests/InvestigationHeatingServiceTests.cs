@@ -106,7 +106,8 @@ public sealed class InvestigationHeatingServiceTests
                 facts = evidence.Facts,
                 pointStatus = evidence.PointStatus,
                 derivedTrend = trend,
-                state = evidence.State
+                state = evidence.State,
+                recordedRecoveryAt = evidence.RecordedRecoveryAt
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web)))));
         Assert.Equal(expectedHash, evidence.Sha256);
         Assert.Equal("3", run.Result!.Value.GetProperty("schemaVersion").GetString());

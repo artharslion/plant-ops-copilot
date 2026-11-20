@@ -321,6 +321,14 @@ public sealed class InvestigationAdviceTests
     public async Task CompactDecisionCanSelectAnotherReadOrFinish(bool readAgain)
     {
         using var budget = new LlmBudget(new(MaxInputTokens: 32000, MaxOutputTokens: 6000));
+        budget.ToolTrace.Add(JsonSerializer.SerializeToElement(new
+        {
+            name = "get_asset_details",
+            arguments = new
+            {
+            },
+            outcome = "Succeeded"
+        }));
         var alias = new InvestigationModelSubjects(Evidence).AliasFor(Point)!;
         var gateway = new RecordingScript([
             new(null, [new("first", "get_recent_measurements", "{}")], "fixture", new(18000, 20)),
@@ -342,9 +350,46 @@ public sealed class InvestigationAdviceTests
         Assert.Equal("CompactReadDecision", decision.GetProperty("decision").GetString());
         Assert.True(decision.GetProperty("inputReservation").GetInt32() + decision.GetProperty("finalAnswerReservation").GetInt32()
             <= decision.GetProperty("remainingInputTokens").GetInt32());
+        Assert.DoesNotContain(gateway.Requests[1].Tools!, tool => tool.Name == "get_asset_details");
+        Assert.Contains(gateway.Requests[1].Tools!, tool => tool.Name == "search_documents");
         Assert.Equal("investigation_read_decision", gateway.Requests[1].OutputSchema!.Name);
         Assert.Empty(gateway.Requests[2].Tools!);
         Assert.Equal("investigation_v3", gateway.Requests[2].OutputSchema!.Name);
+    }
+
+    [Fact]
+    public void CompactSchemaPreservesAllResolvedValidationConstraints()
+    {
+        var schema = InvestigationAdviceContract.ForModel(Evidence);
+        var compact = InvestigationAdviceContract.CompactFrameSchema(schema);
+        static JsonNode Expand(JsonNode node, JsonNode root)
+        {
+            if (node is JsonArray array)
+            {
+                return new JsonArray(array.Select(child => Expand(child!, root)).ToArray());
+            }
+            if (node is not JsonObject obj)
+            {
+                return node.DeepClone();
+            }
+            if (obj["$ref"] is JsonValue reference)
+            {
+                return Expand(root["$defs"]![reference.GetValue<string>()[8..]]!, root);
+            }
+            var result = new JsonObject();
+            foreach (var (key, value) in obj)
+            {
+                if (key != "$defs" && !(key == "description" && value is JsonValue))
+                {
+                    result[key] = Expand(value!, root);
+                }
+            }
+            return result;
+        }
+        var original = JsonNode.Parse(schema.Schema.GetRawText())!;
+        var reduced = JsonNode.Parse(compact.Schema.GetRawText())!;
+        Assert.True(JsonNode.DeepEquals(Expand(original, original), Expand(reduced, reduced)));
+        Assert.True(compact.Schema.GetRawText().Length < schema.Schema.GetRawText().Length);
     }
 
     [Fact]
