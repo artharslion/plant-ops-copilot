@@ -476,6 +476,7 @@ onUnmounted(() => {
         <div v-if="writer && primaryAction">
           <el-form
             label-position="top"
+            :disabled="busy"
             @submit.prevent="mutate(primaryAction!.status, selected!.status === 'InProgress')"
           >
             <el-form-item v-if="selected.status === 'InProgress'" :label="t('处理结果（必填）')"
