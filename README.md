@@ -1,14 +1,24 @@
 # Plant Ops Copilot
 
-面向工业资产运维的 AI Copilot 演示项目。围绕设备、测量、告警和工单建立业务闭环，再由 AI 联合查询授权证据，辅助人员调查异常。
+一个用 .NET 实现的工业运维 AI Agent 作品集项目。以冷却泵 P-101 为例，可信振动持续超限后，规则产生告警。工程师发起调查，Agent 决定是否补查测量、维修记录或规程，给出带引用的核查建议。工程师可以核实依据、编辑建议、确认建单，再记录实际处理结果。
 
-项目使用虚构工厂、设备与资料，支持单组织、多工厂和角色权限隔离。基础业务可在无需模型服务或工业网络的本地环境中运行。
+现有演示使用虚构工厂和仿真设备。真实 OPC UA 采集、真实模型调查和人工审批均有本机运行记录，各自的版本和终点如下。系统支持单组织、多工厂授权。
+
+## 面试时可以核查什么
+
+| 问题 | 可直接阅读的证据 |
+| --- | --- |
+| 坏点会不会掩盖真正的告警？ | 在真实协议与 v3.13 真实模型联合运行中，温度点返回 Bad，独立振动点仍以可信的 12.6 mm/s 触发告警。模型分别建议核查设备振动和温度测量链。 [混合质量运行记录](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md#p6-补充联合验收2026-11-16) |
+| 哪些调查决定是模型做的？ | v3.11 的有规程和空检索对照都由模型发起文档检索。v3.14 的有规程用例只选择读取测量，第二轮受预算约束，最后虽生成待确认提案，仍漏了适用规程。 [有／无规程的真实模型对照](docs/archive/P6_V3_FOLLOW_UP_20261119.md#p6-v313-acceptance-follow-up-2026-11-16) · [工具与请求复盘](docs/archive/P6_V3_FOLLOW_UP_20261119.md#p6-tool-budget-review-2026-11-19) |
+| 建议怎样变成可追溯的工作？ | v3.5 的一次真实模型调查中，用户确认后创建了一张关联 Draft 工单。该次建议漏用了已有恢复证据。重复确认、撤权和写入失败的处理另有集成验证。 [调查与工单记录](docs/archive/P6_V3_FOLLOW_UP_20261119.md#2026-11-09-local-workbench-acceptance) · [审批与回滚验证](docs/archive/P4_WORK_ORDER_VALIDATION.md#verification) |
+
+想亲手操作，可从源码启动内置模拟源和默认 Fake 模型，体验调查、审批和工单处理。要演示当前源码的真实 OPC UA 链路，可按接入步骤从相邻仓库构建 IndustrialSim，再运行三点场景。 [源码 Docker 指南](docs/DOCKER.md) · [工作台接入步骤](docs/INDUSTRIALSIM_WORKBENCH.md)
 
 ## 托管演示
 
 **[打开 Plant Ops Copilot 在线工作台](https://p01--plant-ops-copilot-web-api--m4ypq7wr8x2f.code.run/)**
 
-Northflank 演示使用 Web + API、Worker + IndustrialSim 两个组合服务及 PostgreSQL。账号由环境维护者提供，登录密码不写入仓库。部署说明记录镜像版本和该版本的检查结果。
+部署说明记录的是 2026-10-29 验证的固定镜像。Northflank 使用 Web + API、Worker + IndustrialSim 两个组合服务及 PostgreSQL，演示账号由环境维护者提供。当前源码的调查效果见下方验收范围。
 
 重点演示链路：**North Plant → Cooling Pump P-101 → OPC UA 测量与趋势 → 高振动告警 → AI 证据调查 → 人工确认工单**。IndustrialSim 提供振动、温度和参考温度三个仿真测点，经真实 OPC UA 协议采集；数值由模拟场景控制，正常恒值不代表采集停止。AI 调查由人员手动发起，是否使用真实模型取决于该环境的服务端配置与页面设置。
 
@@ -28,22 +38,18 @@ Northflank 演示使用 Web + API、Worker + IndustrialSim 两个组合服务及
 
 | 模块 | 当前范围 |
 |---|---|
-| 资产运维业务 | 已实现资产、模拟测量、告警、工单、文档与权限闭环 |
+| 资产运维业务 | 已实现资产、告警、资料权限和工单处理；独立集成测试覆盖人工填写结果、完成、关闭和审计。 [工单生命周期测试](tests/PlantOps.Tests/WorkOrderTests.cs) |
 | AI 只读调查 | 已接通后台 v3 调查、按需只读工具、逐点可信度、原始观测变化与授权引用；稳定工况、当前版本自主检索规程及独立盲测仍待验收 |
 | OPC UA | 已实现受控多点常驻采集、重连及健康展示；本机三点 30 分钟运行与浏览器核查已有验证，完整故障矩阵、工业网络及长期容量仍待验收 |
-| AI 动作审批 | 已支持创建工单和向已有工单追加调查备注：编辑、完整确认、事务内重校验与幂等审计；完整 P4 验收仍待完成 |
+| AI 动作审批 | 建单及追加备注提案有编辑、确认、事务内复核与幂等回执。历史真实模型案例到 Draft；当前源码从同一调查到人工处理并关闭的联合验收仍开放。 |
 
-AI 负责解释证据与提出建议，业务状态由数据库和应用服务管理；调查工具仅提供只读能力。人员通过现有业务流程确认告警、创建和处理工单。
-
-在告警详情完成调查后，Admin 或 MaintenanceEngineer 可选择整理关联 Draft 工单，或向同一设备下仍可处理的工单追加备注。编辑并保存后，核对目标与全部内容，再明确确认。提案有效期为 15 分钟，执行时重新检查权限、资料和版本。执行结果不明时先查询原提案。整理和确认草稿不新增模型调用。详见 [调查与工单契约](docs/INVESTIGATION_RESPONSE_V3.md)。
-
-本项目用于工程演示与集成验证。生产级控制、设备写操作和安全决策在演示范围之外。调查由人员手动发起，采集与告警独立运行。各阶段的当前状态与验收证据见 [开发计划](ROADMAP.md)。
+提案由有维护权限的调查发起人本人核对和确认，有效期 15 分钟，执行时复核权限、资料和版本。整理和确认草稿不新增模型调用。现场根因正确率和维护收益尚无实测依据。 [调查与工单契约](docs/INVESTIGATION_RESPONSE_V3.md) · [开发计划与验收状态](ROADMAP.md)
 
 ## 演示场景
 
 `North Plant → Utilities → Cooling Pump P-101 → 高振动告警 → AI 证据调查 → 人工确认 → 关联工单 → 处理并关闭`
 
-模拟振动值从 4.0 升至 12.6 mm/s，规则触发告警。人员可查看趋势与资料，在告警页发起调查、展开引用，再手工确认告警并创建关联工单。关闭工单与告警自动恢复分别遵循各自的业务规则。演示阈值仅用于虚构场景。
+模拟振动值从 4.0 升至 12.6 mm/s，持续满足规则后触发告警。在告警页发起调查、展开引用并核对建议，确认提案后可打开关联工单，开始处理并填写结果。告警确认、测量回落后的规则恢复、工单关闭各自独立。演示阈值仅用于虚构场景。
 
 侧栏可切换简体中文或 English。新调查记录发起时的语言，工单和备注草稿沿用该调查的语言。工作台按北京时间显示。
 
@@ -64,7 +70,7 @@ AI 负责解释证据与提出建议，业务状态由数据库和应用服务�
 
 组合镜像为 `artharslion/plant-ops-copilot:web-api-20261029` 和 `artharslion/plant-ops-copilot:worker-sim-20261029`。两项服务使用相同的 `ConnectionStrings__PlantOps`，仅 Web + API 的 8080 HTTP 公开。配置 `AllowedHosts` 和 HTTPS 转发头后，首次部署还需运行 `deploy/northflank/connect-demo.py` 创建来源与三点映射；该步骤完成后 Worker 才会采集 IndustrialSim。
 
-**直接使用 Docker Hub 镜像（包含 IndustrialSim）**：下载 [联合部署目录](deploy/dockerhub/README.md) 中的 `compose.yaml` 和 `.env.example`，复制并填写 `.env` 后运行 `docker compose up -d --wait --wait-timeout 240`。会自动初始化数据库、启动两套服务并接入 P-101 的三个 OPC UA 测点，无需下载源码或本机安装 .NET / Node。
+**直接使用 Docker Hub 镜像（包含 IndustrialSim）**：默认组合对应 2026-10-28 的协议验证。下载 [联合部署目录](deploy/dockerhub/README.md) 中的 `compose.yaml` 和 `.env.example`，复制并填写 `.env` 后运行 `docker compose up -d --wait --wait-timeout 240`。会自动初始化数据库并接入 P-101 的三个 OPC UA 测点，无需下载源码或本机安装 .NET / Node。
 
 从源码构建的启动方式如下。
 

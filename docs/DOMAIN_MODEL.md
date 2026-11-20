@@ -4,7 +4,7 @@
 
 业务结构为 `Asset → MeasurementPoint → MeasurementReading`；`SourceMapping` 将数据源连接到点位，`AlarmRule` 针对点位而非协议节点，生成 `Alarm`。**AI is not the source of truth**，不把模型输出写成测量事实或设备/告警状态。
 
-Golden Path：North Plant → Utilities → Cooling Pump P-101 → vibration rise → alarm → acknowledge → work order → close。下面的振动点位、读数与规则在各阶段保持相同业务语义，来源可为 Simulation 或 OPC UA。
+在 North Plant 的 Cooling Pump P-101 演示中，可信振动观测持续超限后形成告警。人员从告警发起调查，可展开 Agent 引用的观测和资料。有维护权限的发起人可核对提案并确认创建关联 Draft 工单，之后由维护人员记录处理结果并关闭工单。告警确认、规则判定的恢复和工单关闭各自记录。各段的实际验收范围见 [开发计划](../ROADMAP.md)。
 
 ## 1. 关系
 
@@ -31,7 +31,9 @@ erDiagram
   MeasurementPoint ||--o{ SourceMapping : receives
   MeasurementPoint ||--o{ IngestionGap : gaps
   User ||--o{ AiRun : requests
-  AiRun ||--o{ ActionProposal : suggests
+  Alarm ||--o{ AiRun : investigated_in
+  AiRun ||--o{ ActionProposal : basis_for
+  User ||--o{ ActionProposal : owns
   ActionProposal o|--o| WorkOrder : creates
   ActionProposal o|--o| WorkOrderNote : appends
 ```
@@ -118,13 +120,13 @@ State = Active / Recovered；Acknowledged 是独立维度，由时间/用户表�
 
 ### WorkOrder
 
-`Id, PlantId, AssetId, AlarmId?, Number, Title, Description, Priority, Status, AssignedToUserId?, CreatedByUserId, CompletedAt?, ClosedAt?, Resolution?, Source, AiProposalId?, Version`。
+`Id, PlantId, AssetId, AlarmId?, Number, Title, Description, Priority, Status, AssignedToUserId?, CreatedByUserId, CreatedAt, CompletedAt?, ClosedAt?, Resolution?, Source, AiProposalId?, Version`。
 
-Number 在工厂内唯一；AlarmId 必须同设备同工厂；AssignedTo 必须有该厂维护权限。Source = Manual / AiApproved；AiProposalId 在创建工单动作时唯一。
+工单编号在工厂内唯一。关联的告警必须属于同一工厂和设备，指派人选须有该厂维护权限。手工建单写入 `Source = Manual`，审批提案建单写入 `Source = AIProposal` 并保存唯一的 `AiProposalId`。
 
 状态：Draft → Open → InProgress → Completed → Closed。Draft/Open/InProgress 可 Cancelled，Completed 可退回 InProgress（记录原因），Closed/Cancelled 终态。完成需 Resolution；关闭需 Completed 和关闭者权限。工单关闭不修改 Alarm.State。
 
-维修历史是资产的 Completed/Closed 工单及其备注投影，第一版不再维护一套易失同步的 MaintenanceHistory 表。
+维修历史页面列出该设备已完成或关闭的工单，详情可查处理结果及备注。调查工具 `get_maintenance_history` 按需读取同设备、创建时间不晚于取证截止的工单，最多返回最近五笔，摘要包含实际查询时的状态与处理结果。
 
 `WorkOrderNote` 保留 `WorkOrderId`、内容、类别、提交者和发生时间。由审批提案追加的备注带 `AiProposalId`。备注和状态变更与工单版本、审计在同一事务保存。关闭或取消后禁止追加，返工原因与旧结果由备注及审计回查。写操作要求同厂 MaintenanceEngineer 或 Admin 权限，指派仅允许启用且有同厂维护权限的用户。
 
@@ -170,12 +172,12 @@ AlarmEvent：`Id, AlarmId, EventType (Raised/Acknowledged/Recovered), OccurredAt
 | IngestionGap | Id、PointId、DataSourceId?、From、To?、Reason、DetectedAt、RecoveredAt?、DroppedCount?、IsPossible；未知数量为 null，缺口不等同实际每个样本都已丢失 |
 | DocumentChunk | Id、DocumentId、VersionId、Ordinal、Section、StartLine、EndLine、Text、Sha256、ParserVersion |
 | AiRun | 保存工厂、设备、告警、发起者、调查语言、Provider/Model、执行状态、冻结证据和结果。`RunRecordJson` 保留新运行的版本指纹、用量及诊断 |
-| ActionProposal | 关联调查、工厂、设备和告警，保存所有者、动作类型、正文与哈希、依赖资源版本、版本及截止时间。执行后记录结果实体和执行时间 |
-| AuditLog | Id、ActorUserId?/ServiceActor、Action、ResourceType/Id、PlantId、Before/After 摘要、OccurredAt、CorrelationId、AiRunId?/ProposalId? |
+| ActionProposal | `AiRunId` 指向成功的调查。保存所有者、动作类型、工厂、设备、告警、正文与哈希、依赖资源版本和截止时间。执行后保存结果实体 ID、执行时间、幂等键和审批请求关联号 |
+| AuditLog | `ActorUserId` 标识操作者，规则触发告警时记为 `worker:alarm-engine`。`PlantId`、`ResourceType` 和 `ResourceId` 定位资源，另存动作、变更前后内容、时间和请求关联号 |
 
-同点位最多一个 Enabled 的主映射；SourceMapping 与 DataSource/Point 必须同厂。Simulation Source 与 OPC UA Source 均保留，可在不同点位同时运行，也可通过独立演示配置分别跑通 Golden Path。同点位改来源必须显式停用旧映射、排空/隔离旧队列、启用新映射并中断规则待判计时，保留来源切换记录及可能缺口；不自动回退到模拟源，不混合两种源的读数。
+同点位最多一个 Enabled 的主映射；SourceMapping 与 DataSource/Point 必须同厂。Simulation Source 与 OPC UA Source 均保留，可在不同点位同时运行，两者共用入库与告警规则。同点位改来源必须显式停用旧映射、排空/隔离旧队列、启用新映射并中断规则待判计时，保留来源切换记录及可能缺口；不自动回退到模拟源，不混合两种源的读数。
 
-`ActionProposal` 从 Pending 转为 Rejected、Expired、Invalidated 或 Executed。人工确认后，提案状态和业务写入在同一事务完成。提交结果未知时，先按提案 Id 查回执。创建工单写入关联告警的 Draft，追加备注写入目标工单。
+`ActionProposal` 从 Pending 转为 Rejected、Expired、Invalidated 或 Executed。具备维护权限的提案所有者核对并确认后，关联 Draft 工单或目标工单备注与提案执行记录在同一事务内写入。提交结果未知时可按提案 ID 查回执。从工单或备注上的 `AiProposalId` 可以追到提案，再由 `AiRunId` 找到调查、告警及冻结证据。`ApprovalCorrelationId` 与同一审批请求的审计记录共享关联号。
 
 服务端检查调查哈希与资料权限，并通过 `AssetVersion`、`AlarmVersion` 和备注动作的 `TargetWorkOrderVersion` 核对目标当前版本。
 

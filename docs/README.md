@@ -6,6 +6,7 @@
 
 | 任务 | 查阅 |
 | --- | --- |
+| 面试演示、判断已验证到哪一步 | [无需账号的三个案例](../README.md#面试时可以核查什么) · [作品集完成条件](../PROJECT_SPEC.md#作品集的完成条件) · [当前投入顺序](../ROADMAP.md#1-定位边界与阶段顺序) |
 | 本地开发、代码检查 | [开发指南](DEVELOPMENT.md) · [代码风格](CODE_STYLE.md) |
 | 启动或维护容器 | [源码 Docker](DOCKER.md) · [Docker Hub](../deploy/dockerhub/README.md) · [Northflank](../deploy/northflank/README.md) |
 | 接入 IndustrialSim 或复验采集 | [工作台接入](INDUSTRIALSIM_WORKBENCH.md) · [OPC UA 集成](OPCUA_INTEGRATION.md) · [隔离三点复验](INDUSTRIALSIM_RUNTIME_VALIDATION.md) |
