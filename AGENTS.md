@@ -4,9 +4,9 @@
 
 - Before GitHub mutations, verify the authenticated account, target repository and required repository permissions. Use the account authorized by the current user for the task; do not assume Git SSH and API/connector sessions share an identity. Do not prescribe a contributor account or local SSH alias.
 
-- Keep context task-scoped. Locate the relevant source files first; use `docs/README.md` only when documentation is needed and `ROADMAP.md` when current priorities or acceptance scope matter. Do not read all top-level documents at session start.
+- Start with the affected source and tests. Open [the documentation index](docs/README.md) when a runbook or contract is needed, and [the roadmap](ROADMAP.md) when priorities or acceptance status matter. Read only the relevant sections.
 - For new investigation behavior, use `docs/INVESTIGATION_RESPONSE_V3.md` and the active `InvestigationEngine`. Read legacy contracts and engines only for compatibility or replay work.
-- `docs/archive/` contains historical snapshots and ended implementation plans. Read only the relevant section for explicit historical checks or detailed acceptance criteria linked by the current roadmap. Historical statuses and request allowances are not current instructions or authorization.
+- Keep `docs/archive/` out of routine context and searches. Open the linked section only for historical verification, replay, or a detailed acceptance baseline referenced by the roadmap. Historical status, deployment notes, and request allowances do not grant current authorization.
 - Scope searches to the affected directories. Respect ignore files; avoid recursive inventories of `artifacts/`, `work/`, `.vs/`, dependencies and build outputs. Read a specific report or bounded excerpt when diagnosing a run.
 - Preserve verification evidence, licenses and runtime artifacts. For documentation-only edits, check local links and the diff; do not start services or run model/database tests.
 

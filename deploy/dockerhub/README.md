@@ -70,7 +70,7 @@ docker compose down
 
 再次启动继续使用原来的 `.env` 和启动命令。更改 `.env` 中的密码不会修改已有数据库账号密码，也不会重置已有演示用户密码；请保管首次使用的凭据。
 
-镜像固定到已验证的源码版本，默认组合为：
+默认版本固定在 2026-10-28 验证的发布组合。复现当前仓库源码的能力时，按 [源码 Docker 指南](../../docs/DOCKER.md) 构建。默认组合如下。
 
 - `artharslion/plant-ops-copilot:api-2cf19c8`
 - `artharslion/plant-ops-copilot:worker-2cf19c8`

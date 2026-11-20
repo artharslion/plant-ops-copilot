@@ -14,7 +14,7 @@
 
 ## 已运行的真实协议实验
 
-`plantops_tests.opcua_runtime_trial3_20261020`，证据 [result.json](../artifacts/opcua-runtime/trial3_20261020/result.json)。北京时间 17:46:42–17:47:19，普通 MeasurementWorker 实际运行；观测为仿真，SDK 订阅与 PostgreSQL 写入为真实行为。
+`plantops_tests.opcua_runtime_trial3_20261020`，证据 [result.json](../../artifacts/opcua-runtime/trial3_20261020/result.json)。北京时间 17:46:42–17:47:19，普通 MeasurementWorker 实际运行；观测为仿真，SDK 订阅与 PostgreSQL 写入为真实行为。
 
 | 核查 | 结果 |
 | --- | --- |
@@ -49,6 +49,6 @@ trial1 在启动采集前因运行器缺少 IHostEnvironment 失败；trial2 在
 
 实验上限 150 秒/500 条，观测磁盘至少留 2 GiB、新增消耗不超过 256 MiB；不是系统硬配额或长期容量验收。运行器只创建新 `opcua_runtime_*` schema，端口 48480 被占用则脚本提前拒绝，不停止已有进程。
 
-手工配置常驻本机演示时，参考 [local-runtime.example.json](../deploy/opcua/local-runtime.example.json)，由部署方将键写入 API/Worker 实际加载的配置或环境变量（环境变量以 `__` 分段）；该文件不会自动加载。环境必须 Development，迁移须包含 `20261020093426_ControlledOpcUaSourceHealth`。先启用来源/点位，再启用精确映射；不直接修改数据库绕过 API。示例只批准已有 IndustrialSim 单节点；扩点必须由部署方逐项批准真实存在的节点。
+手工配置常驻本机演示时，参考 [local-runtime.example.json](../../deploy/opcua/local-runtime.example.json)，由部署方将键写入 API/Worker 实际加载的配置或环境变量（环境变量以 `__` 分段）；该文件不会自动加载。环境必须 Development，迁移须包含 `20261020093426_ControlledOpcUaSourceHealth`。先启用来源/点位，再启用精确映射；不直接修改数据库绕过 API。示例只批准已有 IndustrialSim 单节点；扩点必须由部署方逐项批准真实存在的节点。
 
 Docker 容器的 loopback 仍指容器本身。当前策略明确拒绝 host.docker.internal / 服务名 / 工业网地址，因此不会把宿主模拟器悄悄转为容器远程连接；现有 Compose 默认不开启此运行模式。完整证书运维、工业网络、长周期容量、数据库停机/进程崩溃恢复、多实例及新增实时 AI 联合验收仍开放。

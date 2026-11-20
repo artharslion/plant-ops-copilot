@@ -1,6 +1,6 @@
-# 领域模型 v0.1
+# 领域模型
 
-日期：2026-10-03。本文件是字段与状态语义的权威来源。采用关系模型，实体 ID 默认 UUID；业务 code 是可读标识，不作为跨表外键。
+本文概述业务关系与主要状态。字段、索引及约束以 [领域实体](../src/PlantOps.Domain) 和 [EF 持久化映射](../src/PlantOps.Infrastructure/Persistence) 为准。业务实体通常使用 UUID，用户沿用 Identity 的字符串 ID。业务 code 是可读标识，表之间通过实体 ID 关联。
 
 业务结构为 `Asset → MeasurementPoint → MeasurementReading`；`SourceMapping` 将数据源连接到点位，`AlarmRule` 针对点位而非协议节点，生成 `Alarm`。**AI is not the source of truth**，不把模型输出写成测量事实或设备/告警状态。
 
@@ -33,13 +33,14 @@ erDiagram
   User ||--o{ AiRun : requests
   AiRun ||--o{ ActionProposal : suggests
   ActionProposal o|--o| WorkOrder : creates
+  ActionProposal o|--o| WorkOrderNote : appends
 ```
 
 工厂内资源可冗余 PlantId 以高效授权，但必须用组合外键/应用校验保证归属一致，不能接受客户端任意提交的 PlantId。角色由 Identity 管理；UserPlantAccess 管访问范围，Document ACL 进一步缩小资料权限。
 
 ## 2. 通用约定
 
-- 可变业务实体：Id、CreatedAt、UpdatedAt、Version（bigint，应用更新时加 1，EF 并发 token）。不可变样本/日志使用 Id 和 CreatedAt，不伪造 UpdatedAt。
+- 可变业务实体使用 `Version` 检查并发更新。创建、观测、处理和审计时间按各自的业务事件保留。
 - UTC 时间在 PostgreSQL 用 timestamptz，API 输出带 Z；测量的源时间可能缺失，不能以接收时间冒充来源时间。
 - 枚举固定字符串值，增加值必须考虑旧客户端兼容；API DTO 不直接序列化 EF 实体。
 - 资产/点位/规则/用户以归档或禁用替代物理删除；工单/告警/审计历史保留。历史文档版本不可覆盖。
@@ -74,7 +75,7 @@ DisplayTimeZone 仅影响显示；业务时间计算使用 UTC。归档前必须
 
 `(AssetId, Code)` 唯一；MVP ValueType = Double，Quantity 如 Vibration/Temperature/Pressure。示例点位 `VIBRATION_RMS` 单位 `mm/s`。已存在样本后，Quantity、ValueType、CanonicalUnit 不原地改，需建新点位；不同源的单位在 Adapter 转换。
 
-2026-10-06 的 P1 历史保护同时冻结 ExpectedIntervalMs：存在快照、原始或分钟历史，或启用映射时，间隔/单位/量纲变更须建新点位。原始过期不解除分钟历史保护。P2.2 增量已新增 SamplingProfile 的历史修正参数模型与统计读取；真实协议生产、区间关闭和配置切换屏障尚未实现，持续接入仍受 G0 门槛约束。
+存在最新快照、原始或分钟历史，或启用映射时，更改间隔、单位或量纲须建新点位。常驻 OPC UA 采集按实际订阅修正参数打开和关闭采样区间，入库复核配置版本。运行边界见 [OPC UA 集成](OPCUA_INTEGRATION.md)。
 
 **SamplingProfile**：`Id, PointId, SourceMappingId, MappingVersion, EffectiveFrom, EffectiveTo?, Mode, RevisedSamplingIntervalMs?, RevisedPublishingIntervalMs?, RevisedQueueSize?`。Mode = Periodic / Changes / Unknown；周期覆盖率按完整且不重叠的历史生效区间及修正间隔计算，Changes、未知或缺失区间返回 null，不回填猜测的旧配置。MeasurementMinute 新增 SamplingMode，CoverageRatio 可空；原 Simulation 的固定间隔统计继续保留。协议修正参数不能由管理员请求值冒充。
 
@@ -82,7 +83,7 @@ DisplayTimeZone 仅影响显示；业务时间计算使用 UTC。归档前必须
 
 `Id, PlantId, DataSourceId, PointId, SourceKey, RawUnit, Scale, Offset, SourceParameters, Enabled, Version`。
 
-SourceKey 是源内的逻辑信号键，例如模拟器的 `P101.VibrationRms`；SourceParameters 是经来源类型 schema 校验、版本化的配置：Simulation 保存场景/信号参数，OPC UA 保存 NamespaceUri、IdentifierType、Identifier、SamplingIntervalMs、QueueSize。单位转换规则对两种源统一适用。
+SourceKey 是源内的逻辑信号键。OPC UA 的 SourceKey 由 Namespace URI 和标识符的类型、内容派生。SourceParameters 由来源类型校验，OPC UA 保存 `NamespaceUri`、`IdentifierType`、`Identifier`、`SamplingIntervalMs`、`QueueSize` 和 `SamplingMode`。两种源均使用映射的单位换算，允许的单位组合按来源类型约束。
 
 NodeId 只在 OPC UA Adapter 内由映射参数解析；数据库保存 Namespace URI 与标识符等映射配置，不保存 SDK NodeId 对象，不向 MeasurementPoint、MeasurementReading 或 AlarmRule 暴露节点标识。
 
@@ -107,7 +108,7 @@ NodeId 只在 OPC UA Adapter 内由映射参数解析；数据库保存 Namespac
 
 **PointLatestState（投影）**：`PointId, LatestObservedReadingId, LastGoodReadingId?, LastReceivedAt, LastTrustedEffectiveAt?, Version`，同时复制最新观测/可信观测的值、单位、质量与时间摘要。LatestObserved 按 `(EffectiveAt, ReceivedAt)` 单调更新，不被迟到样本回退；LastReceivedAt 记录任何有效入站通知。未来时间异常样本只进历史异常记录，不成为“最新”值。LastGood 保留历史可信观测，但其新鲜度独立计算，不可一直显示为当前正常。
 
-**MeasurementMinute（投影）**：`PointId, BucketStart, Min?, Max?, Avg?, GoodCount, UncertainCount, BadCount, HasGap, CoverageRatio`，唯一 `(PointId, BucketStart)`；统计 Good 且无时间异常的数值。CoverageRatio 是实际有效样本数/按订阅修正采样间隔预期数，最高 1；变化通知模式下不使用该比率推断物理采样覆盖。
+**MeasurementMinute（投影）** 包含 `PointId`、`BucketStart`、有效 Good 数值的最小值、最大值、平均值，以及按质量统计的样本数、采样模式、缺口和覆盖率，唯一键为 `(PointId, BucketStart)`。覆盖率依据适用的期望间隔和已知区间计算，最高为 1。变化通知、未知或不适用的区间没有覆盖率。
 
 ### Alarm（业务告警实例）
 
@@ -125,7 +126,7 @@ Number 在工厂内唯一；AlarmId 必须同设备同工厂；AssignedTo 必须
 
 维修历史是资产的 Completed/Closed 工单及其备注投影，第一版不再维护一套易失同步的 MaintenanceHistory 表。
 
-P1.5 已实现工单及 WorkOrderNote（Id/WorkOrderId/Text/Kind/ActorUserId/OccurredAt）。CreatedAt 支持稳定游标，Number 为服务端 WO-UUID；备注及迁移与 version/AuditLog 同事务。关闭/取消后禁止追加；返工原因与旧结果由备注及审计回查。所有写操作 Engineer/Admin；指派仅允许启用且有同厂维护权限的用户。
+`WorkOrderNote` 保留 `WorkOrderId`、内容、类别、提交者和发生时间。由审批提案追加的备注带 `AiProposalId`。备注和状态变更与工单版本、审计在同一事务保存。关闭或取消后禁止追加，返工原因与旧结果由备注及审计回查。写操作要求同厂 MaintenanceEngineer 或 Admin 权限，指派仅允许启用且有同厂维护权限的用户。
 
 ### Document / DocumentVersion
 
@@ -133,17 +134,17 @@ Document：`Id, PlantId, AssetId?, Title, Category, Visibility, AllowedRoles[], 
 
 DocumentVersion：`Id, DocumentId, VersionNumber, FileName, MediaType, StorageKey, Sha256, SizeBytes, Status, UploadedByUserId, UploadedAt, PublishedAt?, IndexStatus, ParserVersion?`。
 
-Status = Draft / Published / Withdrawn；IndexStatus = NotRequested / Pending / Processing / Ready / NeedsText / Failed。发布事务更新当前发布版本，旧版本内容保留但默认 RAG 只检索当前版本。撤回、ACL 更改和归档立即阻止检索/下载；后台删除向量可延迟，但查询必须实时校验源文档状态。历史引用受当前权限约束，不能借旧链接绕过撤回。
+版本状态为 Draft、Published 或 Withdrawn。发布事务更新当前发布版本，调查检索仅使用当前发布并获授权的版本。查询和展开引用时重新校验版本、文件及访问权限。历史引用同样受当前 ACL、发布和撤回状态约束。
 
-P1.6 已实现文档/版本/ACL，当前版本撤回后全部历史链接拒绝，单独撤回旧版本则该版本拒绝。读取文档元数据需同厂与 ACL，普通读者仅可见有发布版本的文档及 Published 版本；维护角色可查看自己的授权范围内草稿。最多 200 内容版本，版本号不可变，文件 SHA-256 可追溯。PDF 为 NeedsText，Phase 1 不解析或索引。
+读取文档元数据要求同厂与 ACL，普通读者仅可见可发布读取的资料和 Published 版本，维护角色可查看其授权范围内草稿。每份资料最多 200 个内容版本，版本号不可变，文件以 SHA-256 追溯。TXT/MD 可生成 `Ready` 文本片段，过大或无效文本等情况保留相应索引状态。PDF 保留原文件，索引状态为 `NeedsText`。PDF 页码索引和检索增强见 [开发计划 P7](../ROADMAP.md#5-p7设备知识与-rag-增强)。
 
 ### User
 
-`Id, IdentitySubject, DisplayName, IsEnabled, Roles, SecurityStamp`；密码哈希等由 Identity 管理，不在 API DTO 暴露。
+本地账号使用 `PlantOpsUser` 的 `Id`、`UserName`、`DisplayName`、`IsEnabled` 和 `SecurityStamp`。角色与密码哈希由 ASP.NET Core Identity 管理。
 
-UserPlantAccess：`UserId, PlantId, GrantedAt, GrantedByUserId`，组合唯一。禁用/撤权更新会话安全状态、关闭实时连接并使待执行提案重新校验失败。
+`UserPlantAccess` 使用 `UserId` 和 `PlantId` 的组合键，并保留授权时间及授权者。请求、实时连接和审批执行都会重新核对当前授权。
 
-P1.2 已实现 ASP.NET Core Identity 的 PlantOpsUser（Id/UserName/DisplayName/IsEnabled/SecurityStamp）、Identity 角色表与上述 UserPlantAccess。IdentitySubject 留给外部身份映射，当前本地账号以 Identity Id 为用户标识；P1.2 当时无实时连接，P1.6 已新增 SignalR 并持续复查权限，动作提案仍未实现。Plant/Location/Asset 上述字段已迁移。位置父节点和设备位置以复合外键强制同厂，删除关系 Restrict；位置自引用/循环由事务用例验证。归档不删除任何行，当前不支持恢复；归档工厂拒绝未归档设备，归档位置拒绝未归档子位置/设备。AuditLog 持久化 actor、工厂、资源、before/after、UTC 时间与 correlationId；历史摘要不依赖可删除的当前实体外键。
+位置父节点和设备位置以复合外键强制同厂。事务中检查位置自引用与祖先循环。归档工厂要求先处理未归档设备及启用的数据源，归档位置要求先处理其未归档的子位置和设备。归档后的历史仍受工厂授权约束。
 
 ## 4. 告警规则与状态语义
 
@@ -165,27 +166,26 @@ AlarmEvent：`Id, AlarmId, EventType (Raised/Acknowledged/Recovered), OccurredAt
 
 | 实体 | 关键字段 / 约束 |
 |---|---|
-| DataSource | Id、PlantId、Name、Kind (Simulation/OpcUa)、ConnectionParameters、CredentialRef?、Enabled、Version；P2.2 只允许保存停用 OPC UA 配置：EndpointReference 与 PublishingIntervalMs，地址由部署批准列表解析；持续连接的安全与凭据生命周期尚未实现，凭据只保存引用 |
-| SourceMapping | 见核心实体定义；统一映射字段与按来源类型校验的参数分离，Phase 1 已用于 Simulation，Phase 2 新增 OPC UA 配置 |
+| DataSource | Id、PlantId、Name、Kind (Simulation/OpcUa)、ConnectionParameters、Enabled、Version。OPC UA 的配置保存 EndpointReference 与 PublishingIntervalMs，受控回环启用要求见 [OPC UA 集成](OPCUA_INTEGRATION.md) |
 | IngestionGap | Id、PointId、DataSourceId?、From、To?、Reason、DetectedAt、RecoveredAt?、DroppedCount?、IsPossible；未知数量为 null，缺口不等同实际每个样本都已丢失 |
-| DocumentChunk | Id、DocumentVersionId、Ordinal、Page?、Section?、Text、ContentHash、EmbeddingModelId、Embedding；内容与版本不可变 |
-| AiRun | Id、RequestedByUserId、PlantId、AlarmId、Status、PromptVersion、SchemaVersion、Provider/Model、StartedAt、CompletedAt?、Usage、ErrorCode、CorrelationId、ResultJson? |
-| ActionProposal | Id、AiRunId、RequestedByUserId、ActionType、TargetId、PayloadJson、PayloadHash、TargetVersionsJson、Status、ExpiresAt、ApprovedBy?、ApprovedAt?、ResultEntityId?、Version |
+| DocumentChunk | Id、DocumentId、VersionId、Ordinal、Section、StartLine、EndLine、Text、Sha256、ParserVersion |
+| AiRun | 保存工厂、设备、告警、发起者、调查语言、Provider/Model、执行状态、冻结证据和结果。`RunRecordJson` 保留新运行的版本指纹、用量及诊断 |
+| ActionProposal | 关联调查、工厂、设备和告警，保存所有者、动作类型、正文与哈希、依赖资源版本、版本及截止时间。执行后记录结果实体和执行时间 |
 | AuditLog | Id、ActorUserId?/ServiceActor、Action、ResourceType/Id、PlantId、Before/After 摘要、OccurredAt、CorrelationId、AiRunId?/ProposalId? |
 
 同点位最多一个 Enabled 的主映射；SourceMapping 与 DataSource/Point 必须同厂。Simulation Source 与 OPC UA Source 均保留，可在不同点位同时运行，也可通过独立演示配置分别跑通 Golden Path。同点位改来源必须显式停用旧映射、排空/隔离旧队列、启用新映射并中断规则待判计时，保留来源切换记录及可能缺口；不自动回退到模拟源，不混合两种源的读数。
 
-ActionProposal 状态：Pending → Rejected / Expired / Executed / Failed。第一版批准和执行在一个数据库事务中完成，成功原子变为 Executed；不设置“已批准但尚未执行”的隐式窗口。Failed 只表示确知未产生业务效果的校验/执行失败；提交结果未知时先按 Id 查询，不直接重复创建。
+`ActionProposal` 从 Pending 转为 Rejected、Expired、Invalidated 或 Executed。人工确认后，提案状态和业务写入在同一事务完成。提交结果未知时，先按提案 Id 查回执。创建工单写入关联告警的 Draft，追加备注写入目标工单。
 
-TargetVersionsJson 保存所有动作依赖的资源版本：创建工单至少 Asset 与所关联 Alarm；追加备注至少 WorkOrder 与 Asset。服务端构造此快照，模型不能决定应校验哪些资源。
+服务端检查调查哈希与资料权限，并通过 `AssetVersion`、`AlarmVersion` 和备注动作的 `TargetWorkOrderVersion` 核对目标当前版本。
 
 ## 6. 一致性与查询
 
-P1.3 已实现 MeasurementPoint/DataSource/SourceMapping/MeasurementReading/PointLatestState。点位、映射及读数使用同厂复合外键；启用映射使用 PointId 的部分唯一索引。点位定义默认 Double，来源配置当前固定 schemaVersion=1 的 Simulation/GoldenPath；标准间隔为 1–60 整秒、陈旧阈值覆盖间隔且不超过 300 秒。不开放任意 JSON/协议配置写入。
+点位、映射及读数使用同厂复合外键，启用映射使用 `PointId` 的部分唯一索引。点位的标准间隔为 1–60 整秒，陈旧阈值覆盖间隔且不超过 300 秒。来源配置通过受校验的输入模型写入。
 
 入库验证当前配置版本及启用状态，跨厂或旧配置样本整批拒绝；未来有效时间超过接收时间 5 秒标记 TimeAnomaly 并仅入历史。乱序照常存历史；LatestObserved 按时间元组单调更新；LastGood 只接受接收时新鲜的有效 Good。LastReceivedAt 可由去重通知更新，不能据此把旧有效时间视为新鲜。NaN/Infinity/转换溢出标准化为 Bad/null 并保留有长度限制的原值 JSON。
 
-P1.3 时读数尚未分区、分钟统计按需计算；P1.7 已迁移到 UTC EffectiveDate 日分区，唯一约束为 `(EffectiveDate, PointId, SourceEventKey)`。MeasurementMinute 持久保存 Good min/max/avg、质量数量、SampleCount、覆盖率和缺口。DirtyMeasurementMinute 标记迟到或新数据待重算；MeasurementPartition 保存 Revision/AggregatedRevision，保留任务还核对 raw/aggregate 样本数。采样间断持久保存 IngestionGap；图表仍按期望间隔断线。设备归档同事务停用点位与映射、递增版本并分别审计，历史可在原授权范围内查询。
+读数按 `EffectiveDate` 的 UTC 日期分区。`DirtyMeasurementMinute` 标记包含迟到或新数据的待重算分钟。`MeasurementPartition` 保存原始分区和聚合的修订版本，保留任务同时核对原始与聚合样本数量。采集间断保存在 `IngestionGap`。设备归档同事务停用点位与映射、递增版本并分别审计。
 
 - 工厂范围在所有读取、写入、检索和实时推送统一强制；不能只过滤列表而漏掉按 ID 查询。
 - 资产位置修改、工单迁移、审批执行均带 version；直接覆盖更新不允许。

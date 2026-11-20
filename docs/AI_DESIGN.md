@@ -4,7 +4,7 @@
 
 ## 执行与证据
 
-用户从告警手动创建 AiRun，Worker 执行单 Agent 调查，通过既有 `ILlmGateway` 调用配置的 Provider。采集、规则计算和实时页面更新不触发模型。生产入口为 `InvestigationEngine`；`LegacyInvestigationEngine` 只供历史回放和兼容。
+用户从告警手动创建 AiRun。Worker 通过 `InvestigationEngine` 和 `ILlmGateway` 执行调查。采集、规则计算和实时页面更新不触发模型。历史回放与兼容使用 `LegacyInvestigationEngine`。
 
 初始上下文包含所选告警、设备摘要及强制当前点位/质量证据，详细测量、相关告警、维护和授权资料由受控只读工具按需读取。查询范围、时间截止、参数、大小与次数有界，重复读取复用冻结证据；完整证据与 hash 保留，模型投影可按预算裁剪并披露省略。
 
@@ -28,10 +28,10 @@ AI 调查是通用的、受限的证据推理流程，不是按设备故障、�
 
 工具按 actor/工厂/资产范围授权；文档发布、版本、ACL 和 hash 在读取、展开与工单确认时重查。模型、上传资料和工具返回的文字不能扩大权限或新增写操作。
 
-实际模型、输入/输出预算、轮数、工具数和超时取当前配置与运行快照；请求发送前校验预算。报告用量与未知预留分开，失败保留，不自动重试或提高预算。关联诊断、原始回答捕获及留存边界见 [调查诊断](INVESTIGATION_DIAGNOSTICS.md)，本机凭据不写入仓库。
+调查在创建时固定 Provider 和模型，从执行配置读取轮数、工具次数、输入输出与超时上限。每次发送前预留预算，部分瞬态错误可在现有预算内重试。运行记录区分供应商报告用量和未知预留。配置、重试和排查见 [模型接入](AI_PROVIDER_SETUP.md) · [调查诊断](INVESTIGATION_DIAGNOSTICS.md)。
 
 ## 后续与历史
 
 TXT/MD 授权检索已有实现；文本 PDF、页码定位和检索评估仍属 [P7 待办](../ROADMAP.md#5-p7设备知识与-rag-增强)，向量检索是可选实验，不是当前依赖。
 
-早期 v1 JSON 示例、格式修复和旧阶段设计移至 [历史设计](archive/AI_DESIGN_LEGACY.md)，仅在核对旧版本时读取。真实模型语义与自主闭环的有限通过和未通过范围见 [v3 验证](INVESTIGATION_V3_REAL_VALIDATION_20261030.md)，不据设计宣称完整验收。
+调查验收以当前路线图为准。旧版 JSON 示例和历史交付记录按版本查阅。[历史设计](archive/AI_DESIGN_LEGACY.md) · [P6 验收记录](archive/P6_V3_FOLLOW_UP_20261119.md)
