@@ -73,6 +73,20 @@ try {
         $result.answerAvailability -ne 'AvailableForReview' -or $result.semanticAssessment -ne 'NotPerformed') { throw 'Previous lease or valid structure implied semantic quality.' }
     $result = Read-Fixture @{ Status = 'Succeeded'; Result = @{}; RunRecord = $record }
     if ($result.answerAvailability -ne 'AvailableForReview' -or $result.rounds.Count -ne 1) { throw 'PascalCase saved DTOs were not recognized.' }
+    foreach ($details in @(@{}, @{ tools = $null }, @{ tools = 'search_documents' }, @{ tools = @() },
+        @{ tools = @($null) }, @{ tools = @(42) }, @{ tools = @(@{ name = 'search_documents' }) })) {
+        $record.diagnostics = @((Event 'tool-decision' 'Selected' $details))
+        if ((Read-Fixture $report).rounds[0].toolSelected -ne 'Unknown') { throw 'Missing or malformed selected tool names treated as proof of absence.' }
+    }
+    $record.diagnostics = @((Event 'tool-decision' 'NoToolCalls' @{ tools = @('search_documents') }))
+    if ((Read-Fixture $report).rounds[0].toolSelected -ne 'Unknown') { throw 'Contradictory decision metadata treated as authoritative.' }
+    foreach ($tools in @(@{ offeredToolNames = $null; offeredToolCount = 5 },
+        @{ offeredToolNames = 'search_documents'; offeredToolCount = 1 },
+        @{ offeredToolNames = @(42); offeredToolCount = 1 },
+        @{ offeredToolNames = @('get_recent_alarms'); offeredToolCount = 2 })) {
+        $record.requests = @(@{ toolBudget = $tools })
+        if ((Read-Fixture $report).rounds[0].toolOffered -ne 'Unknown') { throw 'Malformed or contradictory offered tool metadata inferred availability.' }
+    }
     $result = Read-Fixture @{ status = 'Failed'; runRecord = $null }
     if ($result.timelineComplete -or $result.rounds.Count -ne 0) { throw 'Missing historical diagnostics invented.' }
 } finally {

@@ -11,6 +11,13 @@ if ($file.PSIsContainer -or $file.Length -gt 32MB) { throw 'Expected one saved J
 try { $document = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json -Depth 100 }
 catch { throw 'Invalid saved JSON report; content suppressed.' }
 function Has-Field($Value, [string]$Name) { return $null -ne $Value -and $Value.PSObject.Properties.Name -contains $Name }
+function Test-ToolNameList($Value) {
+    if ($Value -isnot [array]) { return $false }
+    foreach ($name in $Value) {
+        if ($name -isnot [string] -or [string]::IsNullOrWhiteSpace($name)) { return $false }
+    }
+    return $true
+}
 if ($document -isnot [pscustomobject]) { throw 'Expected a saved investigation run.' }
 $run = if (Has-Field $document 'run') { $document.run } else { $document }
 if ($run -isnot [pscustomobject]) { throw 'Expected a saved investigation run.' }
@@ -22,7 +29,11 @@ $rounds = @(for ($index = 0; $index -lt $requests.Count; $index++) {
     $round = $index + 1
     $request = $requests[$index]
     $roundEvents = @($events | Where-Object { $_.round -eq $round })
-    $decisions = @($roundEvents | Where-Object { $_.stage -eq 'tool-decision' -and $_.outcome -in 'Selected','NoToolCalls' })
+    $decisions = @($roundEvents | Where-Object {
+        $_.stage -eq 'tool-decision' -and (Test-ToolNameList $_.details.tools) -and
+        (($_.outcome -eq 'Selected' -and $_.details.tools.Count -gt 0) -or
+            ($_.outcome -eq 'NoToolCalls' -and $_.details.tools.Count -eq 0))
+    })
     $responses = @($roundEvents | Where-Object { $_.stage -eq 'model-response' -and $_.outcome -eq 'Received' })
     $reads = @($roundEvents | Where-Object { $_.stage -eq 'read-tool' -and $_.outcome -eq 'Started' })
     $selected = 'Unknown'
@@ -38,7 +49,11 @@ $rounds = @(for ($index = 0; $index -lt $requests.Count; $index++) {
     }
     $offered = 'Unknown'
     if (Has-Field $request.toolBudget 'offeredToolNames') {
-        $offered = if ($request.toolBudget.offeredToolNames -contains $Tool) { 'Offered' } else { 'Withheld' }
+        $names = $request.toolBudget.offeredToolNames
+        if ((Test-ToolNameList $names) -and ((-not (Has-Field $request.toolBudget 'offeredToolCount')) -or
+            $request.toolBudget.offeredToolCount -eq $names.Count)) {
+            $offered = if ($names -contains $Tool) { 'Offered' } else { 'Withheld' }
+        }
     } elseif ((Has-Field $request.toolBudget 'offeredToolCount') -and $request.toolBudget.offeredToolCount -eq 0) {
         $offered = 'Withheld'
     }
