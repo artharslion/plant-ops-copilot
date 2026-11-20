@@ -10,7 +10,7 @@
 | --- | --- |
 | 坏点会不会掩盖真正的告警？ | 在真实协议与 v3.13 真实模型联合运行中，温度点返回 Bad，独立振动点仍以可信的 12.6 mm/s 触发告警。模型分别建议核查设备振动和温度测量链。 [混合质量运行记录](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md#p6-补充联合验收2026-11-16) |
 | 哪些调查决定是模型做的？ | v3.11 的有规程和空检索对照都由模型发起文档检索。v3.14 的有规程用例只选择读取测量，第二轮受预算约束，最后虽生成待确认提案，仍漏了适用规程。 [有／无规程的真实模型对照](docs/archive/P6_V3_FOLLOW_UP_20261119.md#p6-v313-acceptance-follow-up-2026-11-16) · [工具与请求复盘](docs/archive/P6_V3_FOLLOW_UP_20261119.md#p6-tool-budget-review-2026-11-19) |
-| 建议怎样变成可追溯的工作？ | v3.14 Fake 的 P-101 温度告警在确认前有 0 张工单，确认后创建唯一 Draft，填写结果后可按设备查到 Closed 工单。 [同案审批与维修记录](docs/PORTFOLIO_WORK_ORDER_CASE.md) · v3.5 的一次真实模型调查中，用户确认后创建了一张关联 Draft 工单。该次建议漏用了已有恢复证据。重复确认、撤权和写入失败的处理另有集成验证。 [调查与工单记录](docs/archive/P6_V3_FOLLOW_UP_20261119.md#2026-11-09-local-workbench-acceptance) · [审批与回滚验证](docs/archive/P4_WORK_ORDER_VALIDATION.md#verification) |
+| 建议怎样变成可追溯的工作？ | v3.14 真实模型稳定工况已从告警、调查、审批贯通至关闭，维修历史和审计均可回查。 [真实模型与关闭回执](docs/PORTFOLIO_REAL_MODEL_CASE.md) · v3.14 Fake 的 P-101 温度告警在确认前有 0 张工单，确认后创建唯一 Draft，填写结果后可按设备查到 Closed 工单。 [同案审批与维修记录](docs/PORTFOLIO_WORK_ORDER_CASE.md) · v3.5 的一次真实模型调查中，用户确认后创建了一张关联 Draft 工单。该次建议漏用了已有恢复证据。重复确认、撤权和写入失败的处理另有集成验证。 [调查与工单记录](docs/archive/P6_V3_FOLLOW_UP_20261119.md#2026-11-09-local-workbench-acceptance) · [审批与回滚验证](docs/archive/P4_WORK_ORDER_VALIDATION.md#verification) |
 
 想亲手操作，可从源码启动内置模拟源和默认 Fake 模型，体验调查、审批和工单处理。要演示当前源码的真实 OPC UA 链路，可按接入步骤从相邻仓库构建 IndustrialSim，再运行三点场景。 [源码 Docker 指南](docs/DOCKER.md) · [工作台接入步骤](docs/INDUSTRIALSIM_WORKBENCH.md)
 
