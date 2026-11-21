@@ -44,6 +44,25 @@ try {
 
 ## 2026-11-21 工程核对
 
+### 用当前版本复核已保存的 v3 记录
+
+升级证据策略或回答契约后，可直接读取上次导出的目录。下面的检查使用每次调查冻结的时间、证据及回答，整个过程只读本地文件。
+
+```powershell
+$env:PLANTOPS_VISIBLE_REPLAY_ROOT = (Resolve-Path 'artifacts/investigation-quality/mvp_20261120_100/p8-visible-fixtures').Path
+try {
+    dotnet test tests/PlantOps.Tests --no-restore --filter FullyQualifiedName~VisibleFixtureReplayTests
+} finally {
+    Remove-Item Env:PLANTOPS_VISIBLE_REPLAY_ROOT
+}
+```
+
+选定目录后逐例检查全部 8 份文件，缺件会导致对应测试失败。测试比对冻结证据的 SHA-256，按当前策略重新计算测点可信度及异常状态，核对案例级预期，再用当前 v3 契约校验原回答的结构及引用。此步骤从冻结证据开始，覆盖范围不含采集、授权重放和建议质量盲评。
+
+首次回放 8 项均通过。另在副本上分别修改证据标题和引用目标，前者触发摘要不一致，后者触发无效引用，其余 6 项仍通过。原始记录与反例的测试回执分别为同一账本目录的 `visible-replay.trx` 和 `visible-replay-negative.trx`。
+
+### 导出核对
+
 8 项 Fake 隔离库测试全部通过，生成 8 份记录；两个温升语言版本各保存 24 条提交输入，其余各保存 48 条。逐份核对 v3 结果、Fake 来源、实际角色与工厂授权、确定性预期与结果一致，以及输入配置未包含源参数或连接参数。格式、构建和本地链接检查通过。
 
 输出位于 `artifacts/investigation-quality/mvp_20261120_100/p8-visible-fixtures/`，检查回执为相邻的 `fixture-capture.trx`、`fixture-capture-summary.json` 和 `fixture-capture-environment.json`。实际模型账本保持 64/100，此阶段新增外部请求 0 次。导出增加文件写入和测试权限读取；默认关闭，生产调查、Prompt、模型输入、只读工具及人工审批均未改动。这里的语义审阅说明只供人工使用，没有新增自动措辞或症状评分；误采纳和误拒仍未知。
