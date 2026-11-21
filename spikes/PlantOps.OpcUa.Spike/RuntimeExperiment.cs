@@ -38,7 +38,7 @@ internal static class RuntimeExperiment
     }
 
     public static async Task RunAsync(string root, bool minimalScenario = false, string? industrialSimRoot = null, bool briefLow = false,
-        bool disconnected = false, bool stable = false, bool mixedQuality = false, bool reliability = false, bool databasePause = false)
+        bool disconnected = false, bool stable = false, bool mixedQuality = false, bool reliability = false, bool databasePause = false, TankScenario? tank = null)
     {
         var connection = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_CONNECTION") ?? "";
         var parsed = new NpgsqlConnectionStringBuilder(connection);
@@ -55,9 +55,15 @@ internal static class RuntimeExperiment
             throw new InvalidOperationException("Runtime experiment requires 2 GiB free before setup.");
         }
         var liveHeating = minimalScenario && industrialSimRoot == null && MinimalScenario.LiveHeating && !reliability && !databasePause;
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(reliability ? 1950 : liveHeating ? 900 : disconnected ? 480 : 150));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(tank != null ? 360 : reliability ? 1950 : liveHeating ? 900 : disconnected ? 480 : 150));
         var ct = deadline.Token;
-        var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        var builder = new ConfigurationBuilder();
+        if (tank != null)
+        {
+            tank.ConfigureInvestigation(builder);
+        }
+
+        var settings = builder.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:PlantOps"] = connection,
             ["Demo:Password"] = Environment.GetEnvironmentVariable("PLANTOPS_RUNTIME_DEMO_PASSWORD")
@@ -71,12 +77,18 @@ internal static class RuntimeExperiment
         services.AddSingleton<IConfiguration>(settings);
         services.AddSingleton<IHostEnvironment>(new RuntimeEnvironment(root));
         services.AddPlantOpsInfrastructure(settings);
+        if (tank != null)
+        {
+            PlantOps.AI.DependencyInjection.AddPlantOpsAi(services, settings);
+        }
+
+        var definitions = tank?.Definitions ?? MinimalScenario.Points;
         var industrial = industrialSimRoot != null;
         var approved = new OpcUaApprovedRuntimeEndpoint(industrial ? IndustrialSimProcess.Endpoint : Program.Endpoint,
             industrial ? "urn:industrial-sim:server" : "urn:localhost:plantops:spike:server",
             industrial ? IndustrialSimProcess.NamespaceUri : Program.NamespaceUri,
             industrial ? IndustrialSimProcess.Nodes.Select(node => "String:" + node).ToArray() :
-            minimalScenario ? MinimalScenario.Points.Select(point => "String:" + point.Identifier).ToArray()
+            minimalScenario ? definitions.Select(point => "String:" + point.Identifier).ToArray()
                 : ["String:North.Utilities.P101.VibrationRms", "String:North.Point001.VibrationRms", "String:North.Point002.VibrationRms"],
             Path.Combine(root, "client-certificates"));
         services.AddSingleton<IOpcUaConnector>(new OpcUaRuntimeConnector(_ => approved, true, true));
@@ -110,11 +122,12 @@ internal static class RuntimeExperiment
             };
             if (minimalScenario)
             {
-                points = MinimalScenario.Points.Select(definition => new MeasurementPoint
+                var assetId = tank == null ? point.AssetId : await tank.CreateAssetAsync(db, point.AssetId, ct);
+                points = definitions.Select(definition => new MeasurementPoint
                 {
                     Id = Guid.NewGuid(),
                     PlantId = point.PlantId,
-                    AssetId = point.AssetId,
+                    AssetId = assetId,
                     Code = definition.Code,
                     Name = definition.Identifier,
                     Quantity = definition.Quantity,
@@ -127,10 +140,10 @@ internal static class RuntimeExperiment
                     Id = Guid.NewGuid(),
                     PlantId = point.PlantId,
                     PointId = points[mixedQuality ? 2 : 0].Id,
-                    Name = mixedQuality ? "Fictional vibration demo, not maintenance guidance"
+                    Name = tank != null ? "Synthetic level review threshold" : mixedQuality ? "Fictional vibration demo, not maintenance guidance"
                         : "Fictional temperature demo, not maintenance guidance",
-                    RaiseAbove = mixedQuality ? 10 : 80,
-                    ClearBelow = mixedQuality ? 8 : 75,
+                    RaiseAbove = tank != null ? 5.1 : mixedQuality ? 10 : 80,
+                    ClearBelow = tank != null ? 5.05 : mixedQuality ? 8 : 75,
                     RaiseForMs = 3000,
                     ClearForMs = 5000
                 });
@@ -171,7 +184,7 @@ internal static class RuntimeExperiment
         var telemetry = new SpikeTelemetry();
         var application = industrial ? null : await Program.ConfigureAsync("Server", Path.Combine(root, "server"), telemetry, localRuntime: true);
         var scenario = minimalScenario ? new MinimalScenario(mixedQuality, reliability) : null;
-        var server = industrial ? null : new SimulatorServer(new(Constant: false), scenario);
+        var server = industrial ? null : new SimulatorServer(new(Constant: false), (IProtocolScenario?)tank ?? scenario);
         string? scenarioPath = null;
         if (briefLow)
         {
@@ -704,6 +717,11 @@ internal static class RuntimeExperiment
                 await application!.StartAsync(server);
             }
             await worker.StartAsync(ct);
+            if (tank != null)
+            {
+                await tank.ReviewAsync(provider, root, pointIds, ct);
+                return;
+            }
             if (reliability)
             {
                 await CaptureReliabilityAsync();
@@ -728,6 +746,11 @@ internal static class RuntimeExperiment
         }
         catch (Exception exception)
         {
+            if (tank != null)
+            {
+                throw;
+            }
+
             failure = exception.GetType().Name + (reliability || databasePause ? ": " + exception.Message : "");
         }
         finally

@@ -3,8 +3,18 @@ using System.Diagnostics;
 
 namespace PlantOps.OpcUa.Spike;
 
+internal interface IProtocolScenario
+{
+    ScenarioPoint[] Definitions
+    {
+        get;
+    }
+
+    ScenarioObservation Generate(int point);
+}
+
 // Versioned, original simulated observations. No random input (seed 0).
-internal sealed class MinimalScenario(bool mixedQuality = false, bool reliability = false)
+internal sealed class MinimalScenario(bool mixedQuality = false, bool reliability = false) : IProtocolScenario
 {
     public const string Version = "p5.3-minimal-v1";
     public const int StopAtSecond = 40;
@@ -22,6 +32,8 @@ internal sealed class MinimalScenario(bool mixedQuality = false, bool reliabilit
         new("North.Utilities.P101.ReferenceTemperature", "REFERENCE_TEMPERATURE", "Temperature", "degC", 4408652),
         new("North.Utilities.P101.ScenarioVibrationRms", "SCENARIO_VIBRATION", "Vibration", "mm/s", 4403510)
     ];
+
+    public ScenarioPoint[] Definitions => Points;
 
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly ConcurrentQueue<ScenarioObservation> generated = new();

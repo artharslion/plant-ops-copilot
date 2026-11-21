@@ -8,7 +8,7 @@ internal sealed record SimulatorOptions(bool ReorderNamespaces = false, bool Con
     string Quality = "Good", string Timestamp = "Normal", bool Overflow = false, bool DenyRead = false,
     int MinimumSamplingMs = 1000);
 
-internal sealed class SimulatorServer(SimulatorOptions? options = null, MinimalScenario? scenario = null) : StandardServer
+internal sealed class SimulatorServer(SimulatorOptions? options = null, IProtocolScenario? scenario = null) : StandardServer
 {
     protected override MasterNodeManager CreateMasterNodeManager(IServerInternal server, ApplicationConfiguration configuration)
         => new(server, configuration, null, new SimulatorNodes(server, configuration, options ?? new(), scenario));
@@ -25,7 +25,7 @@ internal sealed class SimulatorServer(SimulatorOptions? options = null, MinimalS
 }
 
 // Original business nodes; no reference-server NodeManager code is copied.
-internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfiguration configuration, SimulatorOptions options, MinimalScenario? scenario)
+internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfiguration configuration, SimulatorOptions options, IProtocolScenario? scenario)
     : CustomNodeManager2(server, configuration, options.ReorderNamespaces
         ? ["urn:plant-ops:padding", Program.NamespaceUri] : [Program.NamespaceUri])
 {
@@ -65,9 +65,9 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
             CreateMetadataFixtures(externalReferences);
             if (scenario != null)
             {
-                foreach (var point in MinimalScenario.Points)
+                foreach (var point in scenario.Definitions)
                 {
-                    var observation = scenario.Generate(Array.IndexOf(MinimalScenario.Points, point));
+                    var observation = scenario.Generate(Array.IndexOf(scenario.Definitions, point));
                     var ns = Server.NamespaceUris.GetIndexOrAppend(Program.NamespaceUri);
                     var variable = new BaseDataVariableState(null)
                     {
@@ -110,7 +110,7 @@ internal sealed class SimulatorNodes(IServerInternal server, ApplicationConfigur
             {
                 NamespaceUri = unitNamespace ?? OpcUaMetadataValidator.UnitNamespace,
                 UnitId = unitId,
-                DisplayName = unitId == 4408652 ? "°C" : "mm/s",
+                DisplayName = unitId switch { 4408652 => "°C", 5067858 => "m", 5067080 => "m3/h", _ => "mm/s" },
                 Description = "Simulator engineering unit"
             }
         };

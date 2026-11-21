@@ -14,7 +14,7 @@
 | 配置 AI 模型与工作台模式 | [模型接入与密钥](AI_PROVIDER_SETUP.md) · [工作台 AI 模式](AI_SETTINGS.md) |
 | 修改调查行为或工单建议 | [AI 工程约束](AI_ENGINEERING_GUARDRAILS.md) · [调查 v3 契约](INVESTIGATION_RESPONSE_V3.md) · [证据质量与语义评估](AI_INVESTIGATION_QUALITY.md) |
 | 核对调查编排、排查单次运行 | [AI 链路](AI_DESIGN.md) · [诊断、用量与留存](INVESTIGATION_DIAGNOSTICS.md) |
-| 导出已知调查案例、准备人工对照 | [可见仿真记录](INVESTIGATION_VISIBLE_FIXTURES.md) · [独立首答与复答](PORTFOLIO_PAIRED_REVIEW.md) |
+| 导出已知调查案例、准备人工对照 | [可见仿真记录](INVESTIGATION_VISIBLE_FIXTURES.md) · [独立首答与复答](PORTFOLIO_PAIRED_REVIEW.md) · [储罐液位仪表实测对照](TANK_INSTRUMENT_REVIEW.md) |
 
 IndustrialSim 的 [P-101 演示规程](INDUSTRIALSIM_P101_DEMO_MANUAL.md) 是随演示发布的资料。需要调整演示知识证据时按原路径查阅。
 

@@ -19,6 +19,11 @@ internal static class Program
     {
         var root = Path.GetFullPath(args.ElementAtOrDefault(1) ?? "artifacts/p2/spike");
         Directory.CreateDirectory(root);
+        if (args.FirstOrDefault() == "tank-review")
+        {
+            await RuntimeExperiment.RunAsync(root, minimalScenario: true, tank: new TankScenario(args[2]));
+            return;
+        }
         if (args.FirstOrDefault() is "runtime" or "scenario" or "industrial-scenario" or "industrial-brief-low" or "industrial-disconnected" or "industrial-stable" or "mixed-quality" or "reliability" or "database-pause")
         {
             var industrial = args[0].StartsWith("industrial-", StringComparison.Ordinal);
