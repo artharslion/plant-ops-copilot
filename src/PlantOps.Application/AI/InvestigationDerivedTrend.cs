@@ -24,7 +24,7 @@ public sealed record InvestigationDerivedTrend(string AlgorithmVersion, Guid Poi
 // observation sequence does not establish continuous physical heating or cause.
 public static class InvestigationTrendPolicy
 {
-    public const string Version = "ordered-raw-change-v2";
+    public const string Version = "ordered-raw-change-v3";
     public const int MaxSamples = 601;
 
     public static InvestigationDerivedTrend Calculate(InvestigationPointSnapshot point, Guid alarmId, string kind,
@@ -179,10 +179,17 @@ public static class InvestigationTrendPolicy
         }
         InvestigationTrendSegment? latest = null;
         // A bounded tail must end at the actual last row and never cross a rejected pair.
-        if (whole == null && !reasons.Contains("Truncated") && chains.LastOrDefault() is { Count: >= 2 } tail && tail[^1] == rows[^1])
+        if (!reasons.Contains("Truncated") && chains.LastOrDefault() is { Count: >= 2 } tail && tail[^1] == rows[^1])
         {
-            latest = new(tail[0].Id, tail[^1].Id, tail[0].EffectiveAt, tail[^1].EffectiveAt,
-                tail.Min(x => x.NumericValue!.Value), tail.Max(x => x.NumericValue!.Value), tail.Count);
+            // A whole-window change contains endpoints, but cannot describe a later run of equal readings.
+            // After a gap, retain the original verified tail including its full range.
+            var segment = whole == null ? tail : tail.AsEnumerable().Reverse()
+                .TakeWhile(row => row.NumericValue == tail[^1].NumericValue).Reverse().ToList();
+            if (segment.Count >= 2)
+            {
+                latest = new(segment[0].Id, segment[^1].Id, segment[0].EffectiveAt, segment[^1].EffectiveAt,
+                    segment.Min(x => x.NumericValue!.Value), segment.Max(x => x.NumericValue!.Value), segment.Count);
+            }
         }
         return new(Version, point.PointId, point.Code, point.Unit, alarmId, kind, from, to, point.AsOf, retrievedAt,
             rows.Select(x => new InvestigationObservedReading(x.Id, x.EffectiveAt, x.ReceivedAt,

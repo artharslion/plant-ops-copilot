@@ -162,6 +162,27 @@ public sealed class InvestigationDerivedTrendTests
     }
 
     [Theory]
+    [InlineData(5, 2)]
+    [InlineData(6, 0)]
+    public void WholeWindowChangeRetainsObservedEqualValueTailOnly(double last, int count)
+    {
+        var rows = new[] { Row(0, 9), Row(1, 4), Row(2, 5), Row(3, last) };
+        var trend = Calculate(rows);
+        Assert.NotNull(trend.Change);
+        Assert.Equal(count, trend.LatestSegment?.SampleCount ?? 0);
+        if (count != 0)
+        {
+            Assert.Equal(rows[2].Id, trend.LatestSegment!.FirstReadingId);
+            Assert.Equal(rows[3].Id, trend.LatestSegment.LastReadingId);
+            Assert.Equal(5, trend.LatestSegment.Min);
+            Assert.Equal(5, trend.LatestSegment.Max);
+        }
+        Assert.Null(Calculate(rows, truncated: true).LatestSegment);
+        rows[^1].Quality = "Bad";
+        Assert.Null(Calculate(rows).LatestSegment);
+    }
+
+    [Theory]
     [InlineData(60, false, false, true)]
     [InlineData(64, false, false, true)]
     [InlineData(60, true, false, false)]
