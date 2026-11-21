@@ -84,6 +84,8 @@ public sealed class OpcUaMetadataTests
     [InlineData(5067859, "m/s")]
     [InlineData(4408652, "degC")]
     [InlineData(4932940, "K")]
+    [InlineData(5067858, "m")]
+    [InlineData(5067080, "m3/h")]
     public void KnownUnitIdentitiesPermitOnlyMatchingRawUnit(int unitId, string rawUnit)
     {
         var metadata = Valid() with
