@@ -11,7 +11,7 @@ namespace PlantOps.AI;
 public sealed class InvestigationEngine(ILlmGateway gateway, IOptions<AiOptions> options,
     ILogger<InvestigationEngine>? logger = null) : IInvestigationEngine
 {
-    public const string PromptVersion = "investigation-advice-v3.18";
+    public const string PromptVersion = "investigation-advice-v3.19";
 
     public static void ValidateTool(string name, JsonElement arguments) => InvestigationToolPolicy.Validate(name, arguments);
 
