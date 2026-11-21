@@ -14,6 +14,8 @@ internal sealed class TankScenario : IProtocolScenario
 {
     private readonly string variant;
     private DateTimeOffset start;
+    private volatile int lowerAt = int.MaxValue;
+    private volatile int comparisonAt = int.MaxValue;
     private readonly Stopwatch elapsed = new();
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -42,19 +44,21 @@ internal sealed class TankScenario : IProtocolScenario
             elapsed.Start();
         }
         var second = (int)elapsed.Elapsed.TotalSeconds;
-        // A common historical alarm opens all three investigations. The comparison window starts at t=18.
+        // Advance only after the collector has recorded the common historical alarm and recovery.
+        var comparison = comparisonAt;
+        var spotDue = second - comparison >= 6;
         var sampleSecond = point switch
         {
-            0 when variant == "missing" => Math.Min(second, 18),
-            3 => second < 24 ? 0 : 24,
+            0 when variant == "missing" => Math.Min(second, comparison),
+            3 => spotDue ? comparison + 6 : 0,
             _ => second
         };
         var value = point switch
         {
-            0 => sampleSecond < 12 ? 5.20 : 5.00,
-            1 => second >= 18 && variant != "idle" ? 360.0 : 0,
+            0 => sampleSecond < lowerAt ? 5.20 : 5.00,
+            1 => second >= comparison && variant != "idle" ? 360.0 : 0,
             2 => 0,
-            3 => sampleSecond == 24 ? 5.06 : 5.20,
+            3 => spotDue ? 5.06 : 5.20,
             _ => throw new ArgumentOutOfRangeException(nameof(point))
         };
         return new(Definitions[point].Identifier, sampleSecond, value, start.AddSeconds(sampleSecond), false);
@@ -102,16 +106,27 @@ internal sealed class TankScenario : IProtocolScenario
 
     public async Task ReviewAsync(IServiceProvider provider, string root, Guid[] ids, CancellationToken ct)
     {
-        while (elapsed.Elapsed.TotalSeconds < 35)
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
+        async Task<int> AfterRecordedAsync(string state, int earliest)
+        {
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            wait.CancelAfter(TimeSpan.FromSeconds(60));
+            while (!await db.Alarms.AnyAsync(a => a.PointId == ids[0] && a.State == state, wait.Token))
+            {
+                await Task.Delay(250, wait.Token);
+            }
+            return Math.Max(earliest, (int)elapsed.Elapsed.TotalSeconds + 1);
+        }
+        lowerAt = await AfterRecordedAsync("Active", 12);
+        comparisonAt = await AfterRecordedAsync("Recovered", 18);
+        while (elapsed.Elapsed.TotalSeconds < comparisonAt + 17)
         {
             await Task.Delay(250, ct);
         }
-
-        await using var scope = provider.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>();
         var rows = await db.MeasurementReadings.AsNoTracking().Where(r => ids.Contains(r.PointId))
             .OrderBy(r => r.EffectiveAt).ToArrayAsync(ct);
-        var window = rows.Where(r => r.EffectiveAt >= start.AddSeconds(18)).ToArray();
+        var window = rows.Where(r => r.EffectiveAt >= start.AddSeconds(comparisonAt)).ToArray();
         var capturedAt = DateTimeOffset.UtcNow;
         var source = rows.FirstOrDefault()?.DataSourceId;
         var connected = await db.DataSourceHealth.AnyAsync(h => h.DataSourceId == source && h.State == "Connected", ct);
@@ -136,6 +151,7 @@ internal sealed class TankScenario : IProtocolScenario
         {
             variant,
             start,
+            comparisonAt,
             capturedAt,
             connected,
             valid,
