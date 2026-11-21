@@ -11,7 +11,7 @@
 - `PlantOps.Integrations.OpcUa` 负责 SDK 连接、订阅、元数据核查和样本规范化。`OpcUaRuntimeSource` 与 Simulation 均实现 `IMeasurementSource`。点位、告警和工单继续使用业务标识。
 - 每个数据源归属单一工厂。管理员用 `EndpointReference` 选择部署方批准的地址。启用需在 API 和 Worker 加载 `OpcUa:LocalRuntimeEnabled=true` 和同一精确节点白名单。示例见 [回环配置](../deploy/opcua/local-runtime.example.json)。
 - 运行地址限 `opc.tcp://localhost:<port>` 或 `opc.tcp://127.0.0.1:<port>`。客户端核对端点、服务器 ApplicationUri、安全模式与策略，要求 `None`。容器中的回环地址指其网络命名空间。IndustrialSim overlay 通过与 Worker 共享网络空间复用这条策略，见 [工作台接入](INDUSTRIALSIM_WORKBENCH.md)。
-- 映射以 `NamespaceUri + IdentifierType + Identifier` 标识，支持 String、Numeric 和 Guid。每次建立 Session 重新解析 Namespace index，核对确切节点、标量类型、读取权限和单位。当前允许速度单位 mm/s、m/s 和温度单位 degC、K 的指定换算。采集只读取批准节点及所需属性，无工业凭据解析、通用 Browse、Write、Call 或 HistoryRead。调查只通过授权的业务数据读取工具取证。
+- 映射以 `NamespaceUri + IdentifierType + Identifier` 标识，支持 String、Numeric 和 Guid。每次建立 Session 重新解析 Namespace index，核对确切节点、标量类型、读取权限和单位。支持速度单位 mm/s、m/s 和温度单位 degC、K 的指定换算。液位 m（MTR）和体积流量 m3/h（MQH）仅支持同单位映射，比例系数为 1，偏移为 0。采集只读取批准节点及所需属性，无工业凭据解析、通用 Browse、Write、Call 或 HistoryRead。调查只通过授权的业务数据读取工具取证。
 
 ## 订阅与采样
 
