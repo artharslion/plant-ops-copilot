@@ -1,8 +1,17 @@
 [CmdletBinding()]
 param([string]$Run = ('run_' + (Get-Date -Format 'yyyyMMdd_HHmmss')), [switch]$MinimalScenario,
-    [string]$IndustrialSimRoot)
+    [string]$IndustrialSimRoot, [switch]$UseTestConnection, [switch]$BriefLow, [switch]$Disconnected, [switch]$Stable,
+    [switch]$MixedQuality, [switch]$Reliability, [switch]$DatabasePause)
 
 $ErrorActionPreference = 'Stop'
+if ($BriefLow -and -not $IndustrialSimRoot) { throw 'BriefLow requires IndustrialSim.' }
+if ($Disconnected -and (-not $IndustrialSimRoot -or $BriefLow)) { throw 'Disconnected requires IndustrialSim without BriefLow.' }
+if ($Stable -and (-not $IndustrialSimRoot -or $Disconnected -or $BriefLow)) { throw 'Stable requires IndustrialSim without another variant.' }
+if ($MixedQuality -and ($IndustrialSimRoot -or $MinimalScenario)) { throw 'MixedQuality uses the built-in read-only OPC UA simulator.' }
+if ($Reliability -and ($IndustrialSimRoot -or $MinimalScenario -or $MixedQuality)) { throw 'Reliability uses a dedicated read-only OPC UA scenario.' }
+if ($DatabasePause -and (-not $UseTestConnection -or $IndustrialSimRoot -or $MinimalScenario -or $MixedQuality -or $Reliability)) {
+    throw 'DatabasePause requires a dedicated test connection and uses its own read-only OPC UA scenario.'
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if ($Run -cnotmatch '^[a-z0-9_]{1,40}$') { throw 'Use a new lowercase run name.' }
 $resultRoot = Join-Path $repoRoot "artifacts/opcua-runtime/$Run"
@@ -11,9 +20,25 @@ $port = if ($IndustrialSimRoot) { 48481 } else { 48480 }
 if (@([Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() | Where-Object Port -eq $port).Count) {
     throw "Port $port is occupied; existing processes are preserved."
 }
-$testConfigPath = Join-Path $repoRoot 'artifacts/p4/database.local.json'
-if (-not (Test-Path -LiteralPath $testConfigPath)) { throw 'Dedicated local test database configuration is required.' }
-$testConfig = Get-Content -LiteralPath $testConfigPath | ConvertFrom-Json
+$schema = "opcua_runtime_$Run"
+if ($UseTestConnection) {
+    $connection = [System.Data.Common.DbConnectionStringBuilder]::new()
+    try { $connection.set_ConnectionString($env:PLANTOPS_TEST_CONNECTION) } catch { throw 'Invalid dedicated test connection.' }
+    if ($connection['Database'] -cne 'plantops_tests') { throw 'The connection must explicitly name plantops_tests.' }
+    $connection['Pooling'] = $false
+    $connection['Search Path'] = $schema
+    if ($DatabasePause) {
+        $connection['Timeout'] = 2
+        $connection['Command Timeout'] = 2
+        $connection['Cancellation Timeout'] = 500
+    }
+    $runtimeConnection = $connection.ConnectionString
+} else {
+    $testConfigPath = Join-Path $repoRoot 'artifacts/p4/database.local.json'
+    if (-not (Test-Path -LiteralPath $testConfigPath)) { throw 'Dedicated local test database configuration is required.' }
+    $testConfig = Get-Content -LiteralPath $testConfigPath | ConvertFrom-Json
+    $runtimeConnection = "Host=127.0.0.1;Port=$($testConfig.Port);Database=plantops_tests;Username=plantops;Password=$($testConfig.Password);Pooling=false;Search Path=$schema"
+}
 $savedConnection = $env:PLANTOPS_RUNTIME_CONNECTION
 $savedLocation = Get-Location
 try {
@@ -23,13 +48,12 @@ try {
         & dotnet build (Join-Path $IndustrialSimRoot 'examples/PlantOps.Scenario')
         if ($LASTEXITCODE -ne 0) { throw 'IndustrialSim example build failed.' }
     }
-    # This private configuration holds only the dedicated test container credentials.
-    $env:PLANTOPS_RUNTIME_CONNECTION = "Host=127.0.0.1;Port=$($testConfig.Port);Database=plantops_tests;Username=plantops;Password=$($testConfig.Password);Pooling=false;Search Path=opcua_runtime_$Run"
+    $env:PLANTOPS_RUNTIME_CONNECTION = $runtimeConnection
     & dotnet restore spikes/PlantOps.OpcUa.Spike --locked-mode
     if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
     & dotnet build spikes/PlantOps.OpcUa.Spike --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-    $mode = if ($IndustrialSimRoot) { 'industrial-scenario' } elseif ($MinimalScenario) { 'scenario' } else { 'runtime' }
+    $mode = if ($DatabasePause) { 'database-pause' } elseif ($Reliability) { 'reliability' } elseif ($MixedQuality) { 'mixed-quality' } elseif ($Disconnected) { 'industrial-disconnected' } elseif ($Stable) { 'industrial-stable' } elseif ($BriefLow) { 'industrial-brief-low' } elseif ($IndustrialSimRoot) { 'industrial-scenario' } elseif ($MinimalScenario) { 'scenario' } else { 'runtime' }
     $runtimeArgs = @($mode, $resultRoot)
     if ($IndustrialSimRoot) { $runtimeArgs += $IndustrialSimRoot }
     & dotnet spikes/PlantOps.OpcUa.Spike/bin/Debug/net10.0/PlantOps.OpcUa.Spike.dll @runtimeArgs

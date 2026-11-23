@@ -4,7 +4,7 @@
 
 只需 Docker Engine 和 Docker Compose（Windows 推荐 Docker Desktop Linux engine）。API、Worker、前端和 PostgreSQL 均在容器中运行，无需宿主机安装 .NET 或 Node。
 
-需要向用户分发已发布镜像及 IndustrialSim 时，使用 [Docker Hub 联合部署](../deploy/dockerhub/README.md)：一份独立 Compose 加本地 `.env`，自动完成数据库初始化、服务启动与三点 OPC UA 接入，无需相邻模拟器源码仓库。以下内容为原有源码构建流程。
+本页使用当前源码构建。需要分发固定版本的已发布镜像和 IndustrialSim 时，使用 [Docker Hub 联合部署](../deploy/dockerhub/README.md)。该部署通过独立 Compose 和本地 `.env` 自动初始化数据库、启动服务并接入三点 OPC UA。
 
 ## 一次启动
 
@@ -51,6 +51,7 @@ docker compose --env-file deploy/.env.docker up -d --wait --wait-timeout 180 api
 | `database-data` | 数据库、账号、测量、告警、工单与审计 |
 | `documents` | API、Worker 与初始化器共用的资料文件 |
 | `api-keys` | API Data Protection 登录与防伪密钥 |
+| `investigation-diagnostics` | 仅 Worker 挂载的私有模型响应诊断，详见 [调查诊断](INVESTIGATION_DIAGNOSTICS.md) |
 
 `stop`、`down` 和重建容器保留数据卷；不要删除仍需保留的卷。更改 env 文件中的数据库密码不会修改已有数据库账号密码，更改 `DEMO_PASSWORD` 也不会重置已有演示账号。
 
@@ -95,13 +96,13 @@ docker compose --env-file deploy/.env.docker down
 
 Nginx 保留请求 Host，处理 SignalR 的 Upgrade 头与长连接；上传限制与 API 的 10 MiB 文件上限配套，代理超时覆盖最长调查等待，参见 [Nginx WebSocket 代理](https://nginx.org/en/docs/http/websocket.html)。
 
+## 可选 IndustrialSim 采集
+
+常驻 IndustrialSim OPC UA 来源使用额外 Compose YAML。启用后，后续启动和更新都要包含该 Compose 文件。启动和场景命令见 [IndustrialSim 工作台接入](INDUSTRIALSIM_WORKBENCH.md)。
+
 ## 可选真实 AI
 
-可选的常驻 IndustrialSim OPC UA 来源使用额外 Compose YAML，启动与场景说明见 [IndustrialSim 工作台接入](INDUSTRIALSIM_WORKBENCH.md)。启用后后续启动/更新需保留该 Compose 文件。
-
-当前版本可由Admin在侧栏“设置”中切换新调查模式，见 [设置与部署验证](AI_SETTINGS_VALIDATION.md)。先向API/Worker注入下面的服务端连接信息；可以保留 `AI_PROVIDER=Fake`，然后从页面手动启用真实LLM。已有设置记录时页面选择优先于环境变量的缺省Provider，改变配置后仍须重建容器以加载新的密钥/模型；单纯切换模式不需要重启。
-
-隔离的一次性Docker + IndustrialSim + 真实模型测试可使用 `deploy/Test-DockerIndustrialSimLlm.ps1`，需要先构建专用镜像并显式调用，会产生真实模型请求；它不会切换此处工作台的配置。2026-10-22 历史实测：协议采集通过，唯一真实请求HTTP502失败，未重试。
+Admin 可在侧栏“设置”中切换新调查的模式。已有设置记录时优先使用页面选择。可以保留 `AI_PROVIDER=Fake`，先配好服务器连接信息，再由管理员启用真实模式。详情见 [AI 接入配置](AI_PROVIDER_SETUP.md)。
 
 默认 `AI_PROVIDER=Fake`，不会请求外部模型。需要真实模型时，在本机 `deploy/.env.docker` 配置：
 
@@ -112,7 +113,7 @@ AI_MODEL=your-model
 AI_API_KEY=your-local-secret
 ```
 
-配置后执行 `docker compose --env-file deploy/.env.docker up -d --force-recreate api worker` 使环境变量生效。不要把实际密钥写入示例文件、镜像或提交记录。宿主机 `appsettings.Ai.Local.json` 不会自动加载到容器；容器中的 `localhost` 指向该容器，宿主机代理或本地模型服务需使用容器可达地址。
+修改连接信息后执行 `docker compose --env-file deploy/.env.docker up -d --force-recreate api worker`。启用 IndustrialSim overlay 时，使用原启动命令的全部 Compose 文件并包含 `industrial-sim` 服务。单独切换页面模式即时生效。实际密钥只保存在本地配置中。宿主机 `appsettings.Ai.Local.json` 不会自动加载到容器，宿主机代理或本地模型服务需使用容器可达地址。
 
 ## 部署范围
 

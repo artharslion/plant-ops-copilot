@@ -9,7 +9,7 @@ namespace PlantOps.AI;
 // ledger is required; corrupt, missing or locked ledgers fail closed before HTTP.
 internal static class ExternalRequestLedger
 {
-    public static void RecordCompletion(byte[] body, LlmCompletion completion)
+    public static void RecordCompletion(byte[] body, LlmCompletion completion, Guid? leaseId)
     {
         var path = Environment.GetEnvironmentVariable("PLANTOPS_LLM_REQUEST_LEDGER");
         if (string.IsNullOrEmpty(path))
@@ -17,14 +17,19 @@ internal static class ExternalRequestLedger
             return;
         }
         var target = path + ".completion-" + Guid.NewGuid().ToString("N") + ".json";
-        using var file = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        JsonSerializer.Serialize(file, new
+        var pending = target + ".pending";
+        using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
-            requestSha256 = Convert.ToHexString(SHA256.HashData(body)),
-            receivedAt = DateTimeOffset.UtcNow,
-            completion
-        });
-        file.Flush(flushToDisk: true);
+            JsonSerializer.Serialize(file, new
+            {
+                leaseId,
+                requestSha256 = Convert.ToHexString(SHA256.HashData(body)),
+                receivedAt = DateTimeOffset.UtcNow,
+                completion
+            });
+            file.Flush(flushToDisk: true);
+        }
+        File.Move(pending, target);
     }
 
     public static void Reserve(string model, byte[] body)

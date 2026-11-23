@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using PlantOps.Application.Assets;
 
 namespace PlantOps.Application.AI;
@@ -6,7 +7,8 @@ namespace PlantOps.Application.AI;
 public sealed record InvestigationEvidence(string Id, string Kind, string Title, string[] Facts, string Sha256,
     DateTimeOffset RetrievedAt, Guid ResourceId, Guid? VersionId = null, Guid? ChunkId = null,
     InvestigationPointSnapshot? PointStatus = null, InvestigationDerivedTrend? DerivedTrend = null,
-    InvestigationEvidenceState? State = null);
+    InvestigationEvidenceState? State = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? RecordedRecoveryAt = null);
 
 // Availability describes the queried evidence, not measurement trust or equipment health.
 // Partial means a bounded excerpt; Empty means a successful query returned no records.

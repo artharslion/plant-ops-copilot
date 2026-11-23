@@ -1,6 +1,6 @@
 # 隔离 OPC UA 实验
 
-2026-10-20：[受控本机常驻运行](../../docs/OPCUA_RUNTIME_VALIDATION.md)新增明确开关、精确节点白名单及普通 Worker 入口；`local-runtime.example.json` 仅为部署配置示意，不自动加载。下文 secure selftest/server 仍维持原加密策略；只有独立 `runtime` 验收模式显式使用本机 None。
+[常驻采集](../../docs/OPCUA_INTEGRATION.md)通过普通 Worker 接入，要求明确开关和精确节点白名单。`local-runtime.example.json` 需由部署方显式加载。下文 `selftest` 和 `server` 使用加密连接，常驻采集实验使用 Development 回环地址和 `None`。
 
 应用预配置示例见 `appsettings.example.json`（需由部署端加载），停用配置可使用 NamespaceUri + String IdentifierPrefix 或 Nodes 精确 `Type:Identifier` 列表。启用常驻采集另须满足 `local-runtime.example.json` 所示的显式 Development 回环策略及精确节点列表；通用远程或前缀范围不能直接启用。当前没有工业凭据解析、浏览命令或证书运维入口；当前任务归入 [开发计划 P5](../../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)。
 
@@ -12,7 +12,7 @@ dotnet build spikes/PlantOps.OpcUa.Spike --no-restore
 dotnet run --project spikes/PlantOps.OpcUa.Spike --no-build -- selftest artifacts/p2/my_unique_run
 ```
 
-每次自检必须选新的独立目录；8 秒后自动退出，结果在 `result.json`。不连接任何 PostgreSQL。端口 **48480**，endpoint `opc.tcp://localhost:48480/plantops`；只支持 Basic256Sha256 / SignAndEncrypt，无 None。自检先拒绝未受信服务端，然后将本次创建、指纹可核对的两个公钥加入对端信任目录；这仅为隔离实验的显式配对，不是应用证书审批流程。私钥在忽略的实验目录，不复制到版本库。
+每次自检必须选新的独立目录。通过元数据检查后订阅 8 秒并自动退出，结果在 `result.json`。不连接 PostgreSQL。端口 **48480**，endpoint `opc.tcp://localhost:48480/plantops`，使用 Basic256Sha256 / SignAndEncrypt。自检先拒绝未受信服务端，然后将本次创建、指纹可核对的两个公钥加入对端信任目录。私钥保存在 Git 忽略的实验目录。
 
 ```powershell
 dotnet run --project spikes/PlantOps.OpcUa.Spike --no-build -- server artifacts/p2/server_unique deploy/opcua/simulator.example.json
@@ -26,6 +26,6 @@ dotnet run --project spikes/PlantOps.OpcUa.Spike --no-build -- server artifacts/
 
 示例配置为确定性 120 秒周期：0–9 秒 4.0，10–29 秒 12.6，其余 7.0；40–49 秒 Bad，50–59 秒 Uncertain；默认自检用恒值 4.0，每秒更新源时间。可设 `Constant`、`Quality`（Good/Bad/Uncertain/Cycle）、`Timestamp`（Normal/Missing/Future/Frozen）、`Overflow`、`DenyRead`、`MinimumSamplingMs` 和 `ReorderNamespaces`。重排将业务 Namespace 从 2 移至 3，客户端每次新会话按 URI 解析。Missing/Frozen 故障可能使恒值订阅静默；不应把通知数量等同物理采样。Overflow 注入保留 DataValue 信息位，真实队列溢出另行验收。
 
-客户端业务服务调用仅 GetEndpoints、Session、Browse/BrowseNext（50 条且释放 continuation）、Read、Subscription/MonitoredItem 与 Publish/关闭；不提供 Write/Call/HistoryRead。运行服务拦截记录及独立只读用户名账号尚待 P2.3 验收，不能仅凭变量声明称所有权限实验通过。
+隔离自检覆盖发现、会话、有限浏览、节点元数据、读取、订阅和关闭。本实验的只读边界来自匿名身份和模拟节点的读取权限。生产凭据管理及外部受信加密接入属于 [P5.5](../../ROADMAP.md#3-p5opc-ua-持续采集与实时数据底座)。
 
 再分发应一并提供 `licenses/` 中版权、许可和第三方通知。所有新增运行依赖为 MIT；SDK、Server 分别核实，原始 NuGet 元数据清单见 `package-licenses.json`。SDK 示例未复制，容器镜像未使用，所以无对应分发产物。

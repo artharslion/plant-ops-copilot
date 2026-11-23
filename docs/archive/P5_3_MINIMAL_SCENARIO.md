@@ -1,6 +1,6 @@
 # P5.3 最小场景源
 
-2026-10-21 用户指定后的推荐入口已改为 **IndustrialSim框架独立进程**：`./deploy/Run-IndustrialSimRuntime.ps1 -Run <新名称>`。三点YAML位于 `D:/Repos/industrial-device-simulation-framework`，接入记录及投影时间契约见 [框架三点验证](INDUSTRIALSIM_RUNTIME_VALIDATION.md)。下文保留此前内置spike的生成契约和历史证据；框架的SourceTimestamp仅为投影/读取时间，不能沿用旧spike逐条生成匹配结论。
+2026-10-21 用户指定后的推荐入口已改为 **IndustrialSim框架独立进程**：`./deploy/Run-IndustrialSimRuntime.ps1 -Run <新名称>`。三点YAML位于 `D:/Repos/industrial-device-simulation-framework`，接入记录及投影时间契约见 [框架三点验证](../INDUSTRIALSIM_RUNTIME_VALIDATION.md)。下文保留此前内置spike的生成契约和历史证据；框架的SourceTimestamp仅为投影/读取时间，不能沿用旧spike逐条生成匹配结论。
 
 版本 `p5.3-minimal-v1`，无随机输入，种子记为 0。原创仿真观测，经真实 OPC UA SDK → 现有 Adapter → 普通 MeasurementWorker → 测量/规则事务；不调用 LLM。旧 Simulation GoldenPath、协议 selftest/capacity/runtime 入口保持原行为。
 
@@ -55,7 +55,7 @@ Namespace URI 为 `urn:plant-ops:simulator`。本场景运行器只批准以下�
 | 退出 | 健康Stopped；6段采样区间全部关闭，6条既有缺口记录全部闭合，不将其解释为精确样本损失 |
 | 时效语义 | 停服前逐点通知/源时间均新鲜；ValueChanged=false仍可有本仿真契约下的新观测。报告保留Session健康、订阅修正与实际通知依据，独立Subscription KeepAlive仍未知 |
 
-完整原始证据：[result.json](../artifacts/opcua-runtime/p53_trial2_20261021/result.json)，含读数、实际生成记录、三点契约、各阶段时间、采样修正、健康、缺口和告警；SHA256 `9A15B25A85B02BFAADB96ED5DB3302EC2FF0C3AF924CB27727422F30FF899C6B`。原始 artifacts 为本地保留文件，不纳入Git。0次模型调用；观测为原创仿真，订阅与业务入库是真实执行。
+完整原始证据：[result.json](../../artifacts/opcua-runtime/p53_trial2_20261021/result.json)，含读数、实际生成记录、三点契约、各阶段时间、采样修正、健康、缺口和告警；SHA256 `9A15B25A85B02BFAADB96ED5DB3302EC2FF0C3AF924CB27727422F30FF899C6B`。原始 artifacts 为本地保留文件，不纳入Git。0次模型调用；观测为原创仿真，订阅与业务入库是真实执行。
 
 兼容检查：旧加密 `selftest` 在 `artifacts/p53/secure_20261021/result.json` 通过，不受本场景批准列表影响；8秒窗口恒值收到8条/8个源时间，证书拒绝与显式信任、17项元数据/身份场景通过。未据此验收长期运行或现场设备。
 

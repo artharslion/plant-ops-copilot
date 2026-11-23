@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9_-]{1,60}$')][string]$Run,
     [ValidateRange(1, 100)][int]$MaxRequests = 6,
-    [ValidateSet('trusted-anomaly', 'partial-bad-high-vibration', 'all-unverifiable', 'applicable-procedure', 'injected-procedure')][string]$Scenario
+    [ValidateSet('trusted-anomaly', 'partial-bad-high-vibration', 'all-unverifiable', 'applicable-procedure', 'injected-procedure',
+        'recorded-recovery-later-high', 'brief-low-no-recovery', 'recovery-pair')][string]$Scenario
 )
 $ErrorActionPreference = 'Stop'
 $reportRoot = Join-Path (Split-Path $PSScriptRoot -Parent) "artifacts/investigation-quality/$Run"
@@ -21,7 +22,13 @@ try {
     $env:PLANTOPS_LLM_CAPTURE_REQUESTS = '1'
     $env:PLANTOPS_LIVE_REPORT_ROOT = $reportRoot
     $filter = 'FullyQualifiedName~PlantOps.Tests.InvestigationAdviceLiveTests'
-    if ($Scenario) { $filter += "&DisplayName~$Scenario" }
+    if ($Scenario -eq 'recovery-pair') {
+        $filter += '&FullyQualifiedName~FinalAdviceRecoveryReview'
+    } elseif ($Scenario) {
+        $filter += "&DisplayName~$Scenario"
+    } else {
+        $filter += '&FullyQualifiedName~FinalAdviceUsesRealModelAndPreservesEvidenceBoundaries'
+    }
     Write-Output "Real model: $env:AI__Model; hard cap: $MaxRequests sends; automatic retries: 0. Reports: $reportRoot"
     dotnet test "$PSScriptRoot/../tests/PlantOps.Tests/PlantOps.Tests.csproj" --no-build --no-restore --filter $filter --verbosity quiet --logger "trx;LogFileName=$reportRoot/results.trx"
     $testExit = $LASTEXITCODE

@@ -59,6 +59,8 @@ public static class OpcUaMetadataValidator
                     5067859 => "m/s", // MTS
                     4408652 => "degC", // CEL
                     4932940 => "K", // KEL
+                    5067858 => "m", // MTR
+                    5067080 => "m3/h", // MQH
                     _ => null
                 } : null;
             error = unit is null ? "EngineeringUnitsUnknown"

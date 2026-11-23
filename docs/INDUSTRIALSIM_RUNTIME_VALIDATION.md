@@ -9,9 +9,12 @@
 ```powershell
 ./deploy/Run-IndustrialSimRuntime.ps1 -Run my_unique_run
 # 可显式指定框架位置：-SimulatorRoot D:/Repos/industrial-device-simulation-framework
+# 可使用独立本地 PostgreSQL：设置 PLANTOPS_TEST_CONNECTION 后传 -UseTestConnection
 ```
 
 脚本构建两侧、创建全新 `plantops_tests.opcua_runtime_<run>` schema 与证据目录，启动自己的框架进程，等待原子 ready 文件，再启动普通 Worker；测试结束优先通过 stdin 请求示例退出，超时仅终止自己创建的进程树，不停止已有服务。端口占用/目录复用会拒绝。Worker 运行预算沿用150秒/500条及磁盘停止条件；框架示例限80秒、85秒取消保护。没有真实LLM调用，没有业务库迁移或部署更新。
+
+要从这次采集继续验收浏览器调查，启动指向同一隔离 schema 的本地 API 并通过浏览器发起一次手动调查。API 在发起时将所选提供方保存到调查记录，因此 API 创建调查时选用的提供方需要与 Worker 一致。随后在设置了 `PLANTOPS_TEST_CONNECTION` 的终端运行 `./deploy/Invoke-IndustrialSimBrowserInvestigation.ps1 -Run <run>`，仅处理一条已排队调查，默认用 Fake。通过本轮授权后，才可传入 `-RealAi -LedgerPath <current-ledger> -MaxRequests <limit>`；请求预算由账本执行，重试为零。该入口检查成功采集报告、工况预期的告警状态及专用测试库。浏览器仍负责取证展开和人工确认。采集结束后调查的当前快照可能不可验证，应将其与历史事件及恢复证据分开复核。
 
 | 协议配置 | 固定批准值 |
 |---|---|
@@ -36,6 +39,41 @@
 
 ## 本轮真实执行
 
+2026-11-14 断流场景在隔离库中通过 `-UseTestConnection -Disconnected` 启动。活动告警形成后关闭本轮 IndustrialSim 进程，等待采集器报告 Reconnecting，保存 `disconnected-ready.json`。采集器在重新连接期间继续报告状态，直到在本轮目录创建 `release` 文件或达到 480 秒总时限。浏览器发起调查后，使用 `Invoke-IndustrialSimBrowserInvestigation.ps1 -Disconnected` 处理队列。调查取得断流证据后即可创建 `release`，模型继续使用冻结快照。
+
+联合轮 `p6_disconnected_20261114` 采到三点共 114 条 OPC UA 数据。断流中告警保持 Active，恢复时间为空，E21 保留最后一条温度样本的有效时间 14:02:00.187710（北京时间）和 Reconnecting 状态。首轮模型流传输失败，第二轮自主调用 `get_recent_measurements` 并生成待审批提案 `d4198a64-bbc2-4aec-81cd-c90e52601279`，关联工单为零。合计 4 次请求。模型区分了陈旧样本和当前设备状态，但正文未写明最后可信样本的具体时间，核查建议也未明确要求复连后验证新样本，严格语义验收仍待复验。联合轮的采集脚本在等待释放时达到总时限，保留了原始失败报告。 [调查与提案证据](../artifacts/opcua-runtime/p6_disconnected_20261114/browser-real-acceptance.json) · [断流快照](../artifacts/opcua-runtime/p6_disconnected_20261114/disconnected-ready.json)
+
+随后独立协议复验 `p6_disconnected_protocol_20261114` 在断流快照写入后释放，再次采到 114 条 OPC UA 观测，活动告警仍未恢复，采集脚本正常退出。该复验模型请求为零。 [协议复验报告](../artifacts/opcua-runtime/p6_disconnected_protocol_20261114/result.json)
+
+离线复查将账本第 4 次请求与最终完成响应按 SHA-256 对齐。最终请求的 E21 含样本有效时间 `06:02:00.187710Z` 和不同的接收时间，含 `SourceNotConnected` 和 `StaleObservation` 原因码。压缩省略了冻结 E21 中的 `Reconnecting` 和窗口明细。E9 保留 `06:01:23.690722Z` 至 `06:02:00.187710Z` 的事件观测段。F1 报告了该历史段，F4 和 F5 没有将 E21 样本时间与当前取证时间分开写明。R1 要求核对连接和时间记录，并指出连接恢复或 Good 标签不能单独作为依据，但没有要求复连后核对新样本及其连续性。主要缺陷在模型取舍和建议表述，具体连接状态的丢失属于证据投影缺口。
+
+`investigation-advice-v3.7` 保留冻结的来源健康状态及其时效标记，并要求报告关键读数的有效时间、质量与实际观测边界，以及通过复连后的样本时间、质量与连续性来决定能否重新评估。调查概览直接显示告警测点的保留读数及其有效时间，并按当前可信度标注。历史观察和建议正文中的完整时间戳按工作台时区显示。断流和已恢复后可信读数的对照用于离线回归。仍需经授权复验真实模型是否给出完整建议。短时缺少新样本时，可记录证据不可用并交人工复核。仅凭连接恢复或单个 Good 样本通过验收会产生误通过，将明确说明证据不足的建议一律视为无效则可能误拒绝。
+
+旧联合轮的保存结果通过中文浏览器离线重放。调查概览显示 `90 degC / Good` 的有效时间 `14:02:00.18771`，标记为当前不可验证的留存读数。E9 的历史观测段显示为 `14:01:23.690722` 至 `14:02:00.18771`。两处都采用北京时间，沿用界面去除小数末尾零的格式。重放使用保存的 API 响应，模型请求为零。[重放记录](../artifacts/build/p6_v37_20261114/browser-replay.json)
+
+获授权后的断流复验共使用 6 次请求，自动重试为零。v3.7 输出用 F3 和 R3 补齐了样本时间和复连后核对步骤，但 `NeedsMoreEvidence` 缺少根级阻塞引用。v3.8 自主读取历史测量并补齐根级阻塞引用，假设却重复使用同一证据作支持和反证。两次均由既有校验拒绝。v3.9 提示明确两个阻塞字段的适用条件、可立即开始的诊断任务，以及互斥的假设证据引用。校验器和响应结构沿用原有版本。[v3.7 失败记录](../artifacts/opcua-runtime/p6_v37_outage_20261114/browser-1-acceptance.json) · [v3.8 失败记录](../artifacts/opcua-runtime/p6_v37_outage_20261114/browser-2-acceptance.json)
+
+v3.9 在新的隔离 schema 完成断流验收。模型自主调用 `get_recent_measurements`。F1 引用历史观测段，F2 阐明 Active 且无恢复时间，并写出 E21 的 90°C Good 样本有效时间 `18:02:58.476561`（北京时间）；F3 保留当前不可验证及 Reconnecting。R1 要求复连后逐点核对新样本的有效时间、质量和连续性，再重新评估。浏览器打开待审批提案 `9cffe631-eb68-4dde-83e6-326857d00453` 的完整核对页，关联工单为零。R2 引用了已发布的振动检查节选，现场适用性仍需人工核对。协议报告保存 120 条读数并正常退出。回归中的结构拒绝不等于建议内容全部错误；只看提案成功也会漏掉判断、范围和建议适用性的偏差。[断流复验](../artifacts/opcua-runtime/p6_v39_outage_20261114/browser-1-acceptance.json) · [协议报告](../artifacts/opcua-runtime/p6_v39_outage_20261114/result.json) · [共享请求账本](../artifacts/investigation-quality/p6_v37_joint_20261114/requests.jsonl)
+
+稳定对照使用 `Run-IndustrialSimRuntime.ps1 -UseTestConnection -Stable`。在已记录恢复且来源仍连接时，每点收到至少四条时间递增的 Good 观测后写入 `stable-ready.json`。该文件证明已接收的协议投影稳定。浏览器应提前登录并在 ready 后立即发起调查，使用 `Invoke-IndustrialSimBrowserInvestigation.ps1 -Stable` 处理队列。采集在收到 `release` 或 ready 后 12 秒退出，以便在有限模拟器仍在线时正常收尾。独立复核冻结测点的当前可信度，以及模型实际看到的事件、恢复与稳定区间证据。
+
+首轮稳定对照的 F1–F5 保留了历史告警及恢复，分别报告 60°C、62°C、4 mm/s 三点可信读数，并把「未发现当前异常」限于温度点的单次阈值比较。由于测量工具超时，模型只拿到单次快照，稳定区间仍待验收。模拟器到时自行退出，协议报告记为失败。浏览器提案 `f2422ba9-0306-46ea-b942-2a37f519f742` 停在 Pending，关联工单为零。[首轮调查](../artifacts/opcua-runtime/p6_v39_stable_20261114/browser-1-acceptance.json) · [首轮协议报告](../artifacts/opcua-runtime/p6_v39_stable_20261114/result.json)
+
+稳定对照复验正常收尾，共采到 190 条 OPC UA 观测。模型自主读取测量，F1–F3 分别说明历史触发、历史观测段和已记录恢复。F4 报告三点的可信快照，限温度点作阈值比较，F5 保留窗口缺口。浏览器打开待审批提案 `067027a5-fcec-47a4-809e-62a45cec34d8` 的核对页，关联工单为零。冻结 E10、E12、E14 分别保留恢复后 13、14、14 条恒定投影读数，但当前窗口跨过更早的断线，整窗 `change` 为 null。最终请求没有三点复连后各自的恒定观测段，所以模型未能给出稳定区间。稳定对照的历史事件、恢复、当前快照和提案路径已核实，稳定区间语义仍待复验。共享账本 10 次请求已全部使用，10 份请求和完成响应均保留。[复验调查](../artifacts/opcua-runtime/p6_v39_stable_retry_20261114/browser-1-acceptance.json) · [复验协议报告](../artifacts/opcua-runtime/p6_v39_stable_retry_20261114/result.json)
+
+`ordered-raw-change-v2` 复用原有连续性和逐样本校验，在整窗变化不可验证时提供实际末段的边界、最小/最大值和样本数。末段必须结束于实际最后一条样本，截断或最新样本无效时不提供末段。v3.10 在现有预算内投影该字段，无额外取证或模型调用。冻结读数离线重算后，三点各得 19 条恒定样本，约为北京时间 `18:09:30.494` 至 `18:09:48.494`，覆盖告警恢复前的部分低温观测和恢复后的稳定读数。离线反例验证首尾同值但中途波动的段仍会报告不同极值，旧断线和最新坏值均不能被描述为已覆盖范围。历史响应仍可读取。模型是否正确使用 v3.10 的末段字段及其边界仍待下次获授权复验。[冻结读数离线回放](../artifacts/build/p6_v37_20261114/stable-segment-replay.json)
+
+2026-11-14 完成两种告警状态的真实 OPC UA、真实模型与浏览器联合验收。两轮均在隔离的 `plantops_tests` schema 从 P-101 告警手动发起调查，使用 `gpt-6.1-sol` 各发送 2 次请求，生成待审批提案，关联工单为 0。
+
+- 恢复场景 `p6_joint_live_20261113`。模型自主调用 `get_recent_measurements`，引用 E1 中的历史规则和恢复时间，以及 E19 中同一时间的 60°C Good OPC UA 样本。已用保存的调查复验提案入口和弹窗均显示「恢复阶段原始观测（有界节选）」。[采集报告](../artifacts/opcua-runtime/p6_joint_live_20261113/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_joint_live_20261113/browser-real-20261114-acceptance.json)
+- 短暂低值场景 `p6_brief_low_20261114`。用 `Run-IndustrialSimRuntime.ps1 -UseTestConnection -BriefLow` 在协议重连后注入 3 秒低值，三点共入库 170 条 OPC UA 观测。温度从 90°C 短暂降至 60°C 后回到 90°C，告警仍为 Active，恢复时间为空。模型自主读取测量，引用 E17 中触发后的 60°C Good 样本及 E1 中低于 75°C 持续 5 秒、最大样本间隔 2.5 秒的规则。浏览器展开两条引用并停在待审批提案。[采集报告](../artifacts/opcua-runtime/p6_brief_low_20261114/result.json) · [调查与提案证据](../artifacts/opcua-runtime/p6_brief_low_20261114/browser-real-acceptance.json)
+
+2026-11-13 复验 `p6_protocol_20261113`。独立本机 PostgreSQL 与 IndustrialSim `3d5e7c0` 联合运行约 73 秒，三点各入库 48 条 Good OPC UA 观测，温度实收 60/75/90°C、参考温度恒定 62°C 且源时间更新、振动实收 4/7/12.6 mm/s。温度告警在协议停止及重连期间保持活动，协议恢复后转为 Recovered，三点均有新读数。模型调用为零。[运行证据](../artifacts/opcua-runtime/p6_protocol_20261113/result.json)
+
+同日使用 `-UseTestConnection` 准备浏览器验收。首次运行收到 57 条观测，未触发告警，达到时限后退出并保留报告。独立 schema 中的第二次运行约 61 秒，收到 148 条观测，P-101 温度告警 `6cf0664b-2e18-4921-956a-717ffda9d0ce` 触发并恢复。浏览器从该告警发起 Fake 调查、打开 E4 授权引用、核对提案并显式确认，打开了状态为 Draft 的关联工单 `WO-37dcd6b8407d49bf8c790b42732f6359`。该浏览器验证发生在有限采集结束后，当前测点显示不可验证。真实模型请求为零，业务库和部署均未参与。[首次运行](../artifacts/opcua-runtime/p6_browser_20261113/result.json) · [成功运行](../artifacts/opcua-runtime/p6_browser_retry_20261113/result.json) · [浏览器截图](../artifacts/opcua-runtime/p6_browser_retry_20261113/browser-draft.jpg)
+
+联合验证准备轮 `p6_joint_20261113` 使用新的隔离 schema，约 62 秒收到 145 条 OPC UA 观测，P-101 温度告警 `ca854f1c-f1f5-4b13-97ae-bae17af8f025` 已恢复。有限 Worker 在队列为空时退出；真实模型联合验收需另行运行。[采集报告](../artifacts/opcua-runtime/p6_joint_20261113/result.json)
+
 2026-11-06 复验 `roadmap_p5_20261106`，Plant Ops 基线 `dfb530a`，IndustrialSim `3d5e7c0`。在隔离 `plantops_tests.opcua_runtime_roadmap_p5_20261106` schema 运行约 68 秒，三点各入库 50 条。温度实际收到 60、75、90°C，参考温度保持 62°C 且源时间更新，振动实际收到 4、7、12.6 mm/s。停服期间进入重连并保持活动告警，恢复后三点均收到新观测，唯一温度告警最终恢复。退出后 6 段采样区间均关闭，3 条断线缺口均记录恢复时间，另有 3 条具有结束边界的可能采样间隔缺口。付费模型调用为 0。
 
 复验证据保存在 [result.json](../artifacts/opcua-runtime/roadmap_p5_20261106/result.json)。这一轮只有一次停服恢复。30 分钟联合运行、多次停服、同轮 Namespace 重排和浏览器验收仍待完成。Session KeepAlive 与收到 DataChange 分别核对，独立订阅保活和物理采样覆盖仍未知。
@@ -55,9 +93,41 @@
 
 首次失败轮 `framework_trial1_20261021`：Windows Console控制输入阻塞了示例场景驱动，协议可连接但值一直恒定，未触发场景告警；预算结束时带同一取消令牌的日志读取又中断了最终报告写出。改为独立输入任务及不随运行期限取消的日志排空后，新目录重跑通过。失败目录、框架报告、`failure.json`及测试schema保留，本轮测试来源/映射已单独停用，不算验收成功。修复前一次构建也因仍运行的示例锁住DLL失败，进程退出后最终脚本构建0警告/错误。
 
-## 本次回归与限制
+## P6 补充联合验收（2026-11-16）
+
+**混合质量通过。** `deploy/Run-LocalOpcUaRuntime.ps1 -UseTestConnection -MixedQuality -Run <fresh-name>` 使用内置只读 OPC UA 模拟器，在独立 `plantops_tests` schema 发送逐点协议质量。温度节点返回 `BadSensorFailure` 而无有效值，参考温度为 62°C Good，振动为 12.6 mm/s Good。真实采集器入库 66 条观测，连接保持 Connected，由虚构的 10 mm/s 阈值规则触发振动告警。准备文件只在三点的最新读数通过质量与时效核对后写入；调查冻结后创建 `release` 文件结束采集。
+
+浏览器从该告警手动触发 v3.13 实际模型调查。冻结状态为部分可信、存在当前异常证据。F2 引用 E21 保留可信振动超限，F5/F6 引用 E23 单独说明温度不可验证，R1/R2 分别核查振动与温度测量链。R3 将寻找未取得的适用规程归类为 `CollectEvidence`。浏览器打开 Pending 提案的完整内容，关联工单为 0。[协议准备快照](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/mixed-ready.json) · [采集报告](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/result.json) · [调查与提案](../artifacts/opcua-runtime/p6_v313_mixed_c_20261116/browser-1-acceptance.json)
+
+**稳定工况的协议验证通过，当前版本联合验收未通过。** v3.12 完整路径曾打开 Pending 提案，F2 正确识别温度观测段跨越记录恢复时间，另外两点仅报告单次快照。v3.13 的实时重跑中，首轮模型连接中断，后两轮均因同一假设重复引用支持及反证而被已有校验拒绝。最后一轮实际采集 177 条 OPC UA 观测。其模型响应的 F5 引用 E10/E12/E14，分别写出三点稳定范围 60°C / 62°C / 4 mm/s 及各自区间，给出共同区间并保留物理连续性的限制。F3 记录 11:51:56.372081（北京时间）恢复，位于上述共同区间内；回答没有明确把三点的末段与该边界关联起来。校验拒绝后没有提案或工单。[v3.12 浏览器记录](../artifacts/opcua-runtime/p6_v312_stable_c_20261114/browser-1-acceptance.json) · [最新采集报告](../artifacts/opcua-runtime/p6_v313_stable_c_20261116/result.json) · [最新调查记录](../artifacts/opcua-runtime/p6_v313_stable_c_20261116/browser-1-acceptance.json)
+
+## 独立采集故障反例（2026-11-18）
+
+- **Worker 强停与重启。** Worker 连接到真实回环 OPC UA 并取得三点可信观测后，实验强停该进程。约 9.6 秒后，API 显示 Worker 心跳过期且三点当前观测均不可信。既有活动告警未恢复。重启后收到三个新鲜点位观测，三个 `PossibleCrashTail` 缺口闭合，均为可能缺口，`DroppedCount` 保持空。该隔离库没有发起调查。[Worker 强停与重启证据](../artifacts/opcua-runtime/p54_worker_crash_c_20261118/worker-crash.json)
+- **订阅停止发布、Session 保持。** 仅在本机仿真服务器关闭该订阅的发布模式约 10.3 秒。Session 保活继续推进，同一 Session 和订阅随后恢复发布，Worker 无重连。停发期间活动告警保留，Fake 调查冻结的三点状态均为不可验证，汇总异常证据不足，且没有生成工单。该实验覆盖服务器停止发布与正常 Session 并存的情况。 [订阅暂停、调查与恢复证据](../artifacts/opcua-runtime/p54_subscription_pause_20261118/subscription-pause.json)
+- **Worker 心跳过期的调查取证。** 另一隔离轮在强停之后、采集进程重启之前，使用 Fake 处理一次手动调查。三点快照均为不可验证，来源健康过期，汇总异常证据不足，工单为零。[调查证据](../artifacts/opcua-runtime/p63_worker_stale_20261118/worker-crash.json)
+
+这些实验使用独立 `plantops_tests` schema 和零真实模型请求。
+
+### PostgreSQL 暂停与恢复（2026-11-19）
+
+本机用真实回环 OPC UA、正常 `MeasurementWorker`、三个虚构测点及独立 PostgreSQL 17 容器。12:22:54 至 12:23:06（北京时间）暂停测试库 12.2 秒，OPC UA 仿真服务器保持运行。暂停前的 84 条已提交观测全部保留。恢复后，三个点位均重新取得 Good 观测。同一温度告警在数据库恢复后约 11.3 秒记录恢复。最终 120 条观测中没有重复事件键，三个 `DatabaseUnavailable` 条目均为可能缺口，丢失数为空。另有采集故障、连接重新建立及可能采样空窗的记录。新增调查和真实模型请求均为零。[验收报告](../artifacts/opcua-runtime/p52_db_pause_b_20261119/result.json) · [暂停与恢复时间](../artifacts/opcua-runtime/p52_db_pause_b_20261119/database-pause-window.json)
+
+复验入口为 `./deploy/Run-LocalOpcUaRuntime.ps1 -UseTestConnection -DatabasePause -Run <fresh-name>`。连接指向本轮专用 `plantops_tests` 容器。运行器等待温度告警写入，在输出目录生成 `database-pause-ready.json`。外部控制在收到该信号后暂停专用数据库 8–20 秒，恢复后原子写入 `database-pause-window.json`，包含 UTC `PausedAt` 和 `ResumedAt`。本轮启动前检查了 C、D 盘各至少 2 GiB 余量，并用每盘新增 256 MiB 作为停止条件。该模式验证短时数据库暂停后的恢复；缓冲上限和精确队列淘汰数由独立离线用例验证。[32 项离线回归](../artifacts/investigation-quality/p5_reliability_20261119/p52-offline.trx)
+
+另外 49 项隔离库回归通过，覆盖采集状态、缺口、告警相关入库路径、调查运行记录及提案。[隔离库回归](../artifacts/investigation-quality/p5_reliability_20261119/isolated-regression.trx)
+
+## P5.4 三点长时联合运行（2026-11-18）
+
+`deploy/Run-LocalOpcUaRuntime.ps1 -UseTestConnection -Reliability -Run <fresh-name>` 使用本机只读仿真服务器、正常 MeasurementWorker 和专用测试库。2026-11-18 14:55–15:25（北京时间）保持 Worker 运行 1,800.19 秒。三个点请求 1 秒采样和发布，12 个实际修订区间均为 1 秒且互不重叠。仿真生成 5,379 次观测，入库 5,346 条且无重复。Good 观测按点位、源时间和值与实际生成记录逐条核对，14 条 Bad 温度观测按状态与接收区间核对，LastGood 保持 60°C。差异保留在证据中，物理采样覆盖及具体尾部损失仍未知。[采集报告](../artifacts/opcua-runtime/p54_reliability_c_20261118/result.json)
+
+三次停服均在 5.67–6.86 秒内进入重连状态，掉线期间告警持续活动。重启后在 3.62–4.12 秒内三点重新取得新鲜观测，随后记录恢复。Namespace 索引在 2 和 3 之间重排，基于 URI 的映射恢复成功。九条断线缺口闭合。浏览器同轮核查三点最新值、原始观测、完整 UTC 分钟、来源健康和三次告警恢复。逐条核对了 593 条原始观测及 12 个有数据的分钟统计。授权读取返回 200，未登录为 401，跨工厂为 404。新增调查与真实模型请求均为零。[联合核对](../artifacts/opcua-runtime/p54_reliability_c_20261118/joint-verification.json) · [浏览器记录](../artifacts/opcua-runtime/p54_reliability_c_20261118/browser-reliability.json)
+
+前两轮因整盘余量变化触发停止，分别保留 1,410 和 2,190 条观测。最终运行按本轮文件与独立 schema 核算新增体积，峰值约 27.2 MiB，使用 256 MiB 上限并保留磁盘余量检查。数据库卷使用量在监测区间增加约 6 MiB。另有 38 项采集、缺口、统计及访问控制回归通过。剩余故障矩阵见路线图。[第一轮](../artifacts/opcua-runtime/p54_reliability_20261118/result.json) · [第二轮](../artifacts/opcua-runtime/p54_reliability_b_20261118/result.json) · [监测](../artifacts/opcua-runtime/p54_reliability_c_20261118/monitor.jsonl) · [回归](../artifacts/investigation-quality/p6_closure_20261114/p54-fault-regression.trx)
+
+## 早期框架兼容复验
 
 - 框架新增真实YAML状态测试1通过，原Scenarios项目19通过；示例构建0警告/错误。
 - Plant Ops带专用测试连接定向92通过、0失败/跳过，`artifacts/p53/checks/industrial-focused.trx`，覆盖OpcUa、Worker、入库、规则、采样策略和最小场景。
 - 旧 `Run-LocalOpcUaRuntime.ps1 -Run framework_compat_20261021` 实际复验通过，76条/三点、停服/Namespace重排后告警恢复，证据 `artifacts/opcua-runtime/framework_compat_20261021/result.json`。旧spike入口仍用于协议回归。
-- 本轮没有重跑完整后端/前端、30分钟、复杂崩溃矩阵、外部工业服务器或真实LLM；不能声称完整P5验收。Docker工作台仍使用原Simulation来源，本轮并未切换其业务数据源。
+- 该兼容轮覆盖本机协议及相关回归。完整后端与前端、30 分钟、复杂崩溃矩阵、外部工业服务器及真实模型当时留待后续验证。Docker 工作台使用原 Simulation 来源。

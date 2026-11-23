@@ -393,7 +393,9 @@ public sealed class TelemetryService(PlantOpsDbContext db, IAssetDirectory direc
         {
             if (input.OpcUa == null || !OpcUaConfigurationPolicy.ValidConversion(input.RawUnit, point.CanonicalUnit, input.Scale, input.Offset)
                 || !((point.Quantity == "Vibration" && point.CanonicalUnit is "mm/s" or "m/s")
-                    || (point.Quantity == "Temperature" && point.CanonicalUnit is "degC" or "K")))
+                    || (point.Quantity == "Temperature" && point.CanonicalUnit is "degC" or "K")
+                    || (point.Quantity == "Level" && point.CanonicalUnit == "m")
+                    || (point.Quantity == "VolumeFlow" && point.CanonicalUnit == "m3/h")))
             {
                 throw new DirectoryException(400, "OPC UA requires an explicit node identity and a supported quantity/unit conversion.");
             }

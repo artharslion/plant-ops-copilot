@@ -8,7 +8,7 @@
 
 ## 本地启动（PowerShell）
 
-前置：.NET SDK 10.0.112（global.json）、Node 22.23.1、Docker Desktop Linux engine。版本由 global.json、NuGet lock、web/package-lock.json 和数据库镜像固定；仓库许可证见 [LICENSE](../LICENSE)。
+前置环境为 `global.json` 中的 .NET SDK、符合 `web/package.json` 中 `engines.node` 的 Node.js 22，以及支持 Linux 容器的 Docker。首次还原遵循 NuGet 和 npm 锁文件。仓库许可证见 [LICENSE](../LICENSE)。
 
 在仓库根目录，首次创建本地数据库凭据（已有 deploy/.env 时保留原值）：
 
@@ -117,7 +117,7 @@ dotnet test PlantOps.sln
 Remove-Item Env:PLANTOPS_TEST_CONNECTION
 ```
 
-未设置测试连接时，数据库集成测试会明确跳过；纯测试无需数据库。当前数量见最新验收记录。连接数据库名必须是 `plantops_tests`，其他数据库会被拒绝。测试使用随机临时账号/资源和随机内存密码；测试数据保留，不删除数据库。Windows 下构建/安装依赖前先停止本仓库 Api/Worker/Vite，避免占用输出文件。
+未设置测试连接时，数据库集成测试会明确跳过；纯测试无需数据库。连接数据库名必须是 `plantops_tests`，其他数据库会被拒绝。测试使用随机临时账号/资源和随机内存密码；测试数据保留，不删除数据库。Windows 下构建/安装依赖前先停止本仓库 Api/Worker/Vite，避免占用输出文件。
 
 API 在 Development 启动后，前端可通过 `npm run generate:api` 从 OpenAPI 更新已提交的类型文件；正常 `npm ci` / `npm run build` 不要求 API 在线。
 
@@ -129,15 +129,15 @@ deploy/.env、appsettings.Local.json 和凭据不会提交。每个终端需要�
 
 终端 Ctrl+C 关闭 Api/Worker/Web；`docker compose -f deploy/compose.yaml stop` 停止数据库并保留数据。密钥、客户端私钥、数据库备份和上传文件不得进入版本库。
 
-维护工单：设备详情的“维护工单 / 维修历史”标签提供列表，创建及处理进入独立页面。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭；取消/返工必填原因。
+设备详情的“维护工单 / 维修历史”标签提供列表，创建及处理在当前页面的工单抽屉中完成。维护写操作使用 engineer（South）或 admin（North/South）。草稿→待执行→执行中→已完成（必填结果）→已关闭。取消或返工必填原因。
 
 知识资料：知识资料入口上传工厂资料，设备详情上传设备资料。上传为草稿，发布后授权下载；修改读取角色或撤回立即生效。生产配置 Documents:StorageRoot（持久受控目录，须与数据库一起备份）；Development 默认同用户 LocalApplicationData/PlantOpsCopilot/documents（API/Worker 共用）。API 提供 /hubs/plant-events，只读通知、自动重连与 HTTP 补查。前端去重验证：npm test --prefix web。
 
 ### 完整业务演示与保留配置
 
-登录 admin → North → Utilities → P-101。等模拟高值产生告警，点击“查看此设备的告警”，选择记录并“确认告警”。点击“查看设备并创建关联工单”，关联告警自动带入。填写标题、说明与责任人，默认“创建并打开 → 开始执行 → 填写处理结果 → 完成并关闭”。步骤条显示“创建任务 → 执行维护 → 提交结果”，维护备注为可选；也可仅保存草稿，或仅提交完成、交由他人复核关闭。取消及返工在“更多操作”中，需填写原因。维修历史显示终态和处理结果；关闭工单不代替告警恢复。engineer 在 South 可完成同一维护流程；operator 可以确认但不能创建工单，viewer 只能读取。
+登录 admin → North → Utilities → P-101。等模拟高值产生告警，点击“查看此设备的告警”，选择记录并“确认告警”。点击“手动填写关联工单”，抽屉会带入告警。填写标题、说明与责任人，默认“创建并打开 → 开始执行 → 填写处理结果 → 完成并关闭”。步骤条显示“创建任务 → 执行维护 → 提交结果”，维护备注为可选；也可仅保存草稿，或仅提交完成、交由他人复核关闭。取消及返工在“更多操作”中，需填写原因。维修历史显示已完成或已关闭的工单及处理结果。engineer 在 South 可完成同一维护流程；operator 可以确认但不能创建工单，viewer 只能读取。
 
-设备资料中选择原创指南并下载，或上传 TXT/MD/PDF → 保存草稿 → 发布 → 下载；选择读取角色可限制访问。PDF 目前仅验证头尾并保存，不解析或建立索引。无需配置模型或 OPC UA 服务。
+设备资料中选择原创指南并下载，或上传 TXT/MD/PDF → 保存草稿 → 发布 → 下载。选择读取角色可限制访问。已发布的授权 TXT/MD 片段可用于调查检索，PDF 保留原文件，索引状态为 `NeedsText`。此演示可使用默认 Fake 模式和内置模拟源。
 
 Worker 在启动和每分钟聚合已完成 UTC 分钟，当前分钟不提供统计；有未处理迟到数据的桶明确显示缺口。默认 `Telemetry:RawRetentionDays=7`、`Telemetry:MinuteRetentionDays=90`，可通过对应双下划线环境变量配置。每天 UTC 日期变更执行保留任务；先核对 dirty、分区修订和聚合样本数量，再删过期日分区。失败保留原始数据；原始过期后最新投影、告警快照和工单仍保留。过期迟到样本被拒绝，不能重写已保留统计。保留按整日分区，边界日最多额外保留一天。
 
@@ -154,7 +154,7 @@ node web/scripts/benchmark-p1.mjs
 
 不加载 AI 配置时默认使用 Fake Provider，不访问外网；模拟结果不能视为真实模型回答。真实模型配置、密钥加载和探针见 [AI 接入配置](AI_PROVIDER_SETUP.md)。启动 API 与 Worker 前，分别在各自终端加载 `deploy/Use-LocalAi.ps1`。告警调查与证据展开的操作和验证见 [调查建议与证据契约](INVESTIGATION_RESPONSE_V3.md)。
 
-P8.1 新运行的实际版本指纹及用量来源保存在 `AiRuns.RunRecordJson`，调查 API 返回 `runRecord`，详见 [最小运行记录](P8_1_RUN_RECORD_VALIDATION.md)。旧记录为 null，旧 `PromptVersion` 和 Token 字段不能证明当时实际请求或计费用量。`InputTokens`/`OutputTokens` 继续是兼容预算核算值，可能混合已报告用量与未知预留；总实耗未知时新记录明确返回 null。迁移需显式执行，源码更新不代表业务 Docker 已升级。
+调查 API 的 `runRecord` 包含新运行的版本指纹及用量来源。旧运行的 `runRecord` 可能为 `null`。`InputTokens` 和 `OutputTokens` 用于兼容预算核算，可能包含供应方已报告用量与未知预留。总实耗未知时，新记录返回 `null`。定位运行失败时查阅 [调查诊断](INVESTIGATION_DIAGNOSTICS.md)。
 
 ## 项目约定
 
@@ -165,18 +165,20 @@ P8.1 新运行的实际版本指纹及用量来源保存在 `AiRuns.RunRecordJso
 
 首页 `/` 是运维工作台。`GET /api/v1/plants/{plantId}/overview` 复用工厂读取授权，在同一数据库快照中返回完整统计与有界列表（默认 5 条，可展开至 50 条）。活动告警与其中未确认的告警分别统计；未关闭工单包含 Draft/Open/InProgress/Completed，`mine=true` 按当前负责人筛选，`workOrderStatus` 筛选状态，均不改变摘要总数。数据异常只统计未归档工厂、设备下的启用测点，区分采集未连接、无观测、数据陈旧与不可信观测；陈旧阈值沿用各测点配置。页面监听工厂事件并每 15 秒补查，失败时清空业务快照，显示不可用而非 0。未登录只显示登录入口。
 
-首页告警入口携带 `plantId`/`alarmId` 打开具体告警及调查区域；异常测点入口携带 `assetId`/`tab=measurements`/`pointId` 定位具体测点。工单沿用已有独立详情路由。系统连接检查收在页脚，业务自动刷新不等于连接检查结果的自动更新。
+首页告警入口携带 `plantId`/`alarmId` 打开具体告警及调查区域；异常测点入口携带 `assetId`/`tab=measurements`/`pointId` 定位具体测点。首页工单在当前页面打开抽屉。系统连接检查收在页脚，可单独刷新。
 
-前端固定使用 Element Plus 2.14.7，版本与 `web/package-lock.json` 一起更新；`main.ts` 仅注册已使用的组件，`App.vue` 统一提供简体中文区域设置。品牌绿色、间距、表格密度与响应式布局在 `style.css` 中维护，避免重新引入自制输入/选择/步骤条。
+Element Plus 版本由 `web/package.json` 和锁文件固定。`main.ts` 仅注册已使用的组件，`App.vue` 随应用语言切换 Element Plus 的简体中文和英语区域设置。品牌绿色、间距、表格密度与响应式布局在 `style.css` 中维护。
 
-- 资产入口：`/assets?assetId=<id>`，可附带 `alarmId` 自动选中工单分区；`tab=orders` 用于从工单返回。位置树筛选设备，表格中设备代码按钮也支持键盘打开。
-- 工单入口：`/assets/<assetId>/work-orders/new` 或 `/assets/<assetId>/work-orders/<orderId>`；关联告警保存在 `alarmId` 查询参数。保存后替换为真实工单地址；“返回设备”重新打开该设备的工单标签。原有 `/assets` 静态目录冲突修复继续保留，独立工单路由可直接刷新。
+界面翻译入口为 [i18n.ts](../web/src/i18n.ts)，英文词条在 [locales/en.ts](../web/src/locales/en.ts)，证据展示翻译在 [evidencePresentation.ts](../web/src/evidencePresentation.ts)。修改证据翻译后，在 `web/` 执行 `node scripts/export-evidence.mjs`，同步后端生成工单使用的英文词条。工单和备注草稿使用调查发起时保存的语言。
+
+- `/assets?assetId=<id>` 打开设备详情，`tab=orders` 定位工单标签。位置树筛选设备，表格中设备代码按钮也支持键盘打开。
+- 首页、告警和设备工单列表共用 `WorkOrderDrawer`。旧地址 `/assets/<assetId>/work-orders/<orderId>`（含 `new`）重定向到 `/assets`，保留原查询参数，并使用 `assetId`、`tab=orders` 和 `workOrderId` 恢复设备与工单抽屉。
 - 设备详情采用一个宽 Drawer 与五个 Tabs；测量离开即卸载，停止定时器和事件订阅。工单详情后台只比较版本，保留处理结果、备注、选中项及滚动；远端更新后要求重新核对。
 - 知识资料页的资料详情采用 Drawer；在已经打开的设备 Drawer 中，资料详情使用 Dialog，避免连续叠加 Drawer。目录编辑、资料上传/元数据编辑、规则/采集配置及调查引用使用 Dialog。
 - `SidePanel` 统一封装 Drawer/Dialog 的关闭流程，保存中阻止关闭，未保存内容显示确认。`useLeaveProtection` 保护路由离开/参数切换及刷新；刷新/关页提示文字由浏览器决定。创建工单和目录、资料关键字段使用 Form 校验；服务端仍是权限、版本与输入规则的最终校验方。
-- 三步操作不改变后端状态机：默认创建并打开、完成并关闭；显式草稿、仅提交完成、取消、返工、维护备注仍可使用。P4 已实现调查后的工单/备注提案、完整内容确认与幂等执行，见 [创建工单](P4_WORK_ORDER_VALIDATION.md)及[备注验证](P4_NOTE_VALIDATION.md)；完整浏览器审批 E2E 仍待验收。后续能力与维护边界以 [开发计划](../ROADMAP.md) 为准。
+- 调查后的工单和备注提案支持核对完整内容、人工确认和幂等执行。确认后的关联 Draft 与未执行的 Pending 提案可分别从回执和调查区域查看。联合验收覆盖范围见 [开发计划](../ROADMAP.md#4-p6ai-多源联合调查增强)。
 
-验证命令见 [源码规范](CODE_STYLE.md)，本轮证据见 [交互验证记录](UI_INTERACTION_VALIDATION.md)。纯 UI 更新使用下面两条命令，不执行会迁移数据库的初始化脚本：
+验证命令见 [源码规范](CODE_STYLE.md)。只更新源码构建的前端容器时，执行下面两条命令。使用 IndustrialSim overlay 的部署需为两条命令补上已启用的 Compose 文件。
 
 ```powershell
 docker compose --env-file deploy/.env.docker build web

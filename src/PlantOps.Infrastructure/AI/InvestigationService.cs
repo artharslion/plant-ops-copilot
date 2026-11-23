@@ -307,11 +307,11 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             var pointWindows = pointSnapshots.ToDictionary(x => x.PointId, _ => new List<InvestigationWindowAssessment>());
             InvestigationEvidence Add(string kind, string title, Guid resource, string[] facts, string? sourceHash = null, Guid? version = null, Guid? chunk = null,
                 InvestigationPointSnapshot? pointStatus = null, InvestigationDerivedTrend? derivedTrend = null,
-                string availability = "Available", InvestigationEvidenceState? state = null)
+                string availability = "Available", InvestigationEvidenceState? state = null, DateTimeOffset? recordedRecoveryAt = null)
             {
                 state ??= new InvestigationEvidenceState(availability, pointStatus?.CurrentTrust, pointStatus?.CurrentAnomaly);
                 var existing = ledger.SingleOrDefault(x => x.State == state && x.Kind == kind && x.ResourceId == resource && x.VersionId == version && x.ChunkId == chunk
-                    && x.Facts.SequenceEqual(facts, StringComparer.Ordinal));
+                    && x.RecordedRecoveryAt == recordedRecoveryAt && x.Facts.SequenceEqual(facts, StringComparer.Ordinal));
                 if (existing != null)
                 {
                     return existing;
@@ -326,10 +326,11 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         facts,
                         pointStatus,
                         derivedTrend,
-                        state
+                        state,
+                        recordedRecoveryAt
                     }, Json))));
                 var item = new InvestigationEvidence("E" + (ledger.Count + 1).ToString(CultureInfo.InvariantCulture), kind, title,
-                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus, derivedTrend, state);
+                    facts, hash, clock.GetUtcNow(), resource, version, chunk, pointStatus, derivedTrend, state, recordedRecoveryAt);
                 ledger.Add(item);
                 return item;
             }
@@ -338,7 +339,8 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
             Add("Alarm", "所选告警的历史快照", run.AlarmId,
                 [$"触发值为 {Number(selectedAlarm.TriggerValue)} {point.CanonicalUnit}，触发时间为 {Time(selectedAlarm.StartedAt)}；这是历史告警快照。",
                  $"调查取数时告警状态为 {selectedAlarm.State}，恢复时间为 {(selectedAlarm.RecoveredAt.HasValue ? Time(selectedAlarm.RecoveredAt.Value) : "未记录")}，人工确认状态为 {(selectedAlarm.AcknowledgedAt.HasValue ? "已确认" : "未确认")}；确认不代表恢复，恢复不代表根因已消除。",
-                 $"告警规则历史快照：{selectedAlarm.ThresholdSnapshot}；仅解释本事件，不作为现场操作参数。"]);
+                 $"告警规则历史快照：{selectedAlarm.ThresholdSnapshot}；仅解释本事件，不作为现场操作参数。"],
+                recordedRecoveryAt: selectedAlarm.RecoveredAt);
             if (!selectedAlarm.CurrentObservationTrusted)
             {
                 warnings.Add("当前观测质量、陈旧或采集配置不可验证，不得用历史触发值判断当前状态或恢复。");
@@ -442,6 +444,10 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                             var raw = await telemetry.TrendAsync(actor, run.AssetId, point.Id, anchor.At.AddMinutes(-1), end, "raw");
                             var atCutoff = raw.Samples.Where(x => x.ReceivedAt <= capturedAt && x.EffectiveAt <= capturedAt).ToArray();
                             var selected = atCutoff.Where(x => x.EffectiveAt >= anchor.At).Take(1)
+                                .Concat(atCutoff.Where(x => x.Value.HasValue && x.Quality == "Good" && !x.TimeAnomaly)
+                                    .OrderBy(x => x.Value)
+                                    .ThenBy(x => x.EffectiveAt < anchor.At)
+                                    .Take(1))
                                 .Concat(atCutoff.Where(x => x.Value.HasValue).OrderByDescending(x => x.Value).Take(1))
                                 .Concat(atCutoff.Take(1)).Concat(atCutoff.TakeLast(1)).DistinctBy(x => x.Id);
                             supplied.Add(Add(anchor.Kind, "事件原始观测（有界节选）", point.Id,
@@ -521,6 +527,10 @@ public sealed partial class InvestigationService(PlantOpsDbContext db, IAlarmSer
                         break;
                     case "search_documents":
                         var docs = await documents.SearchAsync(actor, run.AssetId, arguments.GetProperty("query").GetString()!, arguments.GetProperty("limit").GetInt32(), token);
+                        if (docs.Policy != null)
+                        {
+                            budget.RecordDiagnostic("document-search", "Completed", docs.Policy);
+                        }
                         foreach (var doc in docs.Items)
                         {
                             if (!await db.DocumentVersions.AsNoTracking().AnyAsync(x => x.Id == doc.VersionId && x.PublishedAt <= capturedAt, token))

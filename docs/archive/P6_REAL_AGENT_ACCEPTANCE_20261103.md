@@ -59,7 +59,7 @@ This separate test workbench has not been started. Consequently protocol ingesti
 
 ## Scenario quality matrix and error risks
 
-The existing [real-model report](INVESTIGATION_V3_REAL_VALIDATION_20261030.md) is historical evidence, not authorization or a current rerun. Visible [semantic fixtures](../tests/fixtures/investigation-advice-semantics.json) are not reviewer holdouts. Current deterministic tests do not yield a semantic false-acceptance/rejection rate.
+The existing [real-model report](INVESTIGATION_V3_REAL_VALIDATION_20261030.md) is historical evidence, not authorization or a current rerun. Visible [semantic fixtures](../../tests/fixtures/investigation-advice-semantics.json) are not reviewer holdouts. Current deterministic tests do not yield a semantic false-acceptance/rejection rate.
 
 | Scenario | Available evidence / remaining acceptance |
 | --- | --- |
@@ -76,7 +76,7 @@ Human review must score factual support, uncertainty, causal restraint, procedur
 
 The acceptance gate can still falsely accept a semantically irrelevant citation, or an answer with valid structure but poor recommendations. It rejects failed reads, missing/mismatched traces and an investigation with no usable tool evidence. Successful Empty reads no longer independently reject it. Cache hits may count as actual authorized reads of frozen evidence; they do not prove a new upstream observation. Direct Finish is evaluated independently to avoid treating legitimate initial-evidence sufficiency as a product defect.
 
-See [v3 contract](INVESTIGATION_RESPONSE_V3.md), [guardrails](AI_ENGINEERING_GUARDRAILS.md) and [P6 scope](../ROADMAP.md#4-p6ai-多源联合调查增强). P6 remains incomplete until real autonomous evidence/proposal acceptance and the required protocol/browser/human-confirmation closure are observed.
+See [v3 contract](../INVESTIGATION_RESPONSE_V3.md), [guardrails](../AI_ENGINEERING_GUARDRAILS.md) and [P6 scope](../../ROADMAP.md#4-p6ai-多源联合调查增强). P6 remains incomplete until real autonomous evidence/proposal acceptance and the required protocol/browser/human-confirmation closure are observed.
 
 ## Phase 3 authorized startup — blocked before external sends
 
@@ -296,7 +296,7 @@ The full parsed completion, usage, HTTP/SSE diagnostics and validator failure ar
 This sample confirms transport and wire-Schema compatibility with the configured provider. The strict final-response contract failed, so P6 remains incomplete. The shared authorization is exhausted at **4/4**.
 ## 2026-11-09 v3.5 recovery evidence follow-up
 
-The [local workbench acceptance](INVESTIGATION_RESPONSE_V3.md#2026-11-09-local-workbench-acceptance) remains a successful real-model investigation and human-confirmed Draft work order. Recovery interpretation remains an open quality issue.
+The [local workbench acceptance](P6_V3_FOLLOW_UP_20261119.md#2026-11-09-local-workbench-acceptance) remains a successful real-model investigation and human-confirmed Draft work order. Recovery interpretation remains an open quality issue.
 
 ### Historical run audit
 

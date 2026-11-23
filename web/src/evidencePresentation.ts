@@ -414,8 +414,12 @@ const titles: Record<string, Record<string, string>> = {
 
 export function formatEvidenceTitle(evidence: EvidenceSource): string {
   const title = evidence.title ?? ''
-  if (locale.value !== 'en') return title
   const kind = evidence.kind ?? ''
+  if (locale.value !== 'en') {
+    return kind === 'RecoveryReadings' && title === '事件原始观测（有界节选）'
+      ? '恢复阶段原始观测（有界节选）'
+      : title
+  }
   if (titles[kind]?.[title]) return titles[kind][title]
   if (['EventTrend', 'RecoveryTrend', 'Trend'].includes(kind)) return terms[title] ?? title
   if (kind === 'PointStatus' && title.startsWith('测点证据状态与按需历史窗口 · '))

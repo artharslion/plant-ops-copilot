@@ -23,6 +23,8 @@ public sealed class InvestigationHeatingServiceTests
     public async Task SameReadingsRaiseTemperatureAlarmAndGroundFrozenAnalysisAndDraft(string language)
     {
         var clock = new AlarmTests.Clock();
+        var capture = new InvestigationFixtureCapture("sustained-heating-" + language.ToLowerInvariant(),
+            Environment.GetEnvironmentVariable("PLANTOPS_OFFLINE_CASE_ROOT"));
         await using var session = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection());
         await session.Initialize();
         await session.Login();
@@ -73,23 +75,31 @@ public sealed class InvestigationHeatingServiceTests
         for (var i = 0; i < values.Length; i++)
         {
             clock.Now = start.AddSeconds(i);
-            await ingestor.IngestAsync(configs.Select(x => SamplePolicy.Normalize(x,
+            var samples = configs.Select(x => SamplePolicy.Normalize(x,
                 x.PointId == point.Id ? values[i] : x.CanonicalUnit == "degC" ? 62 : 4,
-                "Good", clock.Now, null, clock.Now, "heat-" + x.PointId + "-" + i)).ToArray());
+                "Good", clock.Now, null, clock.Now, "heat-" + x.PointId + "-" + i)).ToArray();
+            capture.Record(samples);
+            await ingestor.IngestAsync(samples);
         }
         clock.Now = clock.Now.AddSeconds(1);
         await runtime.ReportAsync(new(source.Id, config.SourceVersion, "Connected", clock.Now, clock.Now, clock.Now, 0, null), default);
         var alarms = (await session.Client.GetFromJsonAsync<AlarmPage>($"/api/v1/alarms?plantId={asset.PlantId}&assetId={asset.Id}"))!;
         var alarm = Assert.Single(alarms.Items);
         Assert.Equal(90, alarm.TriggerValue);
+        await capture.CaptureAuthorizationAsync(scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>(), session.UserId, asset.Id);
         var created = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations?language={language}", null);
         Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
         var run = (await created.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
         run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
+        await capture.SaveAsync(run, "Trusted", "Present");
         Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode + ":" + run.RunRecord?.GetRawText());
         Assert.Equal(3, run.Assessment!.Points.Length);
         Assert.Equal(5, run.ToolCalls);
+        var search = Assert.Single(run.RunRecord!.Value.GetProperty("diagnostics").EnumerateArray(),
+            entry => entry.GetProperty("stage").GetString() == "document-search").GetProperty("details");
+        Assert.Equal("keyword-title-section-text-v1", search.GetProperty("rankingVersion").GetString());
+        Assert.Equal(PlantOps.Application.Knowledge.TextDocumentParser.Version, search.GetProperty("eligibleParserVersion").GetString());
         Assert.InRange(run.InputTokens, 1, 16000);
         var evidence = Assert.Single(run.Evidence, x => x.Kind == "EventDerivedTrend" && x.ResourceId == point.Id);
         var trend = evidence.DerivedTrend!;
@@ -106,7 +116,8 @@ public sealed class InvestigationHeatingServiceTests
                 facts = evidence.Facts,
                 pointStatus = evidence.PointStatus,
                 derivedTrend = trend,
-                state = evidence.State
+                state = evidence.State,
+                recordedRecoveryAt = evidence.RecordedRecoveryAt
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web)))));
         Assert.Equal(expectedHash, evidence.Sha256);
         Assert.Equal("3", run.Result!.Value.GetProperty("schemaVersion").GetString());

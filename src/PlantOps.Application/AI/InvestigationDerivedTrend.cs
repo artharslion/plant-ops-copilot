@@ -6,6 +6,9 @@ namespace PlantOps.Application.AI;
 public sealed record InvestigationTrendChange(Guid FirstReadingId, Guid LastReadingId, DateTimeOffset From,
     DateTimeOffset To, double FirstValue, double LastValue, double Change, double RatePerMinute, int SampleCount, int IncreaseCount);
 
+public sealed record InvestigationTrendSegment(Guid FirstReadingId, Guid LastReadingId, DateTimeOffset From,
+    DateTimeOffset To, double Min, double Max, int SampleCount);
+
 public sealed record InvestigationTrendGap(DateTimeOffset From, DateTimeOffset? To, string Reason);
 
 public sealed record InvestigationTrendProfile(Guid Id, DateTimeOffset From, DateTimeOffset? To,
@@ -14,13 +17,14 @@ public sealed record InvestigationTrendProfile(Guid Id, DateTimeOffset From, Dat
 public sealed record InvestigationDerivedTrend(string AlgorithmVersion, Guid PointId, string Code, string Unit,
     Guid AlarmId, string WindowKind, DateTimeOffset From, DateTimeOffset To, DateTimeOffset AsOf, DateTimeOffset RetrievedAt,
     InvestigationObservedReading[] Samples, InvestigationTrendGap[] Gaps, InvestigationTrendProfile[] Profiles,
-    InvestigationTrendChange? Change, InvestigationTrendChange[] RiseSegments, string[] Reasons, bool IsAlarmPoint = true);
+    InvestigationTrendChange? Change, InvestigationTrendChange[] RiseSegments, string[] Reasons, bool IsAlarmPoint = true,
+    InvestigationTrendSegment? LatestSegment = null);
 
 // Only ordered, version-confirmed observations support a change. A rising
 // observation sequence does not establish continuous physical heating or cause.
 public static class InvestigationTrendPolicy
 {
-    public const string Version = "ordered-raw-change-v1";
+    public const string Version = "ordered-raw-change-v3";
     public const int MaxSamples = 601;
 
     public static InvestigationDerivedTrend Calculate(InvestigationPointSnapshot point, Guid alarmId, string kind,
@@ -173,6 +177,20 @@ public static class InvestigationTrendPolicy
         {
             reasons.Add("RiseSegmentsOmitted");
         }
+        InvestigationTrendSegment? latest = null;
+        // A bounded tail must end at the actual last row and never cross a rejected pair.
+        if (!reasons.Contains("Truncated") && chains.LastOrDefault() is { Count: >= 2 } tail && tail[^1] == rows[^1])
+        {
+            // A whole-window change contains endpoints, but cannot describe a later run of equal readings.
+            // After a gap, retain the original verified tail including its full range.
+            var segment = whole == null ? tail : tail.AsEnumerable().Reverse()
+                .TakeWhile(row => row.NumericValue == tail[^1].NumericValue).Reverse().ToList();
+            if (segment.Count >= 2)
+            {
+                latest = new(segment[0].Id, segment[^1].Id, segment[0].EffectiveAt, segment[^1].EffectiveAt,
+                    segment.Min(x => x.NumericValue!.Value), segment.Max(x => x.NumericValue!.Value), segment.Count);
+            }
+        }
         return new(Version, point.PointId, point.Code, point.Unit, alarmId, kind, from, to, point.AsOf, retrievedAt,
             rows.Select(x => new InvestigationObservedReading(x.Id, x.EffectiveAt, x.ReceivedAt,
                 x.NumericValue.HasValue && double.IsFinite(x.NumericValue.Value) ? x.NumericValue : null,
@@ -181,6 +199,6 @@ public static class InvestigationTrendPolicy
             relevantGaps.Select(x => new InvestigationTrendGap(x.From, x.To, x.Reason)).ToArray(),
             relevantProfiles.Select(x => new InvestigationTrendProfile(x.Id, x.EffectiveFrom, x.EffectiveTo,
                 x.SourceMappingId, x.MappingVersion, x.Mode, x.RevisedSamplingIntervalMs)).ToArray(),
-            whole, selectedRises, reasons.Order(StringComparer.Ordinal).ToArray());
+            whole, selectedRises, reasons.Order(StringComparer.Ordinal).ToArray(), LatestSegment: latest);
     }
 }

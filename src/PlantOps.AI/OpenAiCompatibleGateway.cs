@@ -136,7 +136,7 @@ public sealed class OpenAiCompatibleGateway(HttpClient client, IOptions<AiOption
                 try
                 {
                     await budget.RecordResponseAsync(result, Convert.ToHexStringLower(SHA256.HashData(body)), cancellationToken);
-                    ExternalRequestLedger.RecordCompletion(body, result);
+                    ExternalRequestLedger.RecordCompletion(body, result, budget.LeaseId);
                     stage = "usage-reconciliation";
                     budget.ReconcileUsage(result.Usage, inputReservation, request.MaxOutputTokens);
                 }

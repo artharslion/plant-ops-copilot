@@ -18,6 +18,15 @@ namespace PlantOps.Tests;
 [Collection("Database")]
 public sealed class P61RealCounterexampleTests
 {
+    [DatabaseScenarioTheory]
+    [InlineData("partial-bad-high-vibration")]
+    [InlineData("all-unverifiable")]
+    [InlineData("trusted-stable")]
+    [InlineData("published-manual")]
+    [InlineData("withdrawn-manual")]
+    [InlineData("disconnected")]
+    public Task OfflineCounterexample(string scenario) => RunCounterexample(scenario, realProvider: false);
+
     [P61RealTheory]
     [InlineData("partial-bad-high-vibration")]
     [InlineData("all-unverifiable")]
@@ -27,10 +36,14 @@ public sealed class P61RealCounterexampleTests
     [InlineData("withdrawn-manual")]
     [InlineData("disconnected")]
     [InlineData("multiple-anomalies")]
-    public async Task RealCounterexample(string scenario)
+    public Task RealCounterexample(string scenario) => RunCounterexample(scenario, realProvider: true);
+
+    private static async Task RunCounterexample(string scenario, bool realProvider)
     {
         const string language = "zh-CN";
         var clock = new AlarmTests.Clock();
+        var capture = new InvestigationFixtureCapture(scenario,
+            realProvider ? null : Environment.GetEnvironmentVariable("PLANTOPS_OFFLINE_CASE_ROOT"));
         var diagnostics = new ValidationLogger();
         await using var session = new AssetManagementTests.Session(clock, await TestDatabase.IsolatedConnection(), configureServices: services =>
         {
@@ -38,7 +51,7 @@ public sealed class P61RealCounterexampleTests
             services.AddSingleton<ILogger<PlantOps.AI.OpenAiCompatibleGateway>>(diagnostics);
             services.PostConfigure<PlantOps.AI.AiOptions>(o =>
             {
-                o.Provider = "OpenAiCompatible";
+                o.Provider = realProvider ? "OpenAiCompatible" : "Fake";
                 o.MaxRetries = 0;
                 o.ServerRenderedFacts = true;
                 o.StreamResponses = true;
@@ -46,8 +59,9 @@ public sealed class P61RealCounterexampleTests
                 o.RunTimeoutSeconds = 180;
                 o.MaxModelRounds = 4;
                 o.MaxToolCalls = 8;
-                o.MaxInputTokens = 16000;
-                o.MaxOutputTokens = 2000;
+                // Match the v3 workbench envelope so the counterexamples test evidence use.
+                o.MaxInputTokens = 32000;
+                o.MaxOutputTokens = 6000;
             });
         });
         await session.Initialize();
@@ -58,7 +72,10 @@ public sealed class P61RealCounterexampleTests
         Assert.Equal(HttpStatusCode.Created, pointResponse.StatusCode);
         var point = (await pointResponse.Content.ReadFromJsonAsync<PointOverview>())!;
         var settings = session.Factory.Services.GetRequiredService<IConfiguration>();
-        settings["AI:Provider"] = "OpenAiCompatible";
+        settings["AI:Provider"] = realProvider ? "OpenAiCompatible" : "Fake";
+        settings["AI:MaxInputTokens"] = "32000";
+        settings["AI:MaxOutputTokens"] = "6000";
+        settings["AI:RunTimeoutSeconds"] = "180";
         settings["OpcUa:LocalRuntimeEnabled"] = "true";
         const string prefix = "OpcUa:ApprovedEndpoints:local-runtime:";
         settings[prefix + "Url"] = OpcUaRuntimeTests.Endpoint.Url;
@@ -101,17 +118,21 @@ public sealed class P61RealCounterexampleTests
         for (var i = 0; i < values.Length; i++)
         {
             clock.Now = start.AddSeconds(i);
-            await ingestor.IngestAsync(configs.Select(x => SamplePolicy.Normalize(x,
+            var samples = configs.Select(x => SamplePolicy.Normalize(x,
                 x.PointId == point.Id ? values[i] : x.CanonicalUnit == "degC" ? 62 : 4,
-                "Good", clock.Now, null, clock.Now, "heat-" + x.PointId + "-" + i)).ToArray());
+                "Good", clock.Now, null, clock.Now, "heat-" + x.PointId + "-" + i)).ToArray();
+            capture.Record(samples);
+            await ingestor.IngestAsync(samples);
         }
         for (var i = 0; i < 8; i++)
         {
             clock.Now = clock.Now.AddSeconds(1);
-            await ingestor.IngestAsync(configs.Select(x => SamplePolicy.Normalize(x,
+            var samples = configs.Select(x => SamplePolicy.Normalize(x,
                 x.PointId == point.Id ? scenario == "trusted-stable" ? 60 : 90 : x.CanonicalUnit == "degC" ? 62 : scenario is "partial-bad-high-vibration" or "multiple-anomalies" ? 12.6 : 4,
                 scenario == "all-unverifiable" || scenario == "partial-bad-high-vibration" && x.PointId == point.Id ? "Bad" : "Good",
-                clock.Now, null, clock.Now, "counter-" + x.PointId + "-" + i)).ToArray());
+                clock.Now, null, clock.Now, "counter-" + x.PointId + "-" + i)).ToArray();
+            capture.Record(samples);
+            await ingestor.IngestAsync(samples);
         }
         clock.Now = clock.Now.AddSeconds(1);
         await runtime.ReportAsync(new(source.Id, config.SourceVersion, "Connected", clock.Now, clock.Now, clock.Now, 0, null), default);
@@ -140,26 +161,101 @@ public sealed class P61RealCounterexampleTests
                 await DocumentTests.Publish(session, document, 1, withdraw: true);
             }
         }
+        await capture.CaptureAuthorizationAsync(scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>(), session.UserId, asset.Id);
         var created = await session.Client.PostAsync($"/api/v1/alarms/{alarm.Id}/investigations?language={language}", null);
         Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
         var run = (await created.Content.ReadFromJsonAsync<InvestigationRunDto>())!;
         Assert.True(await scope.ServiceProvider.GetRequiredService<IInvestigationService>().ProcessNextAsync());
         run = (await session.Client.GetFromJsonAsync<InvestigationRunDto>($"/api/v1/investigations/{run.Id}"))!;
-        var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
-        var path = Path.Combine(root, scenario + ".json");
-        Assert.False(File.Exists(path));
-        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+        ActionProposalDto? proposal = null;
+        string? proposalFailure = null;
+        var choices = realProvider && run.RunRecord is { } record
+            ? AgentEvidenceAcceptance.CapturedChoices(Environment.GetEnvironmentVariable("PLANTOPS_LLM_REQUEST_LEDGER")!, record)
+            : [];
+        if (scenario == "partial-bad-high-vibration" && run.Status == "Succeeded" && run.Result is { } result)
         {
-            Scenario = scenario,
-            FixtureOnly = true,
-            ProtocolObservation = false,
-            Diagnostics = diagnostics.Entries,
-            Run = run
-        }, new JsonSerializerOptions { WriteIndented = true }));
+            var advice = PlantOps.AI.InvestigationAdviceContract.ParseAndValidate(result.GetRawText(), run.Evidence);
+            if (advice.WorkOrder.Status == "DraftReady")
+            {
+                using var proposed = await session.Client.PostAsync($"/api/v1/investigations/{run.Id}/proposals", null);
+                if (proposed.IsSuccessStatusCode)
+                {
+                    proposal = await proposed.Content.ReadFromJsonAsync<ActionProposalDto>();
+                }
+                else
+                {
+                    proposalFailure = proposed.StatusCode.ToString();
+                }
+            }
+            else
+            {
+                proposalFailure = advice.WorkOrder.Status;
+            }
+        }
+
+        var workOrders = await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders
+            .CountAsync(x => x.AssetId == asset.Id);
+        if (realProvider)
+        {
+            var root = Environment.GetEnvironmentVariable("PLANTOPS_LIVE_REPORT_ROOT")!;
+            var path = Path.Combine(root, scenario + ".json");
+            await using var report = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+            await JsonSerializer.SerializeAsync(report, new
+            {
+                Scenario = scenario,
+                FixtureOnly = true,
+                ProtocolObservation = false,
+                Diagnostics = diagnostics.Entries,
+                Run = run,
+                Choices = choices,
+                Proposal = proposal,
+                ProposalFailure = proposalFailure,
+                WorkOrders = workOrders
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        var expectedTrust = scenario is "all-unverifiable" or "disconnected" ? "Unverifiable" : scenario == "partial-bad-high-vibration" ? "Partial" : "Trusted";
+        var expectedAnomaly = scenario is "all-unverifiable" or "disconnected" ? "Insufficient" : scenario == "trusted-stable" ? "NotFound" : "Present";
+        await capture.SaveAsync(run, expectedTrust, expectedAnomaly);
         Assert.True(run.Status == "Succeeded", run.Status + ":" + run.FailureCode);
-        Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Unverifiable" : scenario == "partial-bad-high-vibration" ? "Partial" : "Trusted", run.Assessment!.DataTrust);
-        Assert.Equal(scenario is "all-unverifiable" or "disconnected" ? "Insufficient" : scenario == "trusted-stable" ? "NotFound" : "Present", run.Assessment.AnomalyEvidence);
-        Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<PlantOpsDbContext>().WorkOrders.CountAsync(x => x.AssetId == asset.Id));
+        Assert.Equal(!realProvider, run.Simulated);
+        Assert.Equal(expectedTrust, run.Assessment!.DataTrust);
+        Assert.Equal(expectedAnomaly, run.Assessment.AnomalyEvidence);
+        Assert.Equal(0, workOrders);
+        if (scenario == "partial-bad-high-vibration")
+        {
+            Assert.True(proposal?.Draft != null, "Reviewable proposal was unavailable: " + proposalFailure);
+            Assert.Equal("Pending", proposal.Status);
+            Assert.Equal(run.Id, proposal.AiRunId);
+            Assert.Null(proposal.ResultEntityId);
+            Assert.Null(proposal.ExecutedAt);
+            if (realProvider)
+            {
+                var optionalTraces = run.RunRecord!.Value.GetProperty("toolTrace").EnumerateArray().Skip(1).ToArray();
+                var advice = PlantOps.AI.InvestigationAdviceContract.ParseAndValidate(run.Result!.Value.GetRawText(), run.Evidence);
+                Assert.Contains(choices, x => x.Name == "get_recent_measurements");
+                Assert.Empty(AgentEvidenceAcceptance.Check(choices, optionalTraces, run.Evidence, advice));
+            }
+        }
+
+        if (scenario == "disconnected")
+        {
+            Assert.All(run.Assessment.Points, snapshot =>
+            {
+                Assert.Equal("Reconnecting", snapshot.Health?.State);
+                Assert.Equal("Unverifiable", snapshot.CurrentTrust);
+                Assert.Equal("Good", snapshot.Observation?.Quality);
+            });
+            var after = (await session.Client.GetFromJsonAsync<AlarmDto>($"/api/v1/alarms/{alarm.Id}"))!;
+            Assert.Equal("Active", after.State);
+            Assert.Null(after.RecoveredAt);
+        }
+
+        if (scenario == "trusted-stable")
+        {
+            Assert.All(run.Assessment.Points, snapshot => Assert.Equal("Trusted", snapshot.CurrentTrust));
+            Assert.Contains(run.Evidence, x => x.Kind == "TriggerReading" && x.ResourceId == alarm.TriggerReadingId);
+        }
         if (scenario == "published-manual")
         {
             Assert.Contains(run.Evidence, x => x.Kind == "Document");

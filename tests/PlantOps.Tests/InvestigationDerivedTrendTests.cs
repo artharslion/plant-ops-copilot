@@ -162,6 +162,57 @@ public sealed class InvestigationDerivedTrendTests
     }
 
     [Theory]
+    [InlineData(5, 2)]
+    [InlineData(6, 0)]
+    public void WholeWindowChangeRetainsObservedEqualValueTailOnly(double last, int count)
+    {
+        var rows = new[] { Row(0, 9), Row(1, 4), Row(2, 5), Row(3, last) };
+        var trend = Calculate(rows);
+        Assert.NotNull(trend.Change);
+        Assert.Equal(count, trend.LatestSegment?.SampleCount ?? 0);
+        if (count != 0)
+        {
+            Assert.Equal(rows[2].Id, trend.LatestSegment!.FirstReadingId);
+            Assert.Equal(rows[3].Id, trend.LatestSegment.LastReadingId);
+            Assert.Equal(5, trend.LatestSegment.Min);
+            Assert.Equal(5, trend.LatestSegment.Max);
+        }
+        Assert.Null(Calculate(rows, truncated: true).LatestSegment);
+        rows[^1].Quality = "Bad";
+        Assert.Null(Calculate(rows).LatestSegment);
+    }
+
+    [Theory]
+    [InlineData(60, false, false, true)]
+    [InlineData(64, false, false, true)]
+    [InlineData(60, true, false, false)]
+    [InlineData(60, false, true, false)]
+    public void EarlierGapRetainsOnlyTheVerifiedTailAndItsExtrema(double middle, bool invalidLast,
+        bool truncated, bool hasSegment)
+    {
+        var rows = new[] { Row(0, 90), Row(5, 60), Row(6, middle), Row(7, 60) };
+        if (invalidLast)
+        {
+            rows[^1].Quality = "Bad";
+        }
+        var result = Calculate(rows, [new() { PointId = Point.PointId, From = Start.AddSeconds(1), To = Start.AddSeconds(4) }], truncated);
+        Assert.Null(result.Change);
+        Assert.Contains("ExplicitGap", result.Reasons);
+        if (!hasSegment)
+        {
+            Assert.Null(result.LatestSegment);
+            return;
+        }
+
+        var segment = Assert.IsType<InvestigationTrendSegment>(result.LatestSegment);
+        Assert.Equal(rows[1].EffectiveAt, segment.From);
+        Assert.Equal(rows[^1].EffectiveAt, segment.To);
+        Assert.Equal(3, segment.SampleCount);
+        Assert.Equal(60, segment.Min);
+        Assert.Equal(middle, segment.Max);
+    }
+
+    [Theory]
     [InlineData("Periodic", false, true)]
     [InlineData("Changes", false, false)]
     [InlineData("Unknown", false, false)]

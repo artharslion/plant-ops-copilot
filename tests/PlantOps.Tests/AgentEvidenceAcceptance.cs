@@ -88,10 +88,34 @@ internal static class AgentEvidenceAcceptance
     private static string Canonical(JsonElement value) => JsonSerializer.Serialize(value.EnumerateObject()
         .OrderBy(x => x.Name, StringComparer.Ordinal).ToDictionary(x => x.Name, x => x.Value));
 
-    internal static LlmToolCall[] CapturedChoices(string ledger, JsonElement record) =>
-        Directory.GetFiles(Path.GetDirectoryName(ledger)!, Path.GetFileName(ledger) + ".completion-*.json")
+    internal static LlmToolCall[] CapturedChoices(string ledger, JsonElement record)
+    {
+        var captures = Directory.GetFiles(Path.GetDirectoryName(ledger)!, Path.GetFileName(ledger) + ".completion-*.json")
             .Select(File.ReadAllText).Select(x => JsonSerializer.Deserialize<JsonElement>(x))
-            .Where(x => record.GetProperty("requests").EnumerateArray().Any(r => string.Equals(
-                r.GetProperty("requestSha256").GetString(), x.GetProperty("requestSha256").GetString(), StringComparison.OrdinalIgnoreCase)))
-            .SelectMany(x => x.GetProperty("completion").Deserialize<LlmCompletion>()!.ToolCalls).ToArray();
+            .ToLookup(x => x.GetProperty("requestSha256").GetString()!, StringComparer.OrdinalIgnoreCase);
+        var lease = record.TryGetProperty("leaseId", out var id) ? id.GetString() : null;
+        var received = record.TryGetProperty("diagnostics", out var diagnostics)
+            ? diagnostics.EnumerateArray().Where(x => x.GetProperty("stage").GetString() == "model-response")
+                .Select(x => x.GetProperty("details").GetProperty("requestSha256").GetString()!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var choices = new List<LlmToolCall>();
+        foreach (var hash in record.GetProperty("requests").EnumerateArray().Select(r => r.GetProperty("requestSha256").GetString()!)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var matches = captures[hash].ToArray();
+            foreach (var item in matches)
+            {
+                // An untagged historical response is attributable by digest only when unique.
+                var attributable = item.TryGetProperty("leaseId", out var captured) && captured.ValueKind == JsonValueKind.String
+                    ? captured.GetString() == lease
+                    : matches.Length == 1 && (received == null || received.Contains(hash));
+                if (attributable)
+                {
+                    choices.AddRange(item.GetProperty("completion").Deserialize<LlmCompletion>()!.ToolCalls);
+                }
+            }
+        }
+        return choices.ToArray();
+    }
 }

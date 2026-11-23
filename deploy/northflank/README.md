@@ -1,8 +1,8 @@
 # Northflank：两个组合镜像
 
-两个常驻 Service 和一个 PostgreSQL 即可运行本演示。镜像为 Linux/amd64，沿用 Development 演示模式。2026-10-29 用户已完成 Northflank 部署并确认访问、实时连接及 OPC UA 接入恢复；免费规格的长期容量、真实模型质量和生产部署仍需独立验证。
+两个常驻 Service 和一个 PostgreSQL 可运行本演示。本页对应 2026-10-29 验证的固定 Linux/amd64 发布镜像，采用 Development 演示模式。复现当前仓库源码的能力时，按 [源码 Docker 指南](../../docs/DOCKER.md) 构建。
 
-在线入口：**[Plant Ops Copilot 工作台](https://p01--plant-ops-copilot-web-api--m4ypq7wr8x2f.code.run/)**。演示账号由环境维护者提供，不在文档中发布密码。
+2026-10-29 验证使用的地址为 [Plant Ops Copilot 工作台](https://p01--plant-ops-copilot-web-api--m4ypq7wr8x2f.code.run/)。部署时以 Northflank 为当前 Service 分配的域名为准。演示账号由环境维护者提供。
 
 | Service | Docker Hub 镜像 | 端口 |
 | --- | --- | --- |
@@ -90,7 +90,7 @@ docker run --rm --env-file .env.connect --mount type=bind,source=./connect-demo.
 
 ## 5. 访问检查、场景与排查
 
-首页、`/health/live` 和 `/health/ready` 应返回 HTTP 200；两个健康端点正文应为 `Healthy`。2026-10-29 从外部重新检查当前在线地址，三项均通过。健康检查不等同于 OPC UA 采集已连通。
+在当前 Service 域名检查首页、`/health/live` 和 `/health/ready`，三项应返回 HTTP 200，两个健康端点正文应为 `Healthy`。OPC UA 接入还需核对实际来源和测点，见下方步骤。
 
 - **400 Invalid Hostname**：将实际公网主机名加入 app 的 `AllowedHosts`，不带 `https://`、端口或路径；保存运行环境变量并重新部署。
 - **SignalR negotiate 返回 Same-origin realtime connection required / 403**：确认 app 的运行环境变量 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` 已加载到新实例，再重新登录。检查页面自动发出的已登录 POST 请求，成功时为200；地址栏直接打开链接不能替代 SignalR 验证。
@@ -123,8 +123,9 @@ docker build -f deploy/Dockerfile.combined --target worker-sim -t artharslion/pl
 
 Northflank 不执行这里的 Compose；它是本地验证与配置参考。上述在线部署确认和本地检查不代表生产部署或免费规格的长期容量已验收。
 
-## 2026-10-29 本地验证
+## 2026-10-29 部署与验证记录
 
+- 当天从外部检查 Northflank 部署，首页与两个健康端点均通过，并确认实时连接和 OPC UA 接入恢复。
 - 两个组合镜像以 Linux/amd64 构建，容器使用非 root 用户；模拟器来自已发布的固定摘要版本。
 - 两个镜像已推送 Docker Hub，并使用空凭据配置成功匿名拉取。
 - 18 项网页托管、SPA 路由、授权保留和健康检查测试通过，修改文件的 .NET 格式检查通过。
@@ -135,4 +136,4 @@ Northflank 不执行这里的 Compose；它是本地验证与配置参考。上�
 - 双进程 readiness 与 liveness 命令通过；`AiRuns` 为0，没有调用真实模型。
 - 本机一次启动后快照约为 app 111 MiB、runtime 333 MiB、PostgreSQL 49 MiB；这是短时观测，不是容量下限或免费规格验收。
 
-详细临时证据保存在仓库忽略的 `artifacts/combined-20261029/`。CI 新增了两个组合目标的构建和启动检查，尚未触发远程 CI。
+详细临时证据保存在仓库忽略的 `artifacts/combined-20261029/`。该轮验证时，CI 已配置两个组合目标的构建和启动检查，远程运行尚未确认。该轮覆盖本机与演示环境的短时运行。

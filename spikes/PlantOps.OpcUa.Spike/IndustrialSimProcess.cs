@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace PlantOps.OpcUa.Spike;
 
 // Owns only the finite example process it starts, never existing simulator services.
-internal sealed class IndustrialSimProcess(string simulatorRoot, string evidenceRoot) : IAsyncDisposable
+internal sealed class IndustrialSimProcess(string simulatorRoot, string evidenceRoot, string? scenarioPath = null) : IAsyncDisposable
 {
     public const string Endpoint = "opc.tcp://127.0.0.1:48481";
     public const string NamespaceUri = "urn:industrial-sim:runtime";
@@ -49,7 +49,7 @@ internal sealed class IndustrialSimProcess(string simulatorRoot, string evidence
         {
             Path.Combine(simulatorRoot, "examples/PlantOps.Scenario/bin/Debug/net10.0/PlantOps.Scenario.dll"),
             Path.Combine(simulatorRoot, "examples/devices/plantops-three-point.yaml"),
-            Path.Combine(simulatorRoot, "examples/scenarios/plantops-three-point.yaml"), evidenceRoot
+            scenarioPath ?? Path.Combine(simulatorRoot, "examples/scenarios/plantops-three-point.yaml"), evidenceRoot
         })
         {
             start.ArgumentList.Add(argument);

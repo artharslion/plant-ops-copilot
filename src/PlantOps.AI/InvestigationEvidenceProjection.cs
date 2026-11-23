@@ -30,9 +30,11 @@ internal static class InvestigationEvidenceProjection
         {
             // The selected alarm snapshot carries the trigger, lifecycle and historical rule.
             // The service puts the recovery-anchor excerpt (or availability limitation) first.
+            // The event excerpt starts with the anchor and the lowest quality- and time-valid observation.
             var facts = x.Kind switch
             {
                 "Alarm" => x.Facts,
+                "EventReadings" => x.Facts.Take(2).ToArray(),
                 "RecoveryReadings" or "Asset" or "DataQuality" => x.Facts.Take(1).ToArray(),
                 _ => []
             };

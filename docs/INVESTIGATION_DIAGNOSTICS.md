@@ -2,7 +2,31 @@
 
 Investigation diagnostics distinguish execution failure from a valid incomplete assessment. Logging does not change advice readiness, draft readiness, validation rules, retries or model budgets.
 
-## What is retained
+## Run and request records
+
+An authorized run can include `runRecord`. A null record indicates that a historical run has no stored record. Each lease attempt retains its evidence cutoff `asOf`, limits, tool trace, prompt and evidence policy versions, and a link to `previousAttempt` when that record is available.
+
+`runRecord.requests` lists prepared model frames. Each records the effective provider, model, prompt, schema and evidence metadata, plus SHA-256 digests of the prompt, schema, offered tools, evidence ledger and serialized request. The active v3 request entries also include `toolBudget`.
+
+| `toolBudget` field | Meaning |
+| --- | --- |
+| `decision` | `Offered` means the full advice frame offered read tools. `CompactReadDecision` offers the tools with a smaller decision schema. `AfterReadDecision` sends full advice without tools. `FinalRound`, `LowInputBudget`, `FinalAnswerReserve` and `ToolFrameTooLarge` record why the engine withheld them. |
+| `offeredToolCount` | Number of tools listed in the final request frame. For the selected calls, check `toolTrace`. |
+| `offeredToolNames` | Exact tool names in that prepared frame, including an empty array when withheld. Historical entries without this field retain unknown names; a count or digest alone does not identify a tool. |
+| `remainingInputTokens` | Remaining input allowance when the frame was prepared. |
+| `inputReservation` | Conservative estimate for the serialized request plus framing. |
+| `finalAnswerReservation` | Size reserved for the current full answer when the compact decision is selected. Additional evidence is priced again in the final round. |
+| `toolRequestReservation` | Estimate of the rejected frame with tools, when available. |
+
+A completed document lookup from the built-in search service records a `document-search` diagnostic. Its `rankingVersion` identifies keyword matching across chunk text, section and title. Its `eligibleParserVersion` identifies the parser version eligible for the search, including searches with no matches. The existing read-tool trace holds the outcome, arguments and evidence IDs. A cached read reuses an earlier lookup. Older runs and search implementations that supply no policy have no such entry.
+
+A prepared frame or `reservedAttempts` records a local step. Use dispatch and response diagnostics when checking which attempts reached the transport. A digest verifies a matching capture when available. It cannot reproduce request contents.
+
+New active-engine `tool-decision` events record `Selected` with allowlisted tool names, or `NoToolCalls`, after a parsed completion and before authorization, argument validation and execution. Unknown names become `unrecognized`; arguments, call IDs and answer text are excluded. Selection does not prove a successful read. `NoToolCalls` does not establish a valid final answer. These additive diagnostics do not change the v3.17 prompt or model request.
+
+`usage.scope` is `lease-attempt`. Provider-reported counts and unknown reservations are tracked separately. `actualInputTokens` and `actualOutputTokens` are null until every reserved attempt in that lease has reported use. Consult `previousAttempt` and `previousAttemptUnknown` before aggregating an entire run. Simulated usage has its own source. A reported token count does not establish billing.
+
+## Diagnostics and private responses
 
 - Console logs correlate investigations by `RunId`, `LeaseId` and lease attempt. Worker console scopes are enabled. Lifecycle and validation messages also include the run ID explicitly.
 - `AiRuns.RunRecordJson.diagnostics` retains a bounded timeline: execution start/end, evidence trust and coverage metadata, read-tool outcomes and cache hits, HTTP dispatch/status, retry decisions, budget rejection, response receipt, stream phase/counters, validation acceptance/rejection, cancellation and unexpected exception type. At most 128 events are retained per lease; `omittedDiagnosticCount` records overflow. Existing requests, tool traces, evidence hashes and reported/unknown usage remain available.
@@ -34,8 +58,22 @@ Compose overrides: `AI_DIAGNOSTICS_CAPTURE_RESPONSES`, `AI_DIAGNOSTICS_RETENTION
 ## Investigation workflow
 
 1. Locate the failed run and lease by ID/time. Read `failureCode` and the diagnostic timeline, not the UI's generic message alone.
-2. For transport/protocol/budget errors, examine the recorded stage, HTTP status, retry decisions, stream phase and reported versus unknown usage.
+2. For transport, protocol or budget errors, examine the stage, HTTP status, retry decisions, stream phase and reported versus unknown usage. When an expected tool was never called, first check whether `toolBudget` shows it was offered, then inspect the tool trace.
 3. For validation failures, read the specific rule, branch and item path. Find the private response capture using run/lease IDs and verify its request hash against the request snapshot. The content hash in the timeline verifies the exact answer text.
 4. Replay the captured completion against the matching frozen evidence with the contract validator, without dispatching another model request. Keep accepted/rejected replay results separate from the original run.
 
-This does not recover responses from older failures that never saved them. Changes require a new build/deployment before running containers emit these diagnostics.
+Use a captured completion only where the matching run data is available. A container emits the diagnostics supported by its deployed version.
+
+## Offline diagnostic summary
+
+Use [Get-InvestigationDiagnostics.ps1](../deploy/Get-InvestigationDiagnostics.ps1) with one saved API run JSON or agent acceptance report:
+
+```powershell
+./deploy/Get-InvestigationDiagnostics.ps1 -Path ./saved-run.json -Tool search_documents | ConvertTo-Json -Depth 8
+```
+
+The reader uses local metadata only, makes no model/database requests and does not read private captures or write evidence. It lists each prepared round's tool availability and selection independently from dispatched HTTP attempts, status, time to headers and parsed completion. It reports whether the run has an answer available for review; semantic assessment always remains `NotPerformed`. An HTTP 200 or accepted structure does not prove advice quality.
+
+For historical records, a matching read-start establishes selection. Absence is established only when an untruncated timeline accounts for every selected tool in a single parsed completion, including zero calls. Missing or malformed name lists, inconsistent name counts, partial batches and truncated timelines remain unknown. A prepared round with no recorded dispatch does not establish an external send. A 502 with no completion cannot establish the model's choice for that attempt. Earlier rounds can independently show that the model selected other reads. The summary covers the current lease only and flags the presence of a previous lease; it does not aggregate retries across leases or estimate false acceptance/rejection.
+
+Run [Test-InvestigationDiagnostics.ps1](../tests/scripts/Test-InvestigationDiagnostics.ps1) for model-independent counterexamples covering failed transport, retries, selected but unavailable reads, rejected arguments, partial batches, missing historical metadata and previous-lease isolation. Existing exact request/completion captures remain necessary to investigate details omitted from older run records.

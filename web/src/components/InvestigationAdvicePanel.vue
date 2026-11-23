@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { t } from '../i18n'
+import { formatEvidenceText } from '../time'
 import type { InvestigationAdvice } from '../investigationAdvice'
 
 const props = defineProps<{
@@ -53,7 +54,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
               >
                 {{ t('纳入工单建议') }}
               </small>
-              <strong class="task-text">{{ item.task }}</strong>
+              <strong class="task-text">{{ formatEvidenceText(item.task) }}</strong>
             </summary>
             <div class="task-details">
               <p v-if="item.subjectRefs.length" class="detail-meta">
@@ -61,9 +62,9 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
               </p>
               <dl class="execution-fields">
                 <dt>{{ t('记录要求') }}</dt>
-                <dd>{{ item.record }}</dd>
+                <dd>{{ formatEvidenceText(item.record) }}</dd>
                 <dt>{{ t('完成条件') }}</dt>
-                <dd>{{ item.completionCriteria }}</dd>
+                <dd>{{ formatEvidenceText(item.completionCriteria) }}</dd>
                 <dt>{{ t('何时升级') }}</dt>
                 <dd>
                   {{ item.escalation.condition }} · {{ label(item.escalation.responsibleRole) }}
@@ -178,7 +179,7 @@ const subject = (value: string) => props.subjects.find((x) => x.ref === value)?.
         <p class="detail-meta">
           {{ item.id }} · {{ label(item.status) }} · {{ item.subjectRefs.map(subject).join('、') }}
         </p>
-        <p>{{ item.interpretation }}</p>
+        <p>{{ formatEvidenceText(item.interpretation) }}</p>
         <div v-if="item.evidenceRefs.length" class="detail-links">
           <span>{{ t('证据引用') }}</span>
           <el-button

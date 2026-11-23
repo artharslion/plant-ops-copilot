@@ -1,14 +1,24 @@
 # Plant Ops Copilot
 
-面向工业资产运维的 AI Copilot 演示项目。围绕设备、测量、告警和工单建立业务闭环，再由 AI 联合查询授权证据，辅助人员调查异常。
+一个用 .NET 实现的工业运维 AI Agent 作品集项目。以冷却泵 P-101 为例，可信振动持续超限后，规则产生告警。工程师发起调查，Agent 决定是否补查测量、维修记录或规程，给出带引用的核查建议。工程师可以核实依据、编辑建议、确认建单，再记录实际处理结果。
 
-项目使用虚构工厂、设备与资料，支持单组织、多工厂和角色权限隔离。基础业务可在无需模型服务或工业网络的本地环境中运行。
+现有演示使用虚构工厂和仿真设备。真实 OPC UA 采集、真实模型调查和人工审批均有本机运行记录，各自的版本和终点如下。系统支持单组织、多工厂授权。
 
-## 在线演示
+## 面试时可以核查什么
+
+| 问题 | 可直接阅读的证据 |
+| --- | --- |
+| 坏点会不会掩盖真正的告警？ | 在真实协议与 v3.13 真实模型联合运行中，温度点返回 Bad，独立振动点仍以可信的 12.6 mm/s 触发告警。模型分别建议核查设备振动和温度测量链。 [混合质量运行记录](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md#p6-补充联合验收2026-11-16) |
+| 哪些调查决定是模型做的？ | v3.11 的有规程和空检索对照都由模型发起文档检索。v3.14 的有规程用例只选择读取测量，第二轮受预算约束，最后虽生成待确认提案，仍漏了适用规程。 [有／无规程的真实模型对照](docs/archive/P6_V3_FOLLOW_UP_20261119.md#p6-v313-acceptance-follow-up-2026-11-16) · [工具与请求复盘](docs/archive/P6_V3_FOLLOW_UP_20261119.md#p6-tool-budget-review-2026-11-19) |
+| 建议怎样变成可追溯的工作？ | v3.14 真实模型稳定工况已从告警、调查、审批贯通至关闭，维修历史和审计均可回查。 [真实模型与关闭回执](docs/PORTFOLIO_REAL_MODEL_CASE.md) · v3.14 Fake 的 P-101 温度告警在确认前有 0 张工单，确认后创建唯一 Draft，填写结果后可按设备查到 Closed 工单。 [同案审批与维修记录](docs/PORTFOLIO_WORK_ORDER_CASE.md) · v3.5 的一次真实模型调查中，用户确认后创建了一张关联 Draft 工单。该次建议漏用了已有恢复证据。重复确认、撤权和写入失败的处理另有集成验证。 [调查与工单记录](docs/archive/P6_V3_FOLLOW_UP_20261119.md#2026-11-09-local-workbench-acceptance) · [审批与回滚验证](docs/archive/P4_WORK_ORDER_VALIDATION.md#verification) |
+
+想亲手操作，可从源码启动内置模拟源和默认 Fake 模型，体验调查、审批和工单处理。要演示当前源码的真实 OPC UA 链路，可按接入步骤从相邻仓库构建 IndustrialSim，再运行三点场景。 [源码 Docker 指南](docs/DOCKER.md) · [工作台接入步骤](docs/INDUSTRIALSIM_WORKBENCH.md)
+
+## 托管演示
 
 **[打开 Plant Ops Copilot 在线工作台](https://p01--plant-ops-copilot-web-api--m4ypq7wr8x2f.code.run/)**
 
-演示环境部署在 Northflank，使用 Web + API、Worker + IndustrialSim 两个组合服务及 PostgreSQL。账号由环境维护者提供，登录密码不写入仓库。
+部署说明记录的是 2026-10-29 验证的固定镜像。Northflank 使用 Web + API、Worker + IndustrialSim 两个组合服务及 PostgreSQL，演示账号由环境维护者提供。当前源码的调查效果见下方验收范围。
 
 重点演示链路：**North Plant → Cooling Pump P-101 → OPC UA 测量与趋势 → 高振动告警 → AI 证据调查 → 人工确认工单**。IndustrialSim 提供振动、温度和参考温度三个仿真测点，经真实 OPC UA 协议采集；数值由模拟场景控制，正常恒值不代表采集停止。AI 调查由人员手动发起，是否使用真实模型取决于该环境的服务端配置与页面设置。
 
@@ -28,35 +38,20 @@
 
 | 模块 | 当前范围 |
 |---|---|
-| 资产运维业务 | 已实现资产、模拟测量、告警、工单、文档与权限闭环 |
-| AI 只读调查 | 已接通告警页、后台编排与授权证据；固定场景确定性测试和有限真实模型样本已有验证，完整真实质量、长期稳定性与成本仍待验收 |
-| OPC UA | 已实现受控多点常驻采集、重连及健康展示；普通源码配置默认关闭，Docker Hub 联合部署和 Northflank 组合镜像启用 P-101 三点 Development 回环演示；工业网络与完整运维尚未验收 |
-| AI 动作审批 | 已支持创建工单和向已有工单追加调查备注：编辑、完整确认、事务内重校验与幂等审计；完整 P4 验收仍待完成 |
+| 资产运维业务 | 已实现资产、告警、资料权限和工单处理；独立集成测试覆盖人工填写结果、完成、关闭和审计。 [工单生命周期测试](tests/PlantOps.Tests/WorkOrderTests.cs) |
+| AI 只读调查 | 已接通后台 v3 调查、按需只读工具、逐点可信度、原始观测变化与授权引用；稳定工况和有规程／空检索均有真实回答及失败记录，独立盲测尚缺案例。 [分模型验收](docs/PORTFOLIO_FOLLOWUP_READS.md) |
+| OPC UA | 已实现受控多点常驻采集、重连及健康展示；本机三点 30 分钟运行与浏览器核查已有验证，完整故障矩阵、工业网络及长期容量仍待验收 |
+| AI 动作审批 | 建单及追加备注提案有编辑、确认、事务内复核与幂等回执。历史真实模型案例到 Draft；当前源码从同一调查到人工处理并关闭的联合验收仍开放。 |
 
-AI 负责解释证据与提出建议，业务状态由数据库和应用服务管理；调查工具仅提供只读能力。人员通过现有业务流程确认告警、创建和处理工单。
-
-在告警详情完成调查后，Admin / MaintenanceEngineer 可在调查结果下点击“整理工单草稿”，编辑后“保存并核对完整内容”，再“确认创建工单”。此流程不新增模型调用，创建关联当前设备和告警的 Draft 工单；提案15分钟到期，资料、权限或目标版本变化会阻止执行。保存、拒绝或未确认均不会创建工单；执行结果不明时先查询原提案。详见 [首个 P4 增量验证](docs/P4_WORK_ORDER_VALIDATION.md)。
-
-已有维护任务时，可选“选择已有工单追加备注”→选择同一设备下未关闭/取消的工单→“整理备注提案”→编辑并保存→核对目标、版本和完整内容→“确认追加备注”。目标工单发生变化时需重新整理；成功后从回执打开原工单抽屉，保留告警调查上下文。详见 [追加备注验证](docs/P4_NOTE_VALIDATION.md)。
-
-本项目用于工程演示与集成验证。生产级控制、设备写操作和安全决策不在范围内；长期容量与生产部署仍需独立验证。阶段任务见 [实施路线](ROADMAP.md)，验证证据见 [文档导航](docs/README.md)。
-
-后续先交付最小 OPC UA 场景、证据与基础故障验证，P8.1 准确版本记录先于 P6 改造，再尽早跑通同一采集数据驱动的 AI 联合调查；完整 P5 可靠性随后补齐，P6.1 契约稳定后即可并行启动文本 PDF。调查分开表达数据可信度与设备异常证据，恒值或无通知不直接判故障；采集和告警不自动调用模型。外部安全 Server 验证列为核心 Demo 后的可选 P5.5，工单能力维持可用。具体任务与验收统一见 [开发计划](ROADMAP.md)。
-
-升温调查新增有界原始观测的变化量、变化率和非下降观测段，以及带证据引用的趋势分析；坏值、缺口或配置版本未知时明确限制，不从分钟极值推断持续升温。中英文页面可展开计算样本，工单草稿保留分析，历史调查继续兼容。源码与验收边界见 [升温分析记录](docs/P6_HEATING_VALIDATION.md)。
-
-调查已增加按需取证最小版：初始提供告警、设备摘要及当前质量快照，详细趋势、近期告警、维护和资料按需读取，并记录固定截止、缓存、逐调用结果和后续警告。三点真实协议及模拟浏览器工单路径已有有限验证；本轮唯一真实调查因预算不足失败，后续压缩仅经离线验证，完整真实升温语义仍待验收。详见 [P6.2 实现与验证](docs/P6_2_ON_DEMAND_VALIDATION.md)。
+提案由有维护权限的调查发起人本人核对和确认，有效期 15 分钟，执行时复核权限、资料和版本。整理和确认草稿不新增模型调用。现场根因正确率和维护收益尚无实测依据。 [调查与工单契约](docs/INVESTIGATION_RESPONSE_V3.md) · [开发计划与验收状态](ROADMAP.md)
 
 ## 演示场景
 
 `North Plant → Utilities → Cooling Pump P-101 → 高振动告警 → AI 证据调查 → 人工确认 → 关联工单 → 处理并关闭`
 
-模拟振动值从 4.0 升至 12.6 mm/s，规则触发告警。人员可查看趋势与资料，在告警页发起调查、展开引用，再手工确认告警并创建关联工单。关闭工单与告警自动恢复分别遵循各自的业务规则。演示阈值仅用于虚构场景。
+模拟振动值从 4.0 升至 12.6 mm/s，持续满足规则后触发告警。在告警页发起调查、展开引用并核对建议，确认提案后可打开关联工单，开始处理并填写结果。告警确认、测量回落后的规则恢复、工单关闭各自独立。演示阈值仅用于虚构场景。
 
-工作台采用 Element Plus：资产为位置树与设备表格，设备详情在宽抽屉中按标签分区；工单在当前上下文上打开新一层抽屉，默认“创建并打开 → 开始执行 → 完成并关闭”，保留草稿和复核分支。总览、告警调查与设备工单列表共用抽屉入口，旧工单链接也兼容打开抽屉。告警及资料使用统一表格、表单和反馈。布局与验收证据见 [交互验证记录](docs/UI_INTERACTION_VALIDATION.md)，组件维护约定见 [源码规范](docs/CODE_STYLE.md)。
-
-侧栏的“界面语言 / Interface language”支持简体中文与 English，默认中文；选择会保存在当前浏览器，刷新后继续生效。切换即时更新界面和组件提示，不清空正在编辑的表单。新 AI 调查按发起时所选语言生成摘要、分析与核查建议；调查语言随任务保存，排队、恢复执行和历史分析建议不会因界面切换而改变。已有调查的服务端固定事实、证据标题、范围和质量提示随界面即时切换语言；底层事实原文、引用和校验值保持不变，英文证据详情可展开原文。资产名称、资料正文及工单内容保留原文；时间统一为北京时间。前端翻译入口为 `web/src/i18n.ts`，英文词条集中在 `web/src/locales/en.ts`，证据展示翻译在 `web/src/evidencePresentation.ts`。 新生成的工单和备注草稿继承调查语言（包括模拟调查），审批后保留核对过的同一份内容；旧草稿不会自动覆盖。修改证据翻译后，在 `web` 目录执行 `node scripts/export-evidence.mjs`，同步后端生成工单使用的英文词条。
-
+侧栏可切换简体中文或 English。新调查记录发起时的语言，工单和备注草稿沿用该调查的语言。工作台按北京时间显示。
 
 ## 技术栈
 
@@ -75,7 +70,7 @@ AI 负责解释证据与提出建议，业务状态由数据库和应用服务�
 
 组合镜像为 `artharslion/plant-ops-copilot:web-api-20261029` 和 `artharslion/plant-ops-copilot:worker-sim-20261029`。两项服务使用相同的 `ConnectionStrings__PlantOps`，仅 Web + API 的 8080 HTTP 公开。配置 `AllowedHosts` 和 HTTPS 转发头后，首次部署还需运行 `deploy/northflank/connect-demo.py` 创建来源与三点映射；该步骤完成后 Worker 才会采集 IndustrialSim。
 
-**直接使用 Docker Hub 镜像（包含 IndustrialSim）**：下载 [联合部署目录](deploy/dockerhub/README.md) 中的 `compose.yaml` 和 `.env.example`，复制并填写 `.env` 后运行 `docker compose up -d --wait --wait-timeout 240`。会自动初始化数据库、启动两套服务并接入 P-101 的三个 OPC UA 测点，无需下载源码或本机安装 .NET / Node。
+**直接使用 Docker Hub 镜像（包含 IndustrialSim）**：默认组合对应 2026-10-28 的协议验证。下载 [联合部署目录](deploy/dockerhub/README.md) 中的 `compose.yaml` 和 `.env.example`，复制并填写 `.env` 后运行 `docker compose up -d --wait --wait-timeout 240`。会自动初始化数据库并接入 P-101 的三个 OPC UA 测点，无需下载源码或本机安装 .NET / Node。
 
 从源码构建的启动方式如下。
 
@@ -138,7 +133,7 @@ npm run dev
 
 默认 AI 使用 Fake Provider，不访问外网。真实模型为可选配置，接入方法见 [AI 配置指南](docs/AI_PROVIDER_SETUP.md)；模拟结果与真实模型结果分别标记。
 
-三点 OPC UA 场景推荐使用相邻 `industrial-device-simulation-framework` 仓库提供的Server：在本仓库运行 `./deploy/Run-IndustrialSimRuntime.ps1 -Run <新名称>`，按固定时间线演示温升、独立振动与停服恢复，并经普通Worker写入独立测试schema。它不会自动切换Docker工作台的数据源，详见 [IndustrialSim三点验证](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md)。
+要让 Docker 工作台显示 IndustrialSim 三点数据，按 [工作台接入指南](docs/INDUSTRIALSIM_WORKBENCH.md) 配置。需要在隔离测试库复验固定场景、协议与故障恢复时，查阅 [三点采集复验](docs/INDUSTRIALSIM_RUNTIME_VALIDATION.md)。
 
 ## 文档
 
@@ -148,7 +143,7 @@ npm run dev
 - [项目规格](PROJECT_SPEC.md)与[系统架构](ARCHITECTURE.md)：业务契约、权限、模块与数据流。
 - [调查建议 v3](docs/INVESTIGATION_RESPONSE_V3.md)：新调查输出与工单就绪契约；[AI 链路概述](docs/AI_DESIGN.md)与[OPC UA 集成](docs/OPCUA_INTEGRATION.md)按相关任务查阅。
 - [实施路线](ROADMAP.md)：阶段任务与剩余验收。
-- [完整文档导航](docs/README.md)：运行指南、设计契约与近期验收证据，按任务查阅。
+- [文档导航](docs/README.md)：按开发、部署、采集和调查任务定位现行文档。
 
 ## 许可证
 

@@ -64,7 +64,8 @@ public static class OpcUaConfigurationPolicy
     public static bool ValidConversion(string rawUnit, string canonicalUnit, double scale, double offset) =>
         (rawUnit, canonicalUnit, scale, offset) switch
         {
-            ("mm/s", "mm/s", 1, 0) or ("m/s", "m/s", 1, 0) or ("degC", "degC", 1, 0) or ("K", "K", 1, 0) => true,
+            ("mm/s", "mm/s", 1, 0) or ("m/s", "m/s", 1, 0) or ("degC", "degC", 1, 0) or ("K", "K", 1, 0)
+                or ("m", "m", 1, 0) or ("m3/h", "m3/h", 1, 0) => true,
             ("mm/s", "m/s", 0.001, 0) or ("m/s", "mm/s", 1000, 0) => true,
             ("degC", "K", 1, 273.15) or ("K", "degC", 1, -273.15) => true,
             _ => false
